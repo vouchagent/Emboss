@@ -269,6 +269,7 @@ class MathParser:
             elif ch == '^':
                 self.pos += 1
                 base = nodes.pop() if nodes else TextNode("")
+                base = self._split_last_char(nodes, base)
                 exp = self._parse_atom()
                 if self.pos < len(self.source) and self.source[self.pos] == '_':
                     self.pos += 1
@@ -279,6 +280,7 @@ class MathParser:
             elif ch == '_':
                 self.pos += 1
                 base = nodes.pop() if nodes else TextNode("")
+                base = self._split_last_char(nodes, base)
                 sub = self._parse_atom()
                 if self.pos < len(self.source) and self.source[self.pos] == '^':
                     self.pos += 1
@@ -299,6 +301,14 @@ class MathParser:
                     self.pos += 1
                 nodes.append(TextNode(self.source[start:self.pos]))
         return nodes
+
+    @staticmethod
+    def _split_last_char(nodes: list, base: MathNode) -> MathNode:
+        """Split a multi-char TextNode so only the last char is the base."""
+        if isinstance(base, TextNode) and len(base.text) > 1:
+            nodes.append(TextNode(base.text[:-1], italic=base.italic))
+            return TextNode(base.text[-1], italic=base.italic)
+        return base
 
     def _parse_atom(self) -> MathNode:
         if self.pos >= len(self.source):
