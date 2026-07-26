@@ -40,6 +40,7 @@ class Style:
     keep_together: bool | None = None
     page_break_before: bool | None = None
     hyphenate: bool | None = None
+    column_span: bool | None = None
 
     def inherit_from(self, parent: "Style") -> "Style":
         """Return a style where unset values are taken from `parent`."""

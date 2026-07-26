@@ -2,8 +2,8 @@
 
 import pytest
 
-from precisionpdf import Document
-from precisionpdf.math_render import (
+from emboss import Document
+from emboss.math_render import (
     MathExpression,
     MathLayoutEngine,
     parse_math,
@@ -230,7 +230,7 @@ class TestMathRendering:
         assert make() == make()
 
     def test_verification_passes(self):
-        from precisionpdf.pdf.verify import verify_pdf
+        from emboss.pdf.verify import verify_pdf
 
         doc = Document(title="Verified Math")
         doc.math("x^{2}", display=True)
@@ -249,7 +249,7 @@ class TestMathRendering:
 
 class TestMathHTML:
     def test_html_export(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
 
         doc = Document(title="HTML Math")
         doc.math("x^{2}", display=True)
@@ -260,7 +260,7 @@ class TestMathHTML:
 
 class TestMathMarkdown:
     def test_markdown_export(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
 
         doc = Document(title="MD Math")
         doc.math("x^{2}", display=True)

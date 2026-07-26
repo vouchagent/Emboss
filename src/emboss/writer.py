@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .constraints import ConstraintValidator
-from .layout.engine import LayoutEngine
+from .layout.engine import LayoutEngine, PlacedBlock
 from .pdf.assembler import PDFAssembler
 from .pdf.fonts import build_font_resource
 from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
@@ -21,8 +21,8 @@ from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
     BibliographyBlock, BulletList, Callout, Chart, CodeBlock, Document,
-    Footnote, Heading, HorizontalRule, Image, MathBlock, PageBreak,
-    Paragraph, Table,
+    Footnote, Heading, HorizontalRule, Image, MathBlock, NumberedList,
+    PageBreak, Paragraph, SvgBlock, Table,
 )
 from .styles import Style
 from .typography.font_metrics import FontRegistry
@@ -282,6 +282,10 @@ class Renderer:
                 self._draw_list(
                     stream, placed, page_index, root, font_registry
                 )
+            elif isinstance(element, NumberedList):
+                self._draw_numbered_list(
+                    stream, placed, page_index, root, font_registry
+                )
             elif isinstance(element, Table):
                 self._draw_table(
                     stream, placed, page_index, root, font_registry, sheet
@@ -315,6 +319,11 @@ class Renderer:
             elif isinstance(element, BibliographyBlock):
                 self._draw_bibliography(
                     stream, placed, page_index, root, font_registry
+                )
+            elif isinstance(element, SvgBlock):
+                self._draw_svg(
+                    stream, placed, page_index, root, font_registry,
+                    document.page.content_width,
                 )
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, document, sheet)
@@ -388,6 +397,7 @@ class Renderer:
         stream.end_marked()
 
     def _draw_list(self, stream, placed, page_index, root, registry) -> None:
+        from .layout.engine import MeasuredBlock
         block = placed.block
         style = block.style
         element = block.element
@@ -401,7 +411,19 @@ class Renderer:
         color = style.require("color")
 
         y = placed.y
-        for lines in block.list_items:
+        for entry in block.list_items:
+            if isinstance(entry, MeasuredBlock):
+                nested_placed = PlacedBlock(
+                    block=entry, x=placed.x + indent + bullet_width,
+                    y=y, height=entry.height, lines=entry.lines,
+                )
+                self._draw_nested_list(
+                    stream, nested_placed, page_index, root, registry,
+                )
+                y -= entry.height + entry.space_after
+                continue
+
+            lines = entry
             item = StructureElement(tag="LI")
             list_el.children.append(item)
 
@@ -440,6 +462,89 @@ class Renderer:
                 y -= line.height
             stream.end_marked()
             y -= style.require("space_after")
+
+    def _draw_numbered_list(self, stream, placed, page_index, root,
+                            registry) -> None:
+        from .layout.engine import MeasuredBlock
+        block = placed.block
+        style = block.style
+        element = block.element
+
+        list_el = StructureElement(tag="L")
+        root.children.append(list_el)
+
+        metrics, size, key = self._resolve_font(style, None, registry)
+        text_count = sum(1 for e in block.list_items
+                         if not isinstance(e, MeasuredBlock))
+        last_marker = element.marker(text_count - 1) if text_count else "1."
+        marker_width = metrics.text_width(last_marker + " ", size)
+        indent = style.require("indent_left")
+        color = style.require("color")
+
+        y = placed.y
+        text_idx = 0
+        for entry in block.list_items:
+            if isinstance(entry, MeasuredBlock):
+                nested_placed = PlacedBlock(
+                    block=entry, x=placed.x + indent + marker_width,
+                    y=y, height=entry.height, lines=entry.lines,
+                )
+                self._draw_nested_list(
+                    stream, nested_placed, page_index, root, registry,
+                )
+                y -= entry.height + entry.space_after
+                continue
+
+            lines = entry
+            item = StructureElement(tag="LI")
+            list_el.children.append(item)
+
+            label = StructureElement(tag="Lbl")
+            item.children.append(label)
+            label_mcid = stream.next_mcid()
+            label.add_mcid(page_index, label_mcid)
+            stream.begin_marked("Lbl", label_mcid)
+            marker = element.marker(text_idx)
+            if lines:
+                stream.text_line(
+                    marker, key, size,
+                    placed.x + indent, y - lines[0].ascent, color,
+                    gid_map=metrics.gid_map,
+                )
+            stream.end_marked()
+
+            body = StructureElement(tag="LBody")
+            item.children.append(body)
+            body_mcid = stream.next_mcid()
+            body.add_mcid(page_index, body_mcid)
+            stream.begin_marked("LBody", body_mcid)
+
+            for line in lines:
+                baseline = y - line.ascent
+                for text, run, offset in line.fragments:
+                    run_metrics, run_size, run_key = self._resolve_font(
+                        style, run, registry
+                    )
+                    stream.text_line(
+                        text, run_key, run_size,
+                        placed.x + indent + marker_width + offset,
+                        baseline, run.color or color,
+                        kern_pairs=run_metrics.kern_pairs(text),
+                        gid_map=run_metrics.gid_map,
+                    )
+                y -= line.height
+            stream.end_marked()
+            y -= style.require("space_after")
+            text_idx += 1
+
+    def _draw_nested_list(self, stream, placed, page_index, root,
+                          registry) -> None:
+        from .spec import BulletList, NumberedList
+        element = placed.block.element
+        if isinstance(element, NumberedList):
+            self._draw_numbered_list(stream, placed, page_index, root, registry)
+        elif isinstance(element, BulletList):
+            self._draw_list(stream, placed, page_index, root, registry)
 
     def _draw_table(self, stream, placed, page_index, root, registry,
                     sheet) -> None:
@@ -1005,6 +1110,51 @@ class Renderer:
             y -= style.require("space_after") * 0.5
             stream.end_marked()
 
+    def _draw_svg(self, stream, placed, page_index, root, registry,
+                  page_content_width: float = 468.0) -> None:
+        from .svg import parse_svg, render_svg
+
+        element = placed.block.element
+        style = placed.block.style
+
+        fig_el = StructureElement(tag="Figure")
+        if element.alt_text:
+            fig_el.alt = element.alt_text
+        root.children.append(fig_el)
+
+        mcid = stream.next_mcid()
+        fig_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Figure", mcid)
+
+        svg = parse_svg(element.source)
+        display_w = element.width or min(svg.width, page_content_width)
+        if display_w > page_content_width:
+            display_w = page_content_width
+        scale = display_w / svg.aspect_width if svg.aspect_width else 1.0
+        display_h = element.height or svg.aspect_height * scale
+
+        x = placed.x
+        if element.align == "center":
+            x = placed.x + (page_content_width - display_w) / 2
+        elif element.align == "right":
+            x = placed.x + page_content_width - display_w
+
+        render_svg(stream, svg, x, placed.y, display_w, display_h)
+
+        if element.caption:
+            metrics, size, key = self._resolve_font(style, None, registry)
+            cap_size = size * 0.85
+            cap_y = placed.y - display_h - cap_size - 2.0
+            color = style.require("color")
+            cap_width = metrics.text_width(element.caption, cap_size)
+            cap_x = x + (display_w - cap_width) / 2
+            stream.text_line(
+                element.caption, key, cap_size, cap_x, cap_y, color,
+                gid_map=metrics.gid_map,
+            )
+
+        stream.end_marked()
+
     def _draw_watermark(self, stream, document, sheet, legal,
                         registry) -> None:
         metrics = self.fonts.resolve("Helvetica", bold=True)
@@ -1029,6 +1179,34 @@ class Renderer:
         stream.end_marked()
         stream.restore()
 
+    @staticmethod
+    def _draw_hf_slots(stream, hf, font_key, size, color,
+                       metrics, gmap, left, right, y,
+                       page_index, total, artifact_type):
+        """Draw left / center / right slots for a HeaderFooter."""
+        def _expand(text: str) -> str:
+            return text.replace("{page}", str(page_index + 1)).replace(
+                "{pages}", str(total))
+
+        content_width = right - left
+        for slot_text, align in [
+            (hf.left, "left"), (hf.center, "center"), (hf.right, "right"),
+        ]:
+            if not slot_text:
+                continue
+            rendered = _expand(slot_text)
+            tw = metrics.text_width(rendered, size)
+            if align == "left":
+                x = left
+            elif align == "center":
+                x = left + (content_width - tw) / 2.0
+            else:
+                x = right - tw
+            stream.begin_artifact(artifact_type)
+            stream.text_line(rendered, font_key, size, x, y, color,
+                             gid_map=gmap)
+            stream.end_marked()
+
     def _draw_running_content(self, stream, document, sheet, page,
                               page_index, total, registry) -> None:
         style = sheet.resolved(sheet.header_footer)
@@ -1038,32 +1216,78 @@ class Renderer:
         legal = document.legal
 
         gmap = metrics.gid_map
+        content_left = spec.margin_left
+        content_right = spec.width - spec.margin_right
 
-        if document.header_text:
+        header_y = spec.height - spec.margin_top + 22.0
+        footer_y = spec.margin_bottom - 26.0
+
+        hf_header = document.header if hasattr(document, "header") else None
+        hf_footer = document.footer if hasattr(document, "footer") else None
+
+        if hf_header:
+            h_size = hf_header.font_size or size
+            h_color = hf_header.color or color
+            if hf_header.font_family:
+                h_metrics = self.fonts.resolve(hf_header.font_family)
+                h_key = self._font_key(h_metrics, registry)
+                h_gmap = h_metrics.gid_map
+            else:
+                h_metrics, h_key, h_gmap = metrics, key, gmap
+            self._draw_hf_slots(
+                stream, hf_header, h_key, h_size, h_color,
+                h_metrics, h_gmap, content_left, content_right,
+                header_y, page_index, total, "Header",
+            )
+            if hf_header.separator_line:
+                line_y = header_y - h_size * 0.5
+                stream.begin_artifact()
+                stream.line(content_left, line_y, content_right, line_y,
+                            color=h_color, width=0.5)
+                stream.end_marked()
+        elif document.header_text:
             stream.begin_artifact("Header")
             stream.text_line(
                 document.header_text, key, size,
-                spec.margin_left, spec.height - spec.margin_top + 22.0,
-                color, gid_map=gmap,
+                content_left, header_y, color, gid_map=gmap,
             )
             stream.end_marked()
 
-        footer_y = spec.margin_bottom - 26.0
-        if document.footer_text:
+        if hf_footer:
+            f_size = hf_footer.font_size or size
+            f_color = hf_footer.color or color
+            if hf_footer.font_family:
+                f_metrics = self.fonts.resolve(hf_footer.font_family)
+                f_key = self._font_key(f_metrics, registry)
+                f_gmap = f_metrics.gid_map
+            else:
+                f_metrics, f_key, f_gmap = metrics, key, gmap
+            if hf_footer.separator_line:
+                line_y = footer_y + f_size * 1.2
+                stream.begin_artifact()
+                stream.line(content_left, line_y, content_right, line_y,
+                            color=f_color, width=0.5)
+                stream.end_marked()
+            self._draw_hf_slots(
+                stream, hf_footer, f_key, f_size, f_color,
+                f_metrics, f_gmap, content_left, content_right,
+                footer_y, page_index, total, "Footer",
+            )
+        elif document.footer_text:
             stream.begin_artifact("Footer")
             stream.text_line(
                 document.footer_text, key, size,
-                spec.margin_left, footer_y, color, gid_map=gmap,
+                content_left, footer_y, color, gid_map=gmap,
             )
             stream.end_marked()
 
-        if document.page_numbers:
+        if document.page_numbers and not hf_footer:
             label = f"{page_index + 1} of {total}"
             width = metrics.text_width(label, size)
             stream.begin_artifact("Footer")
             stream.text_line(
                 label, key, size,
-                spec.width - spec.margin_right - width, footer_y, color,
+                content_right - width, footer_y, color,
                 gid_map=gmap,
             )
             stream.end_marked()

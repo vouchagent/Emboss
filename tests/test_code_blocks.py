@@ -2,8 +2,8 @@
 
 import pytest
 
-from precisionpdf import Document, CodeBlock
-from precisionpdf.code_highlight import (
+from emboss import Document, CodeBlock
+from emboss.code_highlight import (
     Token, tokenize, colorize, THEMES, THEME_BACKGROUNDS, LANGUAGES,
 )
 
@@ -347,7 +347,7 @@ class TestDocumentIntegration:
 
 class TestMarkdownExport:
     def test_code_block_export(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         doc = Document(title="MD Test")
         doc.code_block("x = 1", language="python")
         md = to_markdown(doc)
@@ -356,14 +356,14 @@ class TestMarkdownExport:
         assert "```" in md
 
     def test_plain_text_no_lang(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         doc = Document(title="MD Plain")
         doc.code_block("hello", language="text")
         md = to_markdown(doc)
         assert "```\n" in md
 
     def test_caption_in_markdown(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         doc = Document(title="MD Caption")
         doc.code_block("x = 1", language="python", caption="Example")
         md = to_markdown(doc)
@@ -372,7 +372,7 @@ class TestMarkdownExport:
 
 class TestHTMLExport:
     def test_code_block_export(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         doc = Document(title="HTML Test")
         doc.code_block("def foo(): pass", language="python")
         html = to_html(doc)
@@ -381,14 +381,14 @@ class TestHTMLExport:
         assert 'language-python' in html
 
     def test_colored_spans(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         doc = Document(title="HTML Colors")
         doc.code_block("def foo(): pass", language="python")
         html = to_html(doc)
         assert '<span style="color:#' in html
 
     def test_caption_in_html(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         doc = Document(title="HTML Caption")
         doc.code_block("x = 1", caption="Example code")
         html = to_html(doc)
@@ -397,7 +397,7 @@ class TestHTMLExport:
 
 class TestDocxExport:
     def test_code_block_export(self):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
         doc = Document(title="DOCX Test")
         doc.code_block("x = 1", language="python", caption="Example")
         data = to_office_dict(doc)
@@ -411,7 +411,7 @@ class TestDocxExport:
 
 class TestPydanticSchema:
     def test_code_block_spec(self):
-        from precisionpdf.adapters.pydantic_schema import CodeBlockSpec
+        from emboss.adapters.pydantic_schema import CodeBlockSpec
         spec = CodeBlockSpec(code="x = 1", language="python")
         element = spec.to_element()
         assert isinstance(element, CodeBlock)
@@ -419,7 +419,7 @@ class TestPydanticSchema:
         assert element.language == "python"
 
     def test_code_block_in_document_spec(self):
-        from precisionpdf.adapters.pydantic_schema import DocumentSpec
+        from emboss.adapters.pydantic_schema import DocumentSpec
         data = {
             "title": "Test",
             "content": [
@@ -436,7 +436,7 @@ class TestPydanticSchema:
         assert isinstance(doc.content[0], CodeBlock)
 
     def test_code_block_full_options(self):
-        from precisionpdf.adapters.pydantic_schema import CodeBlockSpec
+        from emboss.adapters.pydantic_schema import CodeBlockSpec
         spec = CodeBlockSpec(
             code="fn main() {}",
             language="rust",
@@ -460,7 +460,7 @@ class TestPydanticSchema:
 
 class TestConstraintValidation:
     def test_code_block_passes_validation(self):
-        from precisionpdf.constraints import ConstraintValidator
+        from emboss.constraints import ConstraintValidator
         doc = Document(title="Validation Test")
         doc.code_block("x = 1", language="python")
         validator = ConstraintValidator()
@@ -468,7 +468,7 @@ class TestConstraintValidation:
         assert result.ok, f"Validation failed: {result.errors}"
 
     def test_code_block_not_rejected_as_unknown(self):
-        from precisionpdf.constraints import ConstraintValidator
+        from emboss.constraints import ConstraintValidator
         doc = Document(title="Known Type")
         doc.code_block("x = 1")
         validator = ConstraintValidator()

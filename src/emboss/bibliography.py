@@ -5,7 +5,7 @@ Zero external dependencies — all formatting is done with string operations.
 
 Usage::
 
-    from precisionpdf.bibliography import Citation, format_citation
+    from emboss.bibliography import Citation, format_citation
 
     ref = Citation(
         key="einstein1905",

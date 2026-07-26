@@ -47,15 +47,17 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
         HorizontalRule,
         Image,
         MathBlock,
+        NumberedList,
         PageBreak,
         Paragraph,
+        SvgBlock,
         Table,
     )
 
     sheet = document.stylesheet
 
     parts: list[str] = []
-    parts.append('<article class="precisionpdf-document">')
+    parts.append('<article class="emboss-document">')
 
     for element in document.content:
         if isinstance(element, Heading):
@@ -76,6 +78,14 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
                 runs_html = _render_runs(item_runs)
                 parts.append(f"  <li>{runs_html}</li>")
             parts.append("</ul>")
+
+        elif isinstance(element, NumberedList):
+            start_attr = f' start="{element.start}"' if element.start != 1 else ""
+            parts.append(f"<ol{start_attr}>")
+            for item_runs in element.item_runs:
+                runs_html = _render_runs(item_runs)
+                parts.append(f"  <li>{runs_html}</li>")
+            parts.append("</ol>")
 
         elif isinstance(element, Table):
             parts.append(_render_table(element, sheet))
@@ -165,6 +175,18 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
             for entry in entries:
                 parts.append(f"  <li>{_esc(entry)}</li>")
             parts.append("</ol>")
+
+        elif isinstance(element, SvgBlock):
+            style_parts = [f"text-align:{element.align}"]
+            parts.append(f'<figure style="{";".join(style_parts)}">')
+            if isinstance(element.source, bytes):
+                svg_markup = element.source.decode("utf-8")
+            else:
+                svg_markup = element.source
+            parts.append(f"  {svg_markup}")
+            if element.caption:
+                parts.append(f"  <figcaption>{_esc(element.caption)}</figcaption>")
+            parts.append("</figure>")
 
         elif isinstance(element, PageBreak):
             parts.append('<div style="page-break-before:always"></div>')

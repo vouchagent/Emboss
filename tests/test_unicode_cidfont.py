@@ -7,10 +7,10 @@ Unicode range. Also tests the hex encoding path in content streams.
 
 import pytest
 
-from precisionpdf import Document
-from precisionpdf.styles import Style
-from precisionpdf.pdf.streams import _escape_text, _cid_encode_text, _encode_text
-from precisionpdf.typography.font_metrics import FontMetrics
+from emboss import Document
+from emboss.styles import Style
+from emboss.pdf.streams import _escape_text, _cid_encode_text, _encode_text
+from emboss.typography.font_metrics import FontMetrics
 
 
 def _make_test_font(path, glyph_chars=None):
@@ -253,7 +253,7 @@ class TestSubsetRetainGIDs:
         return _make_test_font(tmp_path / "alpha.ttf", chars)
 
     def test_subset_preserves_gids(self, ttf_path):
-        from precisionpdf.pdf.fonts import _subset_font
+        from emboss.pdf.fonts import _subset_font
 
         metrics = FontMetrics.from_file(ttf_path)
         original_gids = dict(metrics.gid_map)
@@ -329,7 +329,7 @@ class TestUnicodeEndToEnd:
         assert b"%PDF-1.7" in pdf
 
     def test_verification_passes(self, ttf_path):
-        from precisionpdf.pdf.verify import verify_pdf
+        from emboss.pdf.verify import verify_pdf
 
         doc = Document(title="Verified CID")
         doc.fonts.register("Unicode", str(ttf_path))

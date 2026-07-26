@@ -1,9 +1,9 @@
-"""CLI entry point: precisionpdf render spec.json -o output.pdf
+"""CLI entry point: emboss render spec.json -o output.pdf
 
 Supports JSON input from files or stdin, so an LLM can pipe its output
 directly into PDF generation:
 
-    llm "Generate a financial report" --json | precisionpdf render - -o report.pdf
+    llm "Generate a financial report" --json | emboss render - -o report.pdf
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ def _render(args: argparse.Namespace) -> int:
     except ImportError:
         print(
             "error: pydantic is required for JSON-to-PDF conversion.\n"
-            "  pip install precision-pdf[llm]",
+            "  pip install emboss[llm]",
             file=sys.stderr,
         )
         return 1
@@ -77,7 +77,7 @@ def _schema(args: argparse.Namespace) -> int:
     except ImportError:
         print(
             "error: pydantic is required for schema generation.\n"
-            "  pip install precision-pdf[llm]",
+            "  pip install emboss[llm]",
             file=sys.stderr,
         )
         return 1
@@ -112,7 +112,7 @@ def _export(args: argparse.Namespace) -> int:
         from .adapters.pydantic_schema import DocumentSpec
     except ImportError:
         print(
-            "error: pydantic is required.\n  pip install precision-pdf[llm]",
+            "error: pydantic is required.\n  pip install emboss[llm]",
             file=sys.stderr,
         )
         return 1
@@ -189,7 +189,7 @@ def _validate(args: argparse.Namespace) -> int:
         from .adapters.pydantic_schema import DocumentSpec
     except ImportError:
         print(
-            "error: pydantic is required.\n  pip install precision-pdf[llm]",
+            "error: pydantic is required.\n  pip install emboss[llm]",
             file=sys.stderr,
         )
         return 1
@@ -221,8 +221,8 @@ def _validate(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="precisionpdf",
-        description="PrecisionPDF — constraint-driven PDF generation for LLM pipelines",
+        prog="emboss",
+        description="Emboss — constraint-driven PDF generation for LLM pipelines",
     )
     parser.add_argument(
         "--version", action="version",

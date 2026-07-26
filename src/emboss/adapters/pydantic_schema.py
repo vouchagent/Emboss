@@ -7,7 +7,7 @@ These models mirror the dataclass spec but add:
   - Content-aware defaults (numeric columns get decimal alignment)
 
 Usage with any LLM:
-    from precisionpdf.adapters.pydantic_schema import DocumentSpec
+    from emboss.adapters.pydantic_schema import DocumentSpec
     spec = DocumentSpec.model_validate_json(llm_output)
     pdf_bytes = spec.to_document().render()
 
@@ -36,14 +36,17 @@ from ..spec import (
     CodeBlock,
     Document,
     Footnote,
+    HeaderFooter,
     Heading,
     HorizontalRule,
     Image,
     LegalFeatures,
     MathBlock,
+    NumberedList,
     PageBreak,
     PageSpec,
     Paragraph,
+    SvgBlock,
     Table,
     TableCell,
     TextRun,
@@ -58,10 +61,13 @@ __all__ = [
     "ParagraphSpec",
     "TableSpec",
     "BulletListSpec",
+    "NumberedListSpec",
     "ImageSpec",
     "ChartSpec",
     "FootnoteSpec",
     "CalloutSpec",
+    "SvgBlockSpec",
+    "HeaderFooterSpec",
     "TextRunSpec",
     "TableCellSpec",
     "PageConfig",
@@ -395,6 +401,40 @@ class BulletListSpec(BaseModel):
         )
 
 
+class NumberedListSpec(BaseModel):
+    """A numbered (ordered) list."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Numbered List",
+            "examples": [
+                {
+                    "type": "numbered",
+                    "items": [
+                        "Collect requirements",
+                        "Design architecture",
+                        "Implement solution",
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["numbered"] = "numbered"
+    items: list[str] = Field(
+        ..., min_length=1, description="List items as plain text strings."
+    )
+    start: int = Field(1, ge=1, description="Starting number.")
+    style: StyleOverride | None = None
+
+    def to_element(self) -> NumberedList:
+        return NumberedList(
+            items=self.items,
+            start=self.start,
+            style=self.style.to_style() if self.style else None,
+        )
+
+
 class ImageSpec(BaseModel):
     """An embedded image (JPEG or PNG file path)."""
 
@@ -644,12 +684,60 @@ class HorizontalRuleSpec(BaseModel):
         return HorizontalRule(thickness=self.thickness, color=self.color)
 
 
+class SvgBlockSpec(BaseModel):
+    """An embedded SVG image rendered as vector graphics in the PDF."""
+
+    type: Literal["svg"] = "svg"
+    source: str = Field(..., description="SVG markup string.")
+    width: float | None = Field(None, description="Display width in points.")
+    height: float | None = Field(None, description="Display height in points.")
+    caption: str | None = Field(None, description="Caption below the SVG.")
+    label: str | None = Field(None, description="Cross-reference label.")
+    alt_text: str = Field("", description="Alt text for accessibility.")
+    align: Literal["left", "center", "right"] = "center"
+
+    def to_element(self) -> SvgBlock:
+        return SvgBlock(
+            source=self.source,
+            width=self.width,
+            height=self.height,
+            caption=self.caption,
+            label=self.label,
+            alt_text=self.alt_text,
+            align=self.align,
+        )
+
+
+class HeaderFooterSpec(BaseModel):
+    """Structured header or footer with left/center/right slots."""
+
+    left: str | None = Field(None, description="Left-aligned text. Use {page} and {pages} placeholders.")
+    center: str | None = Field(None, description="Center-aligned text.")
+    right: str | None = Field(None, description="Right-aligned text.")
+    font_size: float | None = Field(None, ge=4, le=24)
+    font_family: str | None = None
+    color: str | None = Field(None, pattern=r"^[0-9a-fA-F]{6}$")
+    separator_line: bool = Field(False, description="Draw a separator line.")
+
+    def to_header_footer(self) -> HeaderFooter:
+        return HeaderFooter(
+            left=self.left,
+            center=self.center,
+            right=self.right,
+            font_size=self.font_size,
+            font_family=self.font_family,
+            color=self.color,
+            separator_line=self.separator_line,
+        )
+
+
 ContentBlock = Annotated[
     Union[
         HeadingSpec,
         ParagraphSpec,
         TableSpec,
         BulletListSpec,
+        NumberedListSpec,
         ImageSpec,
         ChartSpec,
         FootnoteSpec,
@@ -657,6 +745,7 @@ ContentBlock = Annotated[
         CodeBlockSpec,
         MathBlockSpec,
         BibliographySpec,
+        SvgBlockSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],
@@ -750,7 +839,7 @@ class DocumentSpec(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "title": "PrecisionPDF Document",
+            "title": "Emboss Document",
             "description": (
                 "A complete document specification. The rendering engine handles "
                 "typography (Knuth-Plass optimal line breaking, hyphenation, kerning), "
@@ -809,8 +898,10 @@ class DocumentSpec(BaseModel):
         description="Document content as an ordered list of blocks: headings, paragraphs, tables, bullet lists, page breaks, and horizontal rules.",
     )
 
-    header_text: str | None = Field(None, description="Running header text on every page.")
-    footer_text: str | None = Field(None, description="Running footer text on every page.")
+    header_text: str | None = Field(None, description="Simple running header text on every page.")
+    footer_text: str | None = Field(None, description="Simple running footer text on every page.")
+    header: HeaderFooterSpec | None = Field(None, description="Structured header with left/center/right slots.")
+    footer: HeaderFooterSpec | None = Field(None, description="Structured footer with left/center/right slots.")
     page_numbers: bool = Field(True, description="Show page numbers in the footer.")
     tagged: bool = Field(True, description="Generate PDF/UA accessibility tags.")
 
@@ -857,6 +948,8 @@ class DocumentSpec(BaseModel):
             page=self.page.to_page_spec(),
             header_text=self.header_text,
             footer_text=self.footer_text,
+            header=self.header.to_header_footer() if self.header else None,
+            footer=self.footer.to_header_footer() if self.footer else None,
             page_numbers=self.page_numbers,
             tagged=self.tagged,
             legal=self.legal.to_legal_features() if self.legal else None,

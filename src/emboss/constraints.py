@@ -17,8 +17,8 @@ from typing import Literal
 
 from .spec import (
     BibliographyBlock, BulletList, Callout, Chart, CodeBlock, Document,
-    Footnote, Heading, HorizontalRule, Image, MathBlock, PageBreak,
-    Paragraph, Table,
+    Footnote, Heading, HorizontalRule, Image, MathBlock, NumberedList,
+    PageBreak, Paragraph, SvgBlock, Table,
 )
 
 __all__ = ["Issue", "ValidationResult", "ConstraintValidator", "ValidationError"]
@@ -159,9 +159,9 @@ class ConstraintValidator:
             ))
             return
 
-        known = (Heading, Paragraph, BulletList, Table, Image, Chart,
-                 Footnote, Callout, CodeBlock, MathBlock,
-                 BibliographyBlock, PageBreak, HorizontalRule)
+        known = (Heading, Paragraph, BulletList, NumberedList, Table,
+                 Image, Chart, Footnote, Callout, CodeBlock, MathBlock,
+                 BibliographyBlock, SvgBlock, PageBreak, HorizontalRule)
         for index, element in enumerate(document.content):
             if not isinstance(element, known):
                 issues.append(Issue(

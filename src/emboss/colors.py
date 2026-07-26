@@ -5,7 +5,7 @@ say ``"blue-600"`` instead of ``"2563eb"`` — fewer tokens, fewer mistakes,
 and documents get a consistent palette instead of random hex strings.
 
 Usage:
-    from precisionpdf.colors import resolve_color, PALETTES
+    from emboss.colors import resolve_color, PALETTES
 
     hex_val = resolve_color("blue-600")   # -> "2563eb"
     hex_val = resolve_color("ff0000")     # -> "ff0000" (pass-through)

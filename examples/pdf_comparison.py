@@ -6,7 +6,7 @@ Run:
     python examples/pdf_comparison.py
 
 Output (examples/output/):
-    comparison_precision.pdf   - PrecisionPDF
+    comparison_precision.pdf   - Emboss
     comparison_reportlab.pdf   - ReportLab
     comparison_weasyprint.pdf  - WeasyPrint
     comparison_fpdf2.pdf       - FPDF2
@@ -34,11 +34,11 @@ def load_content() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Engine A: PrecisionPDF
+# Engine A: Emboss
 # ---------------------------------------------------------------------------
 
 def render_precision(data: dict) -> bytes:
-    from precisionpdf import Document, TextRun, Citation
+    from emboss import Document, TextRun, Citation
 
     doc = Document(
         title=data.get("title", ""),
@@ -62,7 +62,7 @@ def render_precision(data: dict) -> bytes:
 
 
 def _add_element_precision(doc, elem):
-    from precisionpdf import TextRun, Citation
+    from emboss import TextRun, Citation
 
     etype = elem.get("type", "")
     if etype == "paragraph":
@@ -522,7 +522,7 @@ def print_comparison(results: list[dict]) -> str:
         "Zero Heavy Deps",
     ]
     engine_features = {
-        "PrecisionPDF": [True, True, True, True, True, True],
+        "Emboss": [True, True, True, True, True, True],
         "ReportLab": [True, False, False, False, False, False],
         "WeasyPrint": [False, False, False, False, False, False],
         "FPDF2": [False, False, False, False, False, False],
@@ -554,7 +554,7 @@ def main():
     data = load_content()
 
     engines = [
-        ("PrecisionPDF", "comparison_precision.pdf", render_precision),
+        ("Emboss", "comparison_precision.pdf", render_precision),
         ("ReportLab", "comparison_reportlab.pdf", render_reportlab),
         ("WeasyPrint", "comparison_weasyprint.pdf", render_weasyprint),
         ("FPDF2", "comparison_fpdf2.pdf", render_fpdf2),

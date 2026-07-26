@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from precisionpdf import Document, Image, Chart, PageSpec
-from precisionpdf.charts import ChartData, ChartSpec, render_chart
-from precisionpdf.images import ImageData, load_image, image_xobject
-from precisionpdf.toc import TOCEntry, build_toc_entries, _nest
-from precisionpdf.pdfa import build_xmp_metadata, pdfa_catalog_entries
-from precisionpdf.redaction import RedactionMark, apply_redactions
-from precisionpdf.signing import SignatureField, build_signature_appearance, can_sign
-from precisionpdf.pdf.assembler import PDFAssembler
-from precisionpdf.pdf.streams import ContentStream
+from emboss import Document, Image, Chart, PageSpec
+from emboss.charts import ChartData, ChartSpec, render_chart
+from emboss.images import ImageData, load_image, image_xobject
+from emboss.toc import TOCEntry, build_toc_entries, _nest
+from emboss.pdfa import build_xmp_metadata, pdfa_catalog_entries
+from emboss.redaction import RedactionMark, apply_redactions
+from emboss.signing import SignatureField, build_signature_appearance, can_sign
+from emboss.pdf.assembler import PDFAssembler
+from emboss.pdf.streams import ContentStream
 
 
 # ---------------------------------------------------------------------------
@@ -310,8 +310,8 @@ class TestPDFA:
             author="Author",
             subject="Subject",
             keywords="key1, key2",
-            creator="PrecisionPDF",
-            producer="PrecisionPDF",
+            creator="Emboss",
+            producer="Emboss",
             language="en-US",
         )
         text = xmp.decode("utf-8")
@@ -431,7 +431,7 @@ class TestSignature:
 
 class TestPydanticNewTypes:
     def test_chart_spec_roundtrip(self):
-        from precisionpdf.adapters.pydantic_schema import DocumentSpec
+        from emboss.adapters.pydantic_schema import DocumentSpec
         data = {
             "title": "Chart Doc",
             "content": [
@@ -450,7 +450,7 @@ class TestPydanticNewTypes:
         assert isinstance(doc.content[0], Chart)
 
     def test_image_spec_roundtrip(self, tmp_path):
-        from precisionpdf.adapters.pydantic_schema import DocumentSpec
+        from emboss.adapters.pydantic_schema import DocumentSpec
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -476,7 +476,7 @@ class TestPydanticNewTypes:
 
 class TestExportAdapters:
     def test_html_image_export(self, tmp_path):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -488,7 +488,7 @@ class TestExportAdapters:
         assert "<img" in html
 
     def test_html_chart_export(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         doc = Document(title="HTML Chart")
         doc.chart("bar", ["X", "Y"], [5, 10], title="Test")
         html = to_html(doc)
@@ -496,7 +496,7 @@ class TestExportAdapters:
         assert "Test" in html
 
     def test_markdown_image_export(self, tmp_path):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -507,7 +507,7 @@ class TestExportAdapters:
         assert "*Caption here*" in md
 
     def test_markdown_chart_export(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         doc = Document(title="MD Chart")
         doc.chart("pie", ["A", "B"], [60, 40], title="Split")
         md = to_markdown(doc)
@@ -515,7 +515,7 @@ class TestExportAdapters:
         assert "| A" in md
 
     def test_office_image_export(self, tmp_path):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -525,7 +525,7 @@ class TestExportAdapters:
         assert data["content"][0]["type"] == "image"
 
     def test_office_chart_export(self):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
         doc = Document(title="Office Chart")
         doc.chart("line", ["A"], [10])
         data = to_office_dict(doc)

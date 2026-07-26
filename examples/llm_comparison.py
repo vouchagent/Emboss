@@ -1,11 +1,11 @@
-"""Generate comprehensive content via Claude Sonnet 5, render with PrecisionPDF,
+"""Generate comprehensive content via Claude Sonnet 5, render with Emboss,
 and produce an HTML equivalent for side-by-side comparison.
 
 Run:
     python examples/llm_comparison.py
 
 Output:
-    examples/output/llm_generated.pdf   - PrecisionPDF render
+    examples/output/llm_generated.pdf   - Emboss render
     examples/output/llm_generated.html  - HTML equivalent (open in browser, print to PDF)
 """
 
@@ -24,7 +24,7 @@ if env_path.exists():
 
 from anthropic import Anthropic
 
-from precisionpdf import (
+from emboss import (
     Document, TextRun, Citation, LegalFeatures,
 )
 
@@ -118,7 +118,7 @@ def call_claude(api_key: str) -> dict:
 
 
 def build_pdf(data: dict) -> bytes:
-    """Convert structured content to PrecisionPDF."""
+    """Convert structured content to Emboss."""
     doc = Document(
         title=data.get("title", "Generated Document"),
         author=data.get("author", ""),
@@ -441,12 +441,12 @@ def main():
     json_path.write_text(json.dumps(data, indent=2))
     print(f"  Raw content saved: {json_path}")
 
-    # Step 2: Render with PrecisionPDF
-    print("\nRendering with PrecisionPDF...")
+    # Step 2: Render with Emboss
+    print("\nRendering with Emboss...")
     pdf_bytes = build_pdf(data)
     pdf_path = OUTPUT / "llm_generated.pdf"
     pdf_path.write_bytes(pdf_bytes)
-    verify(pdf_bytes, "PrecisionPDF Output")
+    verify(pdf_bytes, "Emboss Output")
     print(f"  Saved: {pdf_path}")
 
     # Step 3: Generate HTML equivalent

@@ -1,11 +1,10 @@
 """Cross-reference auto-numbering for figures, tables, and headings.
 
-Scans document content, assigns
-sequential numbers by type, and provides resolved labels that can be
-referenced in text.
+Scans document content, assigns sequential numbers by type, and
+provides resolved labels that can be referenced in text.
 
 Usage:
-    from precisionpdf.crossref import CrossReferenceIndex
+    from emboss.crossref import CrossReferenceIndex
 
     index = CrossReferenceIndex(document)
     index.label("fig:revenue")     # -> "Figure 1"
@@ -48,7 +47,7 @@ class CrossReferenceIndex:
         self._build(document)
 
     def _build(self, document: "Document") -> None:
-        from .spec import Chart, Heading, Image, Table
+        from .spec import Chart, CodeBlock, Heading, Image, MathBlock, SvgBlock, Table
 
         for idx, element in enumerate(document.content):
             if isinstance(element, Heading):
@@ -65,10 +64,10 @@ class CrossReferenceIndex:
                 caption = getattr(element, "caption", None)
                 if caption:
                     num = self._next("Table")
-                    key = f"tbl:{num}"
-                    self._entries[key] = RefEntry(
+                    label = getattr(element, "label", None) or f"tbl:{num}"
+                    self._entries[label] = RefEntry(
                         kind="Table", number=num,
-                        text=caption, anchor=key,
+                        text=caption, anchor=label,
                         element_index=idx,
                     )
 
@@ -77,10 +76,10 @@ class CrossReferenceIndex:
                 alt = getattr(element, "alt_text", "")
                 if caption or alt:
                     num = self._next("Figure")
-                    key = f"fig:{num}"
-                    self._entries[key] = RefEntry(
+                    label = getattr(element, "label", None) or f"fig:{num}"
+                    self._entries[label] = RefEntry(
                         kind="Figure", number=num,
-                        text=caption or alt, anchor=key,
+                        text=caption or alt, anchor=label,
                         element_index=idx,
                     )
 
@@ -88,10 +87,43 @@ class CrossReferenceIndex:
                 title = getattr(element, "title", None)
                 if title:
                     num = self._next("Figure")
-                    key = f"chart:{num}"
-                    self._entries[key] = RefEntry(
+                    label = getattr(element, "label", None) or f"chart:{num}"
+                    self._entries[label] = RefEntry(
                         kind="Figure", number=num,
-                        text=title, anchor=key,
+                        text=title, anchor=label,
+                        element_index=idx,
+                    )
+
+            elif isinstance(element, MathBlock):
+                caption = getattr(element, "caption", None)
+                if caption:
+                    num = self._next("Equation")
+                    label = getattr(element, "label", None) or f"eq:{num}"
+                    self._entries[label] = RefEntry(
+                        kind="Equation", number=num,
+                        text=caption, anchor=label,
+                        element_index=idx,
+                    )
+
+            elif isinstance(element, CodeBlock):
+                caption = getattr(element, "caption", None)
+                if caption:
+                    num = self._next("Listing")
+                    label = getattr(element, "label", None) or f"lst:{num}"
+                    self._entries[label] = RefEntry(
+                        kind="Listing", number=num,
+                        text=caption, anchor=label,
+                        element_index=idx,
+                    )
+
+            elif isinstance(element, SvgBlock):
+                caption = getattr(element, "caption", None)
+                if caption:
+                    num = self._next("Figure")
+                    label = getattr(element, "label", None) or f"svg:{num}"
+                    self._entries[label] = RefEntry(
+                        kind="Figure", number=num,
+                        text=caption, anchor=label,
                         element_index=idx,
                     )
 
@@ -120,6 +152,12 @@ class CrossReferenceIndex:
 
     def tables(self) -> list[RefEntry]:
         return [e for e in self._entries.values() if e.kind == "Table"]
+
+    def equations(self) -> list[RefEntry]:
+        return [e for e in self._entries.values() if e.kind == "Equation"]
+
+    def listings(self) -> list[RefEntry]:
+        return [e for e in self._entries.values() if e.kind == "Listing"]
 
     def sections(self) -> list[RefEntry]:
         return [e for e in self._entries.values() if e.kind == "Section"]

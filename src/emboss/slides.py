@@ -6,7 +6,7 @@ and slide-specific layouts.
 
 Usage::
 
-    from precisionpdf.slides import slide_document
+    from emboss.slides import slide_document
 
     doc = slide_document("Quarterly Results", subtitle="Q3 2026")
     doc.heading("Revenue Growth", level=2)

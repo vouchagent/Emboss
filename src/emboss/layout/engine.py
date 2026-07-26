@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 
 from ..spec import (
     BibliographyBlock, BulletList, Callout, Chart, CodeBlock, Footnote,
-    Heading, HorizontalRule, Image, MathBlock, PageBreak, Paragraph, Table,
+    Heading, HorizontalRule, Image, MathBlock, NumberedList, PageBreak,
+    Paragraph, SvgBlock, Table,
 )
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
 
@@ -150,6 +151,8 @@ class LayoutEngine:
             )
         if isinstance(element, BulletList):
             return self._measure_list(element, width)
+        if isinstance(element, NumberedList):
+            return self._measure_numbered_list(element, width)
         if isinstance(element, Table):
             return self._measure_table(element, width)
         if isinstance(element, HorizontalRule):
@@ -174,6 +177,8 @@ class LayoutEngine:
             return self._measure_math(element, width)
         if isinstance(element, BibliographyBlock):
             return self._measure_bibliography(element, width)
+        if isinstance(element, SvgBlock):
+            return self._measure_svg(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
                 element=element, height=0.0,
@@ -293,14 +298,56 @@ class LayoutEngine:
         usable = width - indent - bullet_width
 
         items, total = [], 0.0
-        for runs in element.item_runs:
-            lines = self._layout_runs(runs, style, usable)
-            for run in runs:
-                self._metrics(style, run).note_usage(run.text)
-            metrics.note_usage(element.bullet)
-            height = sum(line.height for line in lines)
-            items.append(lines)
-            total += height + style.require("space_after")
+        for runs, sub in element.flat_items:
+            if sub is not None:
+                nested = self.measure(sub, usable)
+                items.append(nested)
+                total += nested.height + nested.space_before + nested.space_after
+            else:
+                lines = self._layout_runs(runs, style, usable)
+                for run in runs:
+                    self._metrics(style, run).note_usage(run.text)
+                metrics.note_usage(element.bullet)
+                height = sum(line.height for line in lines)
+                items.append(lines)
+                total += height + style.require("space_after")
+
+        total -= style.require("space_after") if items else 0.0
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=style.require("space_before"),
+            space_after=style.require("space_after") + 2.0,
+            list_items=items,
+        )
+
+    def _measure_numbered_list(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.list_item, element.style)
+        indent = style.require("indent_left")
+        metrics = self._metrics(style)
+        size = self._size(style)
+        last_marker = element.marker(len(element.item_runs) - 1) if element.item_runs else "1."
+        marker_width = metrics.text_width(last_marker + " ", size)
+        usable = width - indent - marker_width
+
+        items, total = [], 0.0
+        text_idx = 0
+        for runs, sub in element.flat_items:
+            if sub is not None:
+                nested = self.measure(sub, usable)
+                items.append(nested)
+                total += nested.height + nested.space_before + nested.space_after
+            else:
+                lines = self._layout_runs(runs, style, usable)
+                for run in runs:
+                    self._metrics(style, run).note_usage(run.text)
+                metrics.note_usage(element.marker(text_idx))
+                height = sum(line.height for line in lines)
+                items.append(lines)
+                total += height + style.require("space_after")
+                text_idx += 1
 
         total -= style.require("space_after") if items else 0.0
         return MeasuredBlock(
@@ -343,7 +390,7 @@ class LayoutEngine:
         if element.title:
             title_style = style.with_(bold=True)
             title_lines = self._layout_runs(
-                [__import__('precisionpdf.spec', fromlist=['TextRun']).TextRun(
+                [__import__('emboss.spec', fromlist=['TextRun']).TextRun(
                     element.title, bold=True
                 )],
                 title_style, usable,
@@ -490,6 +537,29 @@ class LayoutEngine:
             space_after=8.0,
         )
 
+    def _measure_svg(self, element, width: float) -> MeasuredBlock:
+        from ..svg import parse_svg
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        svg = parse_svg(element.source)
+        display_w = element.width or min(svg.width, width)
+        if display_w > width:
+            display_w = width
+        scale = display_w / svg.aspect_width if svg.aspect_width else 1.0
+        display_h = element.height or svg.aspect_height * scale
+        total = display_h
+        if element.caption:
+            metrics = self._metrics(style)
+            cap_size = self._size(style) * 0.85
+            total += cap_size + 4.0
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
+        )
+
     # -- tables --
 
     def _measure_table(self, element, width: float) -> MeasuredBlock:
@@ -632,66 +702,77 @@ class LayoutEngine:
 
         pages: list = []
         current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
+        col_cursors = [page_spec.content_top] * cols
         col_idx = 0
-        col_cursor = page_spec.content_top
 
         def col_left(c: int) -> float:
             return page_spec.margin_left + c * (col_w + gap)
 
+        def _is_spanning(block) -> bool:
+            style = getattr(block.element, "style", None)
+            if style and getattr(style, "column_span", None):
+                return True
+            if isinstance(block.element, (Heading,)) and block.element.level <= 2:
+                return False
+            return False
+
+        def _new_page():
+            nonlocal current, col_idx, col_cursors
+            pages.append(current)
+            current = Page(number=len(pages) + 1,
+                           cursor=page_spec.content_top, spec=page_spec)
+            col_cursors = [page_spec.content_top] * cols
+            col_idx = 0
+
+        def _place(block, x, y):
+            return PlacedBlock(
+                block=block, x=x, y=y,
+                height=block.height, lines=block.lines,
+                table_rows=list(range(len(block.table.row_heights)))
+                if block.table else None,
+            )
+
         for block in blocks:
             if isinstance(block.element, PageBreak):
-                pages.append(current)
-                current = Page(number=len(pages) + 1,
-                               cursor=page_spec.content_top, spec=page_spec)
+                _new_page()
+                continue
+
+            if _is_spanning(block):
+                lowest = min(col_cursors)
+                gap_before = block.space_before
+                available = lowest - page_spec.content_bottom - gap_before
+                if block.height > available:
+                    _new_page()
+                    lowest = page_spec.content_top
+                y = lowest - gap_before
+                current.blocks.append(_place(
+                    block, page_spec.margin_left, y))
+                new_cursor = y - block.height - block.space_after
+                col_cursors = [new_cursor] * cols
                 col_idx = 0
-                col_cursor = page_spec.content_top
                 continue
 
             gap_before = block.space_before if current.blocks else 0.0
-            available = col_cursor - page_spec.content_bottom - gap_before
+            available = col_cursors[col_idx] - page_spec.content_bottom - gap_before
 
             if block.height <= available:
-                col_cursor -= gap_before
-                current.blocks.append(
-                    PlacedBlock(
-                        block=block, x=col_left(col_idx), y=col_cursor,
-                        height=block.height, lines=block.lines,
-                        table_rows=list(range(len(block.table.row_heights)))
-                        if block.table else None,
-                    )
-                )
-                col_cursor -= block.height + block.space_after
+                col_cursors[col_idx] -= gap_before
+                current.blocks.append(_place(
+                    block, col_left(col_idx), col_cursors[col_idx]))
+                col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
             col_idx += 1
             if col_idx < cols:
-                col_cursor = page_spec.content_top
-                col_cursor -= 0.0
-                current.blocks.append(
-                    PlacedBlock(
-                        block=block, x=col_left(col_idx), y=col_cursor,
-                        height=block.height, lines=block.lines,
-                        table_rows=list(range(len(block.table.row_heights)))
-                        if block.table else None,
-                    )
-                )
-                col_cursor -= block.height + block.space_after
+                current.blocks.append(_place(
+                    block, col_left(col_idx), col_cursors[col_idx]))
+                col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
-            pages.append(current)
-            current = Page(number=len(pages) + 1,
-                           cursor=page_spec.content_top, spec=page_spec)
-            col_idx = 0
-            col_cursor = page_spec.content_top
-            current.blocks.append(
-                PlacedBlock(
-                    block=block, x=col_left(0), y=col_cursor,
-                    height=block.height, lines=block.lines,
-                    table_rows=list(range(len(block.table.row_heights)))
-                    if block.table else None,
-                )
-            )
-            col_cursor -= block.height + block.space_after
+            _new_page()
+            current.blocks.append(_place(
+                block, col_left(0), col_cursors[0]))
+            col_cursors[0] -= block.height + block.space_after
 
         if current.blocks or not pages:
             pages.append(current)

@@ -31,6 +31,7 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
         HorizontalRule,
         Image,
         MathBlock,
+        NumberedList,
         PageBreak,
         Paragraph,
         Table,
@@ -66,6 +67,12 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
             for item_runs in element.item_runs:
                 text = _render_runs_md(item_runs)
                 parts.append(f"- {text}")
+            parts.append("")
+
+        elif isinstance(element, NumberedList):
+            for i, item_runs in enumerate(element.item_runs):
+                text = _render_runs_md(item_runs)
+                parts.append(f"{element.start + i}. {text}")
             parts.append("")
 
         elif isinstance(element, Table):

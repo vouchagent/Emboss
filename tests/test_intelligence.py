@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from precisionpdf.intelligence import (
+from emboss.intelligence import (
     ContentAnalyzer,
     DocumentTypeDetector,
     QualityScorer,
@@ -295,7 +295,7 @@ class TestContentAnalyzer:
         assert enhanced["style"] == "corporate"
 
     def test_from_smart_integration(self):
-        from precisionpdf.adapters.pydantic_schema import DocumentSpec
+        from emboss.adapters.pydantic_schema import DocumentSpec
 
         spec = DocumentSpec.from_smart({
             "title": "Report",
@@ -306,7 +306,7 @@ class TestContentAnalyzer:
         })
         assert spec.title == "Report"
         pdf = spec.render()
-        from precisionpdf.pdf.verify import verify_pdf
+        from emboss.pdf.verify import verify_pdf
         assert verify_pdf(pdf).ok
 
 

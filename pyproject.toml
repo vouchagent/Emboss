@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "precision-pdf"
+name = "emboss"
 version = "0.1.0"
-description = "Constraint-driven PDF generation with optimal typesetting and PDF/UA structure"
+description = "Emboss — precision PDF generation with optimal typesetting and PDF/UA structure"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -36,19 +36,19 @@ dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "cryptography>=41.0", "my
 all = ["pydantic>=2.0", "pikepdf>=8.0", "cryptography>=41.0"]
 
 [project.scripts]
-precisionpdf = "precisionpdf.__main__:main"
+emboss = "emboss.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/GGChamp85/PrecisionPDF"
-Documentation = "https://github.com/GGChamp85/PrecisionPDF#readme"
-Issues = "https://github.com/GGChamp85/PrecisionPDF/issues"
-Changelog = "https://github.com/GGChamp85/PrecisionPDF/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/GGChamp85/Emboss"
+Documentation = "https://github.com/GGChamp85/Emboss#readme"
+Issues = "https://github.com/GGChamp85/Emboss/issues"
+Changelog = "https://github.com/GGChamp85/Emboss/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-precisionpdf = ["py.typed", "typography/patterns/*.txt"]
+emboss = ["py.typed", "typography/patterns/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

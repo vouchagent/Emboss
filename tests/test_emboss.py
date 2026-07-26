@@ -1,4 +1,4 @@
-"""Test suite for PrecisionPDF.
+"""Test suite for Emboss.
 
 The tests that matter most for this library are the guarantee tests:
 determinism, xref correctness, structure-tree integrity, and text
@@ -16,16 +16,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from precisionpdf import (  # noqa: E402
+from emboss import (  # noqa: E402
     Document, Heading, LegalFeatures, PageSpec, Paragraph, Style, Table,
     TableCell, TextRun, ValidationError,
 )
-from precisionpdf.constraints import ConstraintValidator  # noqa: E402
-from precisionpdf.pdf.objects import PdfName, PdfString, fmt_number  # noqa: E402
-from precisionpdf.pdf.verify import verify_pdf  # noqa: E402
-from precisionpdf.typography.font_metrics import FontMetrics, FontRegistry  # noqa: E402
-from precisionpdf.typography.hyphenation import Hyphenator  # noqa: E402
-from precisionpdf.typography.line_breaking import (  # noqa: E402
+from emboss.constraints import ConstraintValidator  # noqa: E402
+from emboss.pdf.objects import PdfName, PdfString, fmt_number  # noqa: E402
+from emboss.pdf.verify import verify_pdf  # noqa: E402
+from emboss.typography.font_metrics import FontMetrics, FontRegistry  # noqa: E402
+from emboss.typography.hyphenation import Hyphenator  # noqa: E402
+from emboss.typography.line_breaking import (  # noqa: E402
     Box, Glue, LineBreaker, Penalty, build_items,
 )
 
@@ -377,8 +377,8 @@ class TestLayout:
         assert data.count(b"/THead") >= report.page_count - 1
 
     def test_table_columns_fit_content_width(self):
-        from precisionpdf.layout.engine import LayoutEngine
-        from precisionpdf.styles import resolve_preset
+        from emboss.layout.engine import LayoutEngine
+        from emboss.styles import resolve_preset
 
         engine = LayoutEngine(FontRegistry(), resolve_preset("finance"))
         table = Table(headers=["Short", "A much longer header cell"],
@@ -387,8 +387,8 @@ class TestLayout:
         assert sum(measured.table.column_widths) == pytest.approx(468.0, abs=1.0)
 
     def test_explicit_column_widths_are_honoured(self):
-        from precisionpdf.layout.engine import LayoutEngine
-        from precisionpdf.styles import resolve_preset
+        from emboss.layout.engine import LayoutEngine
+        from emboss.styles import resolve_preset
 
         engine = LayoutEngine(FontRegistry(), resolve_preset("finance"))
         table = Table(headers=["A", "B"], rows=[["1", "2"]],
@@ -404,8 +404,8 @@ class TestLayout:
         stream: text is emitted as kerned TJ arrays, so a phrase is not
         contiguous in the page bytes.
         """
-        from precisionpdf.layout.engine import LayoutEngine
-        from precisionpdf.typography.hyphenation import Hyphenator
+        from emboss.layout.engine import LayoutEngine
+        from emboss.typography.hyphenation import Hyphenator
 
         marker = "This paragraph must share a page with its heading."
 
@@ -584,7 +584,7 @@ class TestLegalFeatures:
 
 class TestStyles:
     def test_all_presets_render(self):
-        from precisionpdf.styles import PRESETS
+        from emboss.styles import PRESETS
 
         for name in PRESETS:
             doc = Document(title=f"Preset {name}", style=name)

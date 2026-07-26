@@ -11,14 +11,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from precisionpdf.adapters.pydantic_schema import (
+from emboss.adapters.pydantic_schema import (
     DocumentSpec,
     HeadingSpec,
     ParagraphSpec,
     TableSpec,
     generate_json_schema,
 )
-from precisionpdf.pdf.verify import verify_pdf
+from emboss.pdf.verify import verify_pdf
 
 
 SAMPLE_SPEC = {
@@ -174,7 +174,7 @@ class TestJsonSchema:
     def test_generates_valid_json(self):
         schema_str = generate_json_schema()
         schema = json.loads(schema_str)
-        assert schema["title"] == "PrecisionPDF Document"
+        assert schema["title"] == "Emboss Document"
         assert "$defs" in schema
 
     def test_schema_has_content_block_types(self):
@@ -193,7 +193,7 @@ class TestJsonSchema:
 
 class TestHtmlExport:
     def test_produces_valid_html(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
 
         spec = DocumentSpec.model_validate(SAMPLE_SPEC)
         html = to_html(spec.to_document())
@@ -203,7 +203,7 @@ class TestHtmlExport:
         assert "Test Document" in html
 
     def test_fragment_mode(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
 
         spec = DocumentSpec.model_validate(SAMPLE_SPEC)
         html = to_html(spec.to_document(), standalone=False)
@@ -213,7 +213,7 @@ class TestHtmlExport:
 
 class TestMarkdownExport:
     def test_produces_markdown(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
 
         spec = DocumentSpec.model_validate(SAMPLE_SPEC)
         md = to_markdown(spec.to_document())
@@ -223,7 +223,7 @@ class TestMarkdownExport:
         assert "---" in md
 
     def test_frontmatter_optional(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
 
         spec = DocumentSpec.model_validate(SAMPLE_SPEC)
         md = to_markdown(spec.to_document(), include_metadata=False)
@@ -232,7 +232,7 @@ class TestMarkdownExport:
 
 class TestOfficeExport:
     def test_produces_structured_dict(self):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
 
         spec = DocumentSpec.model_validate(SAMPLE_SPEC)
         data = to_office_dict(spec.to_document())
@@ -242,7 +242,7 @@ class TestOfficeExport:
         assert data["content"][2]["type"] == "table"
 
     def test_serializable_to_json(self):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
 
         spec = DocumentSpec.model_validate(SAMPLE_SPEC)
         data = to_office_dict(spec.to_document())
@@ -257,7 +257,7 @@ class TestCli:
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         out_path = tmp_path / "output.pdf"
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "render",
+            [sys.executable, "-m", "emboss", "render",
              str(spec_path), "-o", str(out_path)],
             capture_output=True, text=True,
         )
@@ -268,7 +268,7 @@ class TestCli:
     def test_render_from_stdin(self, tmp_path):
         out_path = tmp_path / "stdin.pdf"
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "render",
+            [sys.executable, "-m", "emboss", "render",
              "-", "-o", str(out_path)],
             input=json.dumps(SAMPLE_SPEC),
             capture_output=True, text=True,
@@ -280,7 +280,7 @@ class TestCli:
         spec_path = tmp_path / "valid.json"
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "validate", str(spec_path)],
+            [sys.executable, "-m", "emboss", "validate", str(spec_path)],
             capture_output=True, text=True,
         )
         assert result.returncode == 0
@@ -290,26 +290,26 @@ class TestCli:
         spec_path = tmp_path / "invalid.json"
         spec_path.write_text('{"title": ""}')
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "validate", str(spec_path)],
+            [sys.executable, "-m", "emboss", "validate", str(spec_path)],
             capture_output=True, text=True,
         )
         assert result.returncode == 1
 
     def test_schema_output(self):
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "schema"],
+            [sys.executable, "-m", "emboss", "schema"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0
         schema = json.loads(result.stdout)
-        assert schema["title"] == "PrecisionPDF Document"
+        assert schema["title"] == "Emboss Document"
 
     def test_export_html(self, tmp_path):
         spec_path = tmp_path / "spec.json"
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         out_path = tmp_path / "output.html"
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "export",
+            [sys.executable, "-m", "emboss", "export",
              str(spec_path), "-f", "html", "-o", str(out_path)],
             capture_output=True, text=True,
         )
@@ -322,7 +322,7 @@ class TestCli:
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         out_path = tmp_path / "output.md"
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "export",
+            [sys.executable, "-m", "emboss", "export",
              str(spec_path), "-f", "markdown", "-o", str(out_path)],
             capture_output=True, text=True,
         )
@@ -335,7 +335,7 @@ class TestCli:
         pdf_path = tmp_path / "test.pdf"
         pdf_path.write_bytes(spec.render())
         result = subprocess.run(
-            [sys.executable, "-m", "precisionpdf", "verify", str(pdf_path)],
+            [sys.executable, "-m", "emboss", "verify", str(pdf_path)],
             capture_output=True, text=True,
         )
         assert result.returncode == 0

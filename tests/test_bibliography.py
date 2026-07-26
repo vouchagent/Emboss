@@ -2,8 +2,8 @@
 
 import pytest
 
-from precisionpdf import Document
-from precisionpdf.bibliography import (
+from emboss import Document
+from emboss.bibliography import (
     BibliographyBlock,
     Citation,
     format_bibliography,
@@ -227,7 +227,7 @@ class TestBibliographyRendering:
         assert make() == make()
 
     def test_verification_passes(self):
-        from precisionpdf.pdf.verify import verify_pdf
+        from emboss.pdf.verify import verify_pdf
 
         doc = Document(title="Verified Bib")
         doc.paragraph("Reference content.")
@@ -246,7 +246,7 @@ class TestBibliographyRendering:
 
 class TestBibliographyHTML:
     def test_html_export(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
 
         doc = Document(title="HTML Bib")
         doc.bibliography([_sample_article()], title="References")
@@ -259,7 +259,7 @@ class TestBibliographyHTML:
 
 class TestBibliographyMarkdown:
     def test_markdown_export(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
 
         doc = Document(title="MD Bib")
         doc.bibliography([_sample_article()], title="References")

@@ -5,15 +5,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from precisionpdf import Document
-from precisionpdf.pdf.verify import verify_pdf
-from precisionpdf.writer import render_document
+from emboss import Document
+from emboss.pdf.verify import verify_pdf
+from emboss.writer import render_document
 
 
 def build() -> Document:
     doc = Document(
         title="Accessible Document Example",
-        author="PrecisionPDF",
+        author="Emboss",
         language="en-US",
         style="corporate",
         tagged=True,

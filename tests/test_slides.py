@@ -2,11 +2,11 @@
 
 import pytest
 
-from precisionpdf import Document
-from precisionpdf.slides import (
+from emboss import Document
+from emboss.slides import (
     SLIDE_16_9, SLIDE_4_3, SlideConfig, slide_document, _build_slide_sheet,
 )
-from precisionpdf.styles import Style
+from emboss.styles import Style
 
 
 class TestSlideConfig:
@@ -171,7 +171,7 @@ class TestSlideRendering:
         assert b"%PDF-1.7" in pdf
 
     def test_verification_passes(self):
-        from precisionpdf.pdf.verify import verify_pdf
+        from emboss.pdf.verify import verify_pdf
 
         doc = slide_document("Verified Slides")
         doc.heading("Slide 2", level=2)

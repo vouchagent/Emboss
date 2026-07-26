@@ -2,13 +2,13 @@
 
 import pytest
 
-from precisionpdf import (
+from emboss import (
     Document, Footnote, Callout, ColorTheme, CrossReferenceIndex,
     resolve_color, PALETTES,
 )
-from precisionpdf.colors import _SEMANTIC
-from precisionpdf.crossref import RefEntry
-from precisionpdf.typography.ligatures import apply_ligatures, LIGATURE_MAP
+from emboss.colors import _SEMANTIC
+from emboss.crossref import RefEntry
+from emboss.typography.ligatures import apply_ligatures, LIGATURE_MAP
 
 
 # ===========================================================================
@@ -272,7 +272,7 @@ class TestLigatures:
 
 class TestPydanticEnrichedTypes:
     def test_footnote_spec(self):
-        from precisionpdf.adapters.pydantic_schema import DocumentSpec
+        from emboss.adapters.pydantic_schema import DocumentSpec
         data = {
             "title": "FN Test",
             "content": [
@@ -285,7 +285,7 @@ class TestPydanticEnrichedTypes:
         assert isinstance(doc.content[1], Footnote)
 
     def test_callout_spec(self):
-        from precisionpdf.adapters.pydantic_schema import DocumentSpec
+        from emboss.adapters.pydantic_schema import DocumentSpec
         data = {
             "title": "Callout Test",
             "content": [
@@ -309,7 +309,7 @@ class TestPydanticEnrichedTypes:
 
 class TestExportAdaptersEnriched:
     def test_html_footnote(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         doc = Document(title="HTML FN")
         doc.footnote("Source data.", marker="1")
         html = to_html(doc)
@@ -317,7 +317,7 @@ class TestExportAdaptersEnriched:
         assert "Source data" in html
 
     def test_html_callout(self):
-        from precisionpdf.adapters.html_export import to_html
+        from emboss.adapters.html_export import to_html
         doc = Document(title="HTML Callout")
         doc.callout("Be careful!", variant="danger", title="Danger")
         html = to_html(doc)
@@ -325,14 +325,14 @@ class TestExportAdaptersEnriched:
         assert "Danger" in html
 
     def test_markdown_footnote(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         doc = Document(title="MD FN")
         doc.footnote("Ref 1.", marker="1")
         md = to_markdown(doc)
         assert "[^1]:" in md
 
     def test_markdown_callout(self):
-        from precisionpdf.adapters.markdown_export import to_markdown
+        from emboss.adapters.markdown_export import to_markdown
         doc = Document(title="MD Callout")
         doc.callout("Note this.", variant="info", title="Info")
         md = to_markdown(doc)
@@ -340,14 +340,14 @@ class TestExportAdaptersEnriched:
         assert "Info" in md
 
     def test_office_footnote(self):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
         doc = Document(title="Office FN")
         doc.footnote("Source.", marker="*")
         data = to_office_dict(doc)
         assert data["content"][0]["type"] == "footnote"
 
     def test_office_callout(self):
-        from precisionpdf.adapters.docx_export import to_office_dict
+        from emboss.adapters.docx_export import to_office_dict
         doc = Document(title="Office Callout")
         doc.callout("Note.", variant="success")
         data = to_office_dict(doc)

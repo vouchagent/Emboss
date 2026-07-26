@@ -5,7 +5,7 @@ Layout, appearance, and the PDF/UA structure tree are all derived from
 this one description, which is what keeps them from drifting apart.
 
 Dataclasses are used rather than pydantic so the core has no required
-third-party model dependency; `precisionpdf.adapters.pydantic_schema`
+third-party model dependency; `emboss.adapters.pydantic_schema`
 exposes a pydantic view for LLM structured-output pipelines.
 """
 
@@ -17,10 +17,11 @@ from typing import Literal, Sequence, Union
 from .styles import Style, StyleSheet, resolve_preset
 
 __all__ = [
-    "TextRun", "Heading", "Paragraph", "BulletList", "Table", "TableCell",
+    "TextRun", "Heading", "Paragraph", "BulletList", "NumberedList",
+    "Table", "TableCell",
     "Image", "Chart", "Footnote", "Callout", "MathBlock", "CodeBlock",
-    "BibliographyBlock", "Citation", "PageBreak", "HorizontalRule",
-    "PageSpec", "Document", "LegalFeatures", "BlockElement",
+    "SvgBlock", "BibliographyBlock", "Citation", "PageBreak", "HorizontalRule",
+    "PageSpec", "Document", "LegalFeatures", "HeaderFooter", "BlockElement",
 ]
 
 Alignment = Literal["left", "center", "right", "justify"]
@@ -114,8 +115,52 @@ class BulletList:
     style: Style | None = None
 
     @property
+    def flat_items(self) -> list:
+        """Return (runs_or_None, sub_list_or_None) for each item."""
+        result = []
+        for item in self.items:
+            if isinstance(item, (BulletList, NumberedList)):
+                result.append((None, item))
+            else:
+                result.append((_as_runs(item), None))
+        return result
+
+    @property
     def item_runs(self) -> list:
-        return [_as_runs(item) for item in self.items]
+        return [_as_runs(item) for item in self.items
+                if not isinstance(item, (BulletList, NumberedList))]
+
+    @property
+    def structure_tag(self) -> str:
+        return "L"
+
+
+@dataclass
+class NumberedList:
+    """A numbered list, tagged /L with /LI children."""
+
+    items: Sequence = field(default_factory=list)
+    start: int = 1
+    style: Style | None = None
+
+    @property
+    def flat_items(self) -> list:
+        """Return (runs_or_None, sub_list_or_None) for each item."""
+        result = []
+        for item in self.items:
+            if isinstance(item, (BulletList, NumberedList)):
+                result.append((None, item))
+            else:
+                result.append((_as_runs(item), None))
+        return result
+
+    @property
+    def item_runs(self) -> list:
+        return [_as_runs(item) for item in self.items
+                if not isinstance(item, (BulletList, NumberedList))]
+
+    def marker(self, index: int) -> str:
+        return f"{self.start + index}."
 
     @property
     def structure_tag(self) -> str:
@@ -163,6 +208,7 @@ class Table:
     rows: Sequence = field(default_factory=list)
     column_widths: Sequence | None = None
     caption: str | None = None
+    label: str | None = None
     stripe: bool = False
     repeat_header: bool = True
     style: Style | None = None
@@ -194,6 +240,7 @@ class Image:
     width: float | None = None
     height: float | None = None
     caption: str | None = None
+    label: str | None = None
     align: Literal["left", "center", "right"] = "center"
     style: Style | None = None
 
@@ -211,6 +258,7 @@ class Chart:
     values: Sequence = field(default_factory=list)
     colors: Sequence | None = None
     title: str | None = None
+    label: str | None = None
     width: float = 400.0
     height: float = 250.0
     style: Style | None = None
@@ -314,6 +362,7 @@ class CodeBlock:
     start_line: int = 1
     highlight_lines: list = field(default_factory=list)
     caption: str | None = None
+    label: str | None = None
     style: Style | None = None
 
     @property
@@ -327,6 +376,7 @@ class MathBlock:
     source: str
     display: bool = True
     caption: str | None = None
+    label: str | None = None
     style: Style | None = None
 
     @property
@@ -334,13 +384,30 @@ class MathBlock:
         return "Formula"
 
 
+@dataclass
+class SvgBlock:
+    """An embedded SVG image rendered as vector graphics."""
+    source: str | bytes
+    width: float | None = None
+    height: float | None = None
+    caption: str | None = None
+    label: str | None = None
+    alt_text: str = ""
+    align: Literal["left", "center", "right"] = "center"
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Figure"
+
+
 from .bibliography import BibliographyBlock, Citation  # noqa: E402
 
 
 BlockElement = Union[
-    Heading, Paragraph, BulletList, Table, Image, Chart,
+    Heading, Paragraph, BulletList, NumberedList, Table, Image, Chart,
     Footnote, Callout, CodeBlock, MathBlock, BibliographyBlock,
-    PageBreak, HorizontalRule,
+    SvgBlock, PageBreak, HorizontalRule,
 ]
 
 
@@ -388,6 +455,23 @@ class PageSpec:
 
 
 @dataclass
+class HeaderFooter:
+    """Structured header or footer with left/center/right slots.
+
+    Use ``{page}`` and ``{pages}`` placeholders in text fields;
+    they are replaced with the current page number and total pages.
+    """
+
+    left: str | None = None
+    center: str | None = None
+    right: str | None = None
+    font_size: float | None = None
+    font_family: str | None = None
+    color: str | None = None
+    separator_line: bool = False
+
+
+@dataclass
 class LegalFeatures:
     """Domain features for legal and financial documents."""
 
@@ -425,6 +509,8 @@ class Document:
     content: list = field(default_factory=list)
     header_text: str | None = None
     footer_text: str | None = None
+    header: HeaderFooter | None = None
+    footer: HeaderFooter | None = None
     page_numbers: bool = True
     tagged: bool = True
     legal: LegalFeatures | None = None
@@ -432,8 +518,8 @@ class Document:
     redactions: list | None = None
     signatures: list | None = None
     toc: bool = False
-    creator: str = "PrecisionPDF"
-    producer: str = "PrecisionPDF"
+    creator: str = "Emboss"
+    producer: str = "Emboss"
 
     def __post_init__(self) -> None:
         from .typography.font_metrics import FontRegistry
@@ -467,6 +553,12 @@ class Document:
     def bullet_list(self, items, **kw) -> "Document":
         return self.add(BulletList(items, **kw))
 
+    def numbered(self, items, **kw) -> "Document":
+        return self.add(NumberedList(items, **kw))
+
+    def numbered_list(self, items, **kw) -> "Document":
+        return self.add(NumberedList(items, **kw))
+
     def table(self, headers, rows, **kw) -> "Document":
         return self.add(Table(headers=headers, rows=rows, **kw))
 
@@ -494,6 +586,9 @@ class Document:
 
     def bibliography(self, citations, **kw) -> "Document":
         return self.add(BibliographyBlock(citations=citations, **kw))
+
+    def svg(self, source, **kw) -> "Document":
+        return self.add(SvgBlock(source=source, **kw))
 
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))

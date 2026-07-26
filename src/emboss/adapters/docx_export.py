@@ -4,7 +4,7 @@ Rather than depending on python-docx or python-pptx directly (which would
 add heavy dependencies), this module exports a clean intermediate dict
 that any conversion tool can consume:
 
-    from precisionpdf.adapters.docx_export import to_office_dict
+    from emboss.adapters.docx_export import to_office_dict
     data = to_office_dict(document)
     # Feed to python-docx, pandoc, or any converter
 

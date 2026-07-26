@@ -1,4 +1,4 @@
-"""End-to-end showcase: generates a PDF exercising every PrecisionPDF feature.
+"""End-to-end showcase: generates a PDF exercising every Emboss feature.
 
 Run:
     python examples/showcase.py
@@ -11,7 +11,7 @@ Output:
 """
 
 from pathlib import Path
-from precisionpdf import (
+from emboss import (
     Document, PageSpec, Heading, Paragraph, BulletList, Table, TableCell,
     TextRun, Chart, Footnote, Callout, CodeBlock, MathBlock,
     BibliographyBlock, Citation, HorizontalRule, LegalFeatures,
@@ -25,12 +25,12 @@ OUTPUT.mkdir(exist_ok=True)
 def build_showcase() -> bytes:
     """Build a comprehensive document using every feature."""
     doc = Document(
-        title="PrecisionPDF Feature Showcase",
-        author="PrecisionPDF Team",
+        title="Emboss Feature Showcase",
+        author="Emboss Team",
         subject="Complete feature demonstration",
         language="en-US",
         style="corporate",
-        header_text="PrecisionPDF Showcase",
+        header_text="Emboss Showcase",
         page_numbers=True,
         tagged=True,
         toc=True,
@@ -39,7 +39,7 @@ def build_showcase() -> bytes:
     # --- Page 1: Typography and text ---
     doc.heading("Typography and Text Formatting", level=1)
     doc.paragraph(
-        "PrecisionPDF generates deterministic, constraint-driven PDFs with "
+        "Emboss generates deterministic, constraint-driven PDFs with "
         "full PDF/UA accessibility tagging. Every render is byte-identical "
         "across platforms -ideal for CI pipelines, legal filings, and "
         "archival storage."
@@ -166,7 +166,7 @@ print(f"Fibonacci: {result}")''',
     doc.heading("Callouts and Notes", level=1)
 
     doc.callout(
-        "PrecisionPDF validates all constraints before rendering. "
+        "Emboss validates all constraints before rendering. "
         "Font availability, page geometry, heading hierarchy -"
         "problems are caught early, not discovered in the output.",
         variant="info",
@@ -218,7 +218,7 @@ def build_math_notes() -> bytes:
     """Build a mathematical notation showcase."""
     doc = Document(
         title="Mathematical Notation Reference",
-        author="PrecisionPDF",
+        author="Emboss",
         style="academic",
         tagged=True,
     )
@@ -266,11 +266,11 @@ def build_math_notes() -> bytes:
 def build_presentation() -> bytes:
     """Build a slide-format presentation."""
     doc = slide_document(
-        title="PrecisionPDF Overview",
+        title="Emboss Overview",
         theme="default",
     )
 
-    doc.heading("PrecisionPDF", level=1)
+    doc.heading("Emboss", level=1)
     doc.paragraph(
         "Production-grade PDF generation with deterministic output, "
         "PDF/UA compliance, and zero heavyweight dependencies."
@@ -313,7 +313,7 @@ def build_presentation() -> bytes:
 def build_architecture_doc() -> bytes:
     """Build a technical architecture document."""
     doc = Document(
-        title="System Architecture: PrecisionPDF",
+        title="System Architecture: Emboss",
         author="Engineering Team",
         style="corporate",
         header_text="CONFIDENTIAL",
@@ -328,7 +328,7 @@ def build_architecture_doc() -> bytes:
 
     doc.heading("System Overview", level=1)
     doc.paragraph(
-        "PrecisionPDF is a constraint-driven PDF generation library. "
+        "Emboss is a constraint-driven PDF generation library. "
         "Documents are described as semantic specifications; the engine "
         "handles layout, typography, and the PDF/UA structure tree."
     )
@@ -428,7 +428,7 @@ def verify_pdf(pdf_bytes: bytes, label: str) -> dict:
 
 
 def main():
-    print("PrecisionPDF End-to-End Verification")
+    print("Emboss End-to-End Verification")
     print("=" * 60)
 
     # 1. Full showcase
