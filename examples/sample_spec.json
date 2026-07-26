@@ -1,0 +1,55 @@
+{
+  "title": "Q3 2026 Financial Report",
+  "style": "finance",
+  "author": "Finance Team",
+  "subject": "Quarterly results and regional performance",
+  "header_text": "Acme Corporation — Confidential",
+  "footer_text": "Prepared by the Office of the CFO",
+  "content": [
+    {"type": "heading", "text": "Executive Summary", "level": 1},
+    {
+      "type": "paragraph",
+      "text": "Revenue for the third quarter reached $4.53 million, an increase of 11.8% over the prior quarter and 24.1% year over year. Growth was concentrated in the enterprise segment, where annual contract value expanded materially following the platform release in July."
+    },
+    {
+      "type": "paragraph",
+      "text": "Operating margin improved to 18.2% from 15.6%, reflecting both operating leverage and a one-time reduction in cloud infrastructure costs following the migration completed in August."
+    },
+    {"type": "heading", "text": "Regional Performance", "level": 2},
+    {
+      "type": "paragraph",
+      "text": "All regions grew sequentially. Asia Pacific posted the strongest percentage growth from a smaller base."
+    },
+    {
+      "type": "table",
+      "headers": ["Region", "Q3 2026", "Q2 2026", "Change"],
+      "rows": [
+        ["North America", "$2,431,000.00", "$2,180,500.00", "+11.5%"],
+        ["Europe", "$1,204,300.50", "$1,150,000.00", "+4.7%"],
+        ["Asia Pacific", "$892,150.25", "$740,900.00", "+20.4%"],
+        [
+          {"value": "Total", "bold": true},
+          {"value": "$4,527,450.75", "bold": true, "align": "decimal"},
+          {"value": "$4,071,400.00", "bold": true, "align": "decimal"},
+          {"value": "+11.2%", "bold": true, "align": "right"}
+        ]
+      ],
+      "stripe": true
+    },
+    {"type": "heading", "text": "Risk Factors", "level": 2},
+    {
+      "type": "bullets",
+      "items": [
+        "Regulatory approval timelines in the European Union remain uncertain",
+        "Integration complexity following the Q2 acquisition",
+        "Currency exposure in emerging markets, partially hedged",
+        "Concentration risk: the top three customers represent 31% of revenue"
+      ]
+    },
+    {"type": "heading", "text": "Outlook", "level": 2},
+    {
+      "type": "paragraph",
+      "text": "Management reiterates full-year guidance of $18.5 to $19.2 million in revenue, with operating margin expected to remain above 17%."
+    }
+  ]
+}

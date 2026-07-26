@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "precision-pdf"
+version = "0.1.0"
+description = "Constraint-driven PDF generation with optimal typesetting and PDF/UA structure"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Gaurav Gupta" }]
+keywords = ["pdf", "typesetting", "accessibility", "pdf-ua", "knuth-plass"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Printing",
+    "Topic :: Text Processing :: Fonts",
+    "Typing :: Typed",
+]
+
+dependencies = ["fonttools>=4.40"]
+
+[project.optional-dependencies]
+llm = ["pydantic>=2.0"]
+verify = ["pikepdf>=8.0"]
+dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "mypy>=1.8", "ruff>=0.3"]
+all = ["pydantic>=2.0", "pikepdf>=8.0"]
+
+[project.scripts]
+precisionpdf = "precisionpdf.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/gauravgupta/precision-pdf"
+Documentation = "https://github.com/gauravgupta/precision-pdf#readme"
+Issues = "https://github.com/gauravgupta/precision-pdf/issues"
+Changelog = "https://github.com/gauravgupta/precision-pdf/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+precisionpdf = ["py.typed", "typography/patterns/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true

@@ -1,0 +1,1047 @@
+{
+  "$defs": {
+    "BulletListSpec": {
+      "description": "A bulleted list.",
+      "examples": [
+        {
+          "items": [
+            "Revenue grew 12% year over year",
+            "Operating margin improved to 18.2%",
+            "Customer count exceeded 500"
+          ],
+          "type": "bullets"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "bullets",
+          "default": "bullets",
+          "title": "Type",
+          "type": "string"
+        },
+        "items": {
+          "description": "List items as plain text strings.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "bullet": {
+          "default": "\u2022",
+          "description": "Bullet character.",
+          "title": "Bullet",
+          "type": "string"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StyleOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Bullet List",
+      "type": "object"
+    },
+    "HeadingSpec": {
+      "description": "A section heading. Level determines both visual size and PDF structure tag (H1-H6).",
+      "examples": [
+        {
+          "level": 1,
+          "text": "Executive Summary",
+          "type": "heading"
+        },
+        {
+          "level": 2,
+          "text": "Risk Factors",
+          "type": "heading"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "heading",
+          "default": "heading",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "description": "Heading text.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "level": {
+          "default": 1,
+          "description": "Heading level 1 (largest) through 6 (smallest).",
+          "maximum": 6,
+          "minimum": 1,
+          "title": "Level",
+          "type": "integer"
+        },
+        "numbering": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional section number prefix, e.g. '3.2'.",
+          "title": "Numbering"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StyleOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Heading",
+      "type": "object"
+    },
+    "HorizontalRuleSpec": {
+      "description": "A horizontal divider line.",
+      "properties": {
+        "type": {
+          "const": "rule",
+          "default": "rule",
+          "title": "Type",
+          "type": "string"
+        },
+        "thickness": {
+          "default": 0.5,
+          "maximum": 4.0,
+          "minimum": 0.1,
+          "title": "Thickness",
+          "type": "number"
+        },
+        "color": {
+          "default": "cccccc",
+          "pattern": "^[0-9a-fA-F]{6}$",
+          "title": "Color",
+          "type": "string"
+        }
+      },
+      "title": "HorizontalRuleSpec",
+      "type": "object"
+    },
+    "LegalConfig": {
+      "description": "Legal and financial document features.",
+      "examples": [
+        {
+          "watermark": "CONFIDENTIAL"
+        },
+        {
+          "bates_prefix": "ACME-",
+          "line_numbering": true
+        }
+      ],
+      "properties": {
+        "watermark": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Diagonal watermark text across every page.",
+          "title": "Watermark"
+        },
+        "watermark_opacity": {
+          "default": 0.12,
+          "maximum": 1.0,
+          "minimum": 0.01,
+          "title": "Watermark Opacity",
+          "type": "number"
+        },
+        "line_numbering": {
+          "default": false,
+          "description": "Continuous line numbering in the left margin (for court pleadings).",
+          "title": "Line Numbering",
+          "type": "boolean"
+        },
+        "bates_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bates number prefix, e.g. 'ACME-'. Numbers auto-increment per page.",
+          "title": "Bates Prefix"
+        },
+        "bates_start": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Bates Start",
+          "type": "integer"
+        },
+        "bates_digits": {
+          "default": 6,
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Bates Digits",
+          "type": "integer"
+        },
+        "bates_position": {
+          "default": "bottom-right",
+          "enum": [
+            "bottom-right",
+            "bottom-left",
+            "top-right"
+          ],
+          "title": "Bates Position",
+          "type": "string"
+        }
+      },
+      "title": "Legal Features",
+      "type": "object"
+    },
+    "PageBreakSpec": {
+      "description": "Forces subsequent content onto a new page.",
+      "properties": {
+        "type": {
+          "const": "page_break",
+          "default": "page_break",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "PageBreakSpec",
+      "type": "object"
+    },
+    "PageConfig": {
+      "description": "Page geometry. All measurements in PDF points (72 points = 1 inch).",
+      "examples": [
+        {
+          "preset": "letter"
+        },
+        {
+          "margin_left": 108,
+          "preset": "a4"
+        }
+      ],
+      "properties": {
+        "preset": {
+          "anyOf": [
+            {
+              "enum": [
+                "letter",
+                "a4",
+                "legal"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "letter",
+          "description": "Page size preset.",
+          "title": "Preset"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "minimum": 72,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Page width in points (overrides preset).",
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "minimum": 72,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Page height in points (overrides preset).",
+          "title": "Height"
+        },
+        "margin_top": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Top margin in points.",
+          "title": "Margin Top"
+        },
+        "margin_right": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Right margin in points.",
+          "title": "Margin Right"
+        },
+        "margin_bottom": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bottom margin in points.",
+          "title": "Margin Bottom"
+        },
+        "margin_left": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Left margin in points.",
+          "title": "Margin Left"
+        }
+      },
+      "title": "Page Configuration",
+      "type": "object"
+    },
+    "ParagraphSpec": {
+      "description": "A body paragraph. Content can be plain text or a list of styled text runs.",
+      "examples": [
+        {
+          "text": "Revenue increased 12% year over year.",
+          "type": "paragraph"
+        },
+        {
+          "runs": [
+            {
+              "text": "Revenue increased "
+            },
+            {
+              "bold": true,
+              "text": "12%"
+            },
+            {
+              "text": " year over year."
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Plain text content. Use 'runs' instead for mixed formatting.",
+          "title": "Text"
+        },
+        "runs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TextRunSpec"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Styled text spans for mixed formatting within the paragraph.",
+          "title": "Runs"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StyleOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "Paragraph",
+      "type": "object"
+    },
+    "StyleOverride": {
+      "description": "Per-element style overrides. Only set fields you want to change.",
+      "properties": {
+        "font_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font family name: 'Helvetica', 'Times', 'Courier', or a registered custom font.",
+          "title": "Font Family"
+        },
+        "font_size": {
+          "anyOf": [
+            {
+              "maximum": 96,
+              "minimum": 4,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font size in points (4-96).",
+          "title": "Font Size"
+        },
+        "bold": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bold"
+        },
+        "italic": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Italic"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-fA-F]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hex color without '#' prefix, e.g. '1a1a1a'.",
+          "title": "Color"
+        },
+        "align": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "center",
+                "right",
+                "justify"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Text alignment.",
+          "title": "Align"
+        },
+        "line_height": {
+          "anyOf": [
+            {
+              "maximum": 3.0,
+              "minimum": 0.8,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Line height multiplier (1.0 = single-spaced).",
+          "title": "Line Height"
+        },
+        "space_before": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space before element in points.",
+          "title": "Space Before"
+        },
+        "space_after": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space after element in points.",
+          "title": "Space After"
+        },
+        "indent_first": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First-line indent in points.",
+          "title": "Indent First"
+        }
+      },
+      "title": "Style Override",
+      "type": "object"
+    },
+    "TableCellSpec": {
+      "description": "A single table cell. Supports alignment overrides and bold formatting.",
+      "examples": [
+        {
+          "align": "decimal",
+          "value": "$1,234.56"
+        },
+        {
+          "bold": true,
+          "value": "Total"
+        }
+      ],
+      "properties": {
+        "value": {
+          "default": "",
+          "description": "Cell content as text.",
+          "title": "Value",
+          "type": "string"
+        },
+        "align": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "center",
+                "right",
+                "decimal"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cell alignment. Use 'decimal' for numbers to align on the decimal point.",
+          "title": "Align"
+        },
+        "bold": {
+          "default": false,
+          "title": "Bold",
+          "type": "boolean"
+        },
+        "background": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-fA-F]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cell background hex color.",
+          "title": "Background"
+        }
+      },
+      "title": "Table Cell",
+      "type": "object"
+    },
+    "TableSpec": {
+      "description": "A data table with headers and rows. Column widths are auto-computed from content metrics.\n\nFor financial/numeric data, use align='decimal' on cells to align numbers on the decimal point.\nThe engine computes optimal column widths automatically - you rarely need to set them manually.",
+      "examples": [
+        {
+          "headers": [
+            "Region",
+            "Q3 Revenue",
+            "Change"
+          ],
+          "rows": [
+            [
+              "North America",
+              "$2,431,000",
+              "+11.5%"
+            ],
+            [
+              "Europe",
+              "$1,204,300",
+              "+4.7%"
+            ]
+          ],
+          "type": "table"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "table",
+          "default": "table",
+          "title": "Type",
+          "type": "string"
+        },
+        "headers": {
+          "description": "Column header labels.",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/TableCellSpec"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Headers",
+          "type": "array"
+        },
+        "rows": {
+          "description": "Data rows. Each row is a list of cell values.",
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/TableCellSpec"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "column_widths": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relative column widths (auto-computed if omitted). e.g. [1, 2, 1] makes the middle column twice as wide.",
+          "title": "Column Widths"
+        },
+        "caption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Table caption text.",
+          "title": "Caption"
+        },
+        "stripe": {
+          "default": false,
+          "description": "Alternate row background shading.",
+          "title": "Stripe",
+          "type": "boolean"
+        },
+        "repeat_header": {
+          "default": true,
+          "description": "Repeat header row when table spans multiple pages.",
+          "title": "Repeat Header",
+          "type": "boolean"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StyleOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "headers",
+        "rows"
+      ],
+      "title": "Table",
+      "type": "object"
+    },
+    "TextRunSpec": {
+      "description": "A span of text with uniform formatting within a paragraph.",
+      "examples": [
+        {
+          "text": "Revenue increased "
+        },
+        {
+          "bold": true,
+          "color": "0d6e3f",
+          "text": "24.1%"
+        },
+        {
+          "italic": true,
+          "text": " year over year."
+        }
+      ],
+      "properties": {
+        "text": {
+          "description": "The text content of this run.",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "bold": {
+          "default": false,
+          "description": "Whether this text is bold.",
+          "title": "Bold",
+          "type": "boolean"
+        },
+        "italic": {
+          "default": false,
+          "description": "Whether this text is italic.",
+          "title": "Italic",
+          "type": "boolean"
+        },
+        "font_size": {
+          "anyOf": [
+            {
+              "maximum": 96,
+              "minimum": 4,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override font size in points.",
+          "title": "Font Size"
+        },
+        "font_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override font family.",
+          "title": "Font Family"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-fA-F]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hex color without '#', e.g. 'cc0000' for red.",
+          "title": "Color"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL this text links to.",
+          "title": "Link"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Text Run",
+      "type": "object"
+    }
+  },
+  "description": "A complete document specification. The rendering engine handles typography (Knuth-Plass optimal line breaking, hyphenation, kerning), layout (pagination, widow/orphan control, table splitting), and accessibility (PDF/UA structure tree) automatically. Output is deterministic: identical specs produce identical bytes.",
+  "examples": [
+    {
+      "content": [
+        {
+          "level": 1,
+          "text": "Executive Summary",
+          "type": "heading"
+        },
+        {
+          "text": "Revenue reached $4.53M, up 11.8% sequentially.",
+          "type": "paragraph"
+        },
+        {
+          "headers": [
+            "Region",
+            "Revenue",
+            "Change"
+          ],
+          "rows": [
+            [
+              "North America",
+              "$2.4M",
+              "+11.5%"
+            ],
+            [
+              "Europe",
+              "$1.2M",
+              "+4.7%"
+            ]
+          ],
+          "stripe": true,
+          "type": "table"
+        }
+      ],
+      "style": "finance",
+      "title": "Q3 Financial Report"
+    }
+  ],
+  "properties": {
+    "title": {
+      "description": "Document title. Required for PDF/UA accessibility compliance.",
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "author": {
+      "default": "",
+      "description": "Document author.",
+      "title": "Author",
+      "type": "string"
+    },
+    "subject": {
+      "default": "",
+      "description": "Document subject or summary.",
+      "title": "Subject",
+      "type": "string"
+    },
+    "keywords": {
+      "default": "",
+      "description": "Comma-separated keywords for document metadata.",
+      "title": "Keywords",
+      "type": "string"
+    },
+    "language": {
+      "default": "en-US",
+      "description": "BCP-47 language tag, e.g. 'en-US', 'de-DE'.",
+      "title": "Language",
+      "type": "string"
+    },
+    "style": {
+      "default": "corporate",
+      "description": "Visual preset: 'legal' (serif, justified, generous leading), 'finance' (sans, tight, tabular), 'academic' (serif, justified, classic), 'corporate' (sans, readable, roomy), 'minimal' (compact, data-heavy).",
+      "enum": [
+        "legal",
+        "finance",
+        "academic",
+        "corporate",
+        "minimal"
+      ],
+      "title": "Style",
+      "type": "string"
+    },
+    "page": {
+      "$ref": "#/$defs/PageConfig",
+      "description": "Page geometry."
+    },
+    "content": {
+      "description": "Document content as an ordered list of blocks: headings, paragraphs, tables, bullet lists, page breaks, and horizontal rules.",
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "bullets": "#/$defs/BulletListSpec",
+            "heading": "#/$defs/HeadingSpec",
+            "page_break": "#/$defs/PageBreakSpec",
+            "paragraph": "#/$defs/ParagraphSpec",
+            "rule": "#/$defs/HorizontalRuleSpec",
+            "table": "#/$defs/TableSpec"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/HeadingSpec"
+          },
+          {
+            "$ref": "#/$defs/ParagraphSpec"
+          },
+          {
+            "$ref": "#/$defs/TableSpec"
+          },
+          {
+            "$ref": "#/$defs/BulletListSpec"
+          },
+          {
+            "$ref": "#/$defs/PageBreakSpec"
+          },
+          {
+            "$ref": "#/$defs/HorizontalRuleSpec"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Content",
+      "type": "array"
+    },
+    "header_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Running header text on every page.",
+      "title": "Header Text"
+    },
+    "footer_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Running footer text on every page.",
+      "title": "Footer Text"
+    },
+    "page_numbers": {
+      "default": true,
+      "description": "Show page numbers in the footer.",
+      "title": "Page Numbers",
+      "type": "boolean"
+    },
+    "tagged": {
+      "default": true,
+      "description": "Generate PDF/UA accessibility tags.",
+      "title": "Tagged",
+      "type": "boolean"
+    },
+    "legal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LegalConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Legal/financial features: watermarks, Bates numbering, line numbering."
+    }
+  },
+  "required": [
+    "title",
+    "content"
+  ],
+  "title": "PrecisionPDF Document",
+  "type": "object"
+}

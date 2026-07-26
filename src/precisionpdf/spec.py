@@ -1,0 +1,338 @@
+"""Document specification model.
+
+The document is a semantic tree, not a sequence of drawing commands.
+Layout, appearance, and the PDF/UA structure tree are all derived from
+this one description, which is what keeps them from drifting apart.
+
+Dataclasses are used rather than pydantic so the core has no required
+third-party model dependency; `precisionpdf.adapters.pydantic_schema`
+exposes a pydantic view for LLM structured-output pipelines.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Literal, Sequence, Union
+
+from .styles import Style, StyleSheet, resolve_preset
+
+__all__ = [
+    "TextRun", "Heading", "Paragraph", "BulletList", "Table", "TableCell",
+    "PageBreak", "HorizontalRule", "PageSpec", "Document", "LegalFeatures",
+    "BlockElement",
+]
+
+Alignment = Literal["left", "center", "right", "justify"]
+CellAlignment = Literal["left", "center", "right", "decimal"]
+
+
+@dataclass
+class TextRun:
+    """A span of text with uniform formatting."""
+
+    text: str
+    bold: bool = False
+    italic: bool = False
+    font_size: float | None = None
+    font_family: str | None = None
+    color: str | None = None
+    link: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str):
+            raise TypeError("TextRun.text must be a string")
+
+
+def _as_runs(content: Union[str, TextRun, Sequence]) -> list:
+    """Normalize loose text input into a list of TextRun."""
+    if isinstance(content, str):
+        return [TextRun(content)]
+    if isinstance(content, TextRun):
+        return [content]
+    runs = []
+    for item in content:
+        if isinstance(item, str):
+            runs.append(TextRun(item))
+        elif isinstance(item, TextRun):
+            runs.append(item)
+        else:
+            raise TypeError(f"expected str or TextRun, got {type(item).__name__}")
+    return runs
+
+
+@dataclass
+class Heading:
+    """A section heading. Level drives both appearance and the /Hn tag."""
+
+    text: str
+    level: int = 1
+    numbering: str | None = None
+    anchor: str | None = None
+    style: Style | None = None
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.level <= 6:
+            raise ValueError(f"heading level must be 1-6, got {self.level}")
+
+    @property
+    def runs(self) -> list:
+        prefix = f"{self.numbering} " if self.numbering else ""
+        return [TextRun(prefix + self.text, bold=True)]
+
+    @property
+    def structure_tag(self) -> str:
+        return f"H{self.level}"
+
+
+@dataclass
+class Paragraph:
+    """A body paragraph, tagged /P."""
+
+    content: Union[str, TextRun, Sequence] = ""
+    style: Style | None = None
+    runs: list = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self.runs = _as_runs(self.content)
+
+    @property
+    def structure_tag(self) -> str:
+        return "P"
+
+    @property
+    def plain_text(self) -> str:
+        return "".join(run.text for run in self.runs)
+
+
+@dataclass
+class BulletList:
+    """A list, tagged /L with /LI children."""
+
+    items: Sequence = field(default_factory=list)
+    bullet: str = "\u2022"
+    style: Style | None = None
+
+    @property
+    def item_runs(self) -> list:
+        return [_as_runs(item) for item in self.items]
+
+    @property
+    def structure_tag(self) -> str:
+        return "L"
+
+
+@dataclass
+class TableCell:
+    """One table cell. `align='decimal'` aligns numbers on the decimal point."""
+
+    content: Union[str, TextRun, Sequence] = ""
+    align: CellAlignment = "left"
+    bold: bool = False
+    colspan: int = 1
+    background: str | None = None
+
+    @property
+    def runs(self) -> list:
+        runs = _as_runs(self.content)
+        if self.bold:
+            runs = [
+                TextRun(r.text, bold=True, italic=r.italic,
+                        font_size=r.font_size, font_family=r.font_family,
+                        color=r.color, link=r.link)
+                for r in runs
+            ]
+        return runs
+
+    @property
+    def plain_text(self) -> str:
+        return "".join(r.text for r in _as_runs(self.content))
+
+
+def _as_cell(value) -> TableCell:
+    if isinstance(value, TableCell):
+        return value
+    return TableCell(content=str(value))
+
+
+@dataclass
+class Table:
+    """A data table, tagged /Table with proper /TH scope on headers."""
+
+    headers: Sequence = field(default_factory=list)
+    rows: Sequence = field(default_factory=list)
+    column_widths: Sequence | None = None
+    caption: str | None = None
+    stripe: bool = False
+    repeat_header: bool = True
+    style: Style | None = None
+
+    @property
+    def header_cells(self) -> list:
+        return [_as_cell(h) for h in self.headers]
+
+    @property
+    def body_rows(self) -> list:
+        return [[_as_cell(c) for c in row] for row in self.rows]
+
+    @property
+    def column_count(self) -> int:
+        counts = [len(self.header_cells)] + [len(r) for r in self.body_rows]
+        return max(counts) if counts else 0
+
+    @property
+    def structure_tag(self) -> str:
+        return "Table"
+
+
+@dataclass
+class PageBreak:
+    """Forces content after this point onto a new page."""
+
+    structure_tag: str = field(default="Artifact", init=False)
+
+
+@dataclass
+class HorizontalRule:
+    thickness: float = 0.5
+    color: str = "cccccc"
+    space_before: float = 6.0
+    space_after: float = 6.0
+    structure_tag: str = field(default="Artifact", init=False)
+
+
+BlockElement = Union[
+    Heading, Paragraph, BulletList, Table, PageBreak, HorizontalRule
+]
+
+
+@dataclass
+class PageSpec:
+    """Page geometry in PDF points (72 per inch)."""
+
+    width: float = 612.0
+    height: float = 792.0
+    margin_top: float = 72.0
+    margin_right: float = 72.0
+    margin_bottom: float = 72.0
+    margin_left: float = 72.0
+
+    @classmethod
+    def letter(cls, **kw) -> "PageSpec":
+        return cls(width=612.0, height=792.0, **kw)
+
+    @classmethod
+    def a4(cls, **kw) -> "PageSpec":
+        return cls(width=595.276, height=841.89, **kw)
+
+    @classmethod
+    def legal(cls, **kw) -> "PageSpec":
+        return cls(width=612.0, height=1008.0, **kw)
+
+    @property
+    def content_width(self) -> float:
+        return self.width - self.margin_left - self.margin_right
+
+    @property
+    def content_height(self) -> float:
+        return self.height - self.margin_top - self.margin_bottom
+
+    @property
+    def content_top(self) -> float:
+        """Y coordinate of the top of the text area (PDF origin is bottom-left)."""
+        return self.height - self.margin_top
+
+    @property
+    def content_bottom(self) -> float:
+        return self.margin_bottom
+
+
+@dataclass
+class LegalFeatures:
+    """Domain features for legal and financial documents."""
+
+    watermark: str | None = None
+    watermark_opacity: float = 0.12
+    line_numbering: bool = False
+    line_number_start: int = 1
+    line_number_font_size: float = 8.0
+    bates_prefix: str | None = None
+    bates_start: int = 1
+    bates_digits: int = 6
+    bates_position: Literal["bottom-right", "bottom-left", "top-right"] = (
+        "bottom-right"
+    )
+    bates_font_size: float = 8.0
+
+    @property
+    def enabled(self) -> bool:
+        return bool(
+            self.watermark or self.line_numbering or self.bates_prefix
+        )
+
+
+@dataclass
+class Document:
+    """A complete document specification."""
+
+    title: str = ""
+    author: str = ""
+    subject: str = ""
+    keywords: str = ""
+    language: str = "en-US"
+    style: Union[str, StyleSheet] = "corporate"
+    page: PageSpec = field(default_factory=PageSpec)
+    content: list = field(default_factory=list)
+    header_text: str | None = None
+    footer_text: str | None = None
+    page_numbers: bool = True
+    tagged: bool = True
+    legal: LegalFeatures | None = None
+    creator: str = "PrecisionPDF"
+    producer: str = "PrecisionPDF"
+
+    def add(self, element: BlockElement) -> "Document":
+        """Append a block element. Returns self so calls can chain."""
+        self.content.append(element)
+        return self
+
+    def extend(self, elements: Sequence) -> "Document":
+        for element in elements:
+            self.add(element)
+        return self
+
+    # Convenience constructors that keep call sites readable.
+
+    def heading(self, text: str, level: int = 1, **kw) -> "Document":
+        return self.add(Heading(text, level=level, **kw))
+
+    def paragraph(self, content, **kw) -> "Document":
+        return self.add(Paragraph(content, **kw))
+
+    def bullets(self, items, **kw) -> "Document":
+        return self.add(BulletList(items, **kw))
+
+    def table(self, headers, rows, **kw) -> "Document":
+        return self.add(Table(headers=headers, rows=rows, **kw))
+
+    def page_break(self) -> "Document":
+        return self.add(PageBreak())
+
+    def rule(self, **kw) -> "Document":
+        return self.add(HorizontalRule(**kw))
+
+    @property
+    def stylesheet(self) -> StyleSheet:
+        if isinstance(self.style, StyleSheet):
+            return self.style
+        return resolve_preset(self.style)
+
+    def render(self) -> bytes:
+        """Render this document to PDF bytes."""
+        from .writer import render_document
+
+        return render_document(self)
+
+    def save(self, path) -> None:
+        from pathlib import Path
+
+        Path(path).write_bytes(self.render())

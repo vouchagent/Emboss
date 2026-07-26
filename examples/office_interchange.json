@@ -1,0 +1,342 @@
+{
+  "metadata": {
+    "title": "Q3 2026 Financial Report",
+    "author": "Finance Team",
+    "subject": "Quarterly results and regional performance",
+    "keywords": "",
+    "language": "en-US"
+  },
+  "page": {
+    "width_pt": 612.0,
+    "height_pt": 792.0,
+    "margin_top_pt": 72.0,
+    "margin_right_pt": 72.0,
+    "margin_bottom_pt": 72.0,
+    "margin_left_pt": 72.0
+  },
+  "content": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "Executive Summary",
+      "numbering": null,
+      "runs": [
+        {
+          "text": "Executive Summary",
+          "bold": true,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "runs": [
+        {
+          "text": "Revenue for the third quarter reached $4.53 million, an increase of 11.8% over the prior quarter and 24.1% year over year. Growth was concentrated in the enterprise segment, where annual contract value expanded materially following the platform release in July.",
+          "bold": false,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ],
+      "align": "left",
+      "indent_first": 0
+    },
+    {
+      "type": "paragraph",
+      "runs": [
+        {
+          "text": "Operating margin improved to 18.2% from 15.6%, reflecting both operating leverage and a one-time reduction in cloud infrastructure costs following the migration completed in August.",
+          "bold": false,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ],
+      "align": "left",
+      "indent_first": 0
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Regional Performance",
+      "numbering": null,
+      "runs": [
+        {
+          "text": "Regional Performance",
+          "bold": true,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "runs": [
+        {
+          "text": "All regions grew sequentially. Asia Pacific posted the strongest percentage growth from a smaller base.",
+          "bold": false,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ],
+      "align": "left",
+      "indent_first": 0
+    },
+    {
+      "type": "table",
+      "headers": [
+        {
+          "text": "Region",
+          "align": "left",
+          "bold": false
+        },
+        {
+          "text": "Q3 2026",
+          "align": "left",
+          "bold": false
+        },
+        {
+          "text": "Q2 2026",
+          "align": "left",
+          "bold": false
+        },
+        {
+          "text": "Change",
+          "align": "left",
+          "bold": false
+        }
+      ],
+      "rows": [
+        [
+          {
+            "text": "North America",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "$2,431,000.00",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "$2,180,500.00",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "+11.5%",
+            "align": "left",
+            "bold": false,
+            "background": null
+          }
+        ],
+        [
+          {
+            "text": "Europe",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "$1,204,300.50",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "$1,150,000.00",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "+4.7%",
+            "align": "left",
+            "bold": false,
+            "background": null
+          }
+        ],
+        [
+          {
+            "text": "Asia Pacific",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "$892,150.25",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "$740,900.00",
+            "align": "left",
+            "bold": false,
+            "background": null
+          },
+          {
+            "text": "+20.4%",
+            "align": "left",
+            "bold": false,
+            "background": null
+          }
+        ],
+        [
+          {
+            "text": "Total",
+            "align": "left",
+            "bold": true,
+            "background": null
+          },
+          {
+            "text": "$4,527,450.75",
+            "align": "decimal",
+            "bold": true,
+            "background": null
+          },
+          {
+            "text": "$4,071,400.00",
+            "align": "decimal",
+            "bold": true,
+            "background": null
+          },
+          {
+            "text": "+11.2%",
+            "align": "right",
+            "bold": true,
+            "background": null
+          }
+        ]
+      ],
+      "caption": null,
+      "stripe": true
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Risk Factors",
+      "numbering": null,
+      "runs": [
+        {
+          "text": "Risk Factors",
+          "bold": true,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ]
+    },
+    {
+      "type": "list",
+      "bullet": "•",
+      "items": [
+        {
+          "runs": [
+            {
+              "text": "Regulatory approval timelines in the European Union remain uncertain",
+              "bold": false,
+              "italic": false,
+              "font_size": null,
+              "font_family": null,
+              "color": null,
+              "link": null
+            }
+          ]
+        },
+        {
+          "runs": [
+            {
+              "text": "Integration complexity following the Q2 acquisition",
+              "bold": false,
+              "italic": false,
+              "font_size": null,
+              "font_family": null,
+              "color": null,
+              "link": null
+            }
+          ]
+        },
+        {
+          "runs": [
+            {
+              "text": "Currency exposure in emerging markets, partially hedged",
+              "bold": false,
+              "italic": false,
+              "font_size": null,
+              "font_family": null,
+              "color": null,
+              "link": null
+            }
+          ]
+        },
+        {
+          "runs": [
+            {
+              "text": "Concentration risk: the top three customers represent 31% of revenue",
+              "bold": false,
+              "italic": false,
+              "font_size": null,
+              "font_family": null,
+              "color": null,
+              "link": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Outlook",
+      "numbering": null,
+      "runs": [
+        {
+          "text": "Outlook",
+          "bold": true,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "runs": [
+        {
+          "text": "Management reiterates full-year guidance of $18.5 to $19.2 million in revenue, with operating margin expected to remain above 17%.",
+          "bold": false,
+          "italic": false,
+          "font_size": null,
+          "font_family": null,
+          "color": null,
+          "link": null
+        }
+      ],
+      "align": "left",
+      "indent_first": 0
+    }
+  ]
+}

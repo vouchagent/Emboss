@@ -1,0 +1,634 @@
+"""Layout: measure content, then place it on pages under constraints.
+
+Measurement happens before any placement, so the engine always knows how
+tall a block is and where it may legally split. Overflow is therefore
+impossible by construction rather than detected after the fact.
+
+Pagination enforces widow/orphan minimums, keep-with-next for headings,
+keep-together for atomic blocks, and header repetition for split tables.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from ..spec import (
+    BulletList, Heading, HorizontalRule, PageBreak, Paragraph, Table,
+)
+from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
+
+__all__ = [
+    "LaidOutLine", "MeasuredBlock", "PlacedBlock", "Page",
+    "LayoutEngine", "TableLayout",
+]
+
+
+@dataclass
+class LaidOutLine:
+    """One line of text with its resolved geometry."""
+
+    fragments: list          # (text, run, x_offset) triples
+    width: float
+    height: float
+    ascent: float
+    ratio: float = 0.0
+    is_last: bool = False
+    hyphenated: bool = False
+
+
+@dataclass
+class TableLayout:
+    """Resolved table geometry: column widths and per-cell line content."""
+
+    column_widths: list
+    header_height: float
+    row_heights: list
+    header_lines: list        # per column: list[LaidOutLine]
+    row_lines: list           # per row, per column: list[LaidOutLine]
+
+
+@dataclass
+class MeasuredBlock:
+    """A content block with computed dimensions and legal split points."""
+
+    element: object
+    height: float
+    style: object
+    lines: list = field(default_factory=list)
+    can_split: bool = False
+    keep_with_next: bool = False
+    space_before: float = 0.0
+    space_after: float = 0.0
+    table: TableLayout | None = None
+    list_items: list = field(default_factory=list)
+
+    def height_of_lines(self, count: int) -> float:
+        return sum(line.height for line in self.lines[:count])
+
+    def lines_fitting(self, available: float) -> int:
+        used = 0.0
+        for index, line in enumerate(self.lines):
+            if used + line.height > available:
+                return index
+            used += line.height
+        return len(self.lines)
+
+
+@dataclass
+class PlacedBlock:
+    """A measured block positioned on a page."""
+
+    block: MeasuredBlock
+    x: float
+    y: float                  # top edge, PDF coordinates
+    height: float
+    lines: list = field(default_factory=list)
+    is_continuation: bool = False
+    table_rows: list | None = None
+    include_table_header: bool = True
+
+
+@dataclass
+class Page:
+    """One output page."""
+
+    number: int
+    blocks: list = field(default_factory=list)
+    cursor: float = 0.0
+    spec: object = None
+
+    def remaining(self) -> float:
+        return self.cursor - self.spec.content_bottom
+
+
+class LayoutEngine:
+    """Measures content and composes it into pages."""
+
+    # A heading must be followed by at least this much of its next block,
+    # otherwise it moves to the next page with it.
+    KEEP_WITH_NEXT_LOOKAHEAD = 34.0
+    MIN_WIDOW_LINES = 2
+    MIN_ORPHAN_LINES = 2
+    MIN_TABLE_ROWS_PER_PAGE = 2
+
+    def __init__(self, fonts, sheet, hyphenator=None, breaker=None):
+        self.fonts = fonts
+        self.sheet = sheet
+        self.hyphenator = hyphenator
+        self.breaker = breaker or LineBreaker()
+
+    # -- font resolution --
+
+    def _metrics(self, style, run=None):
+        family = (run.font_family if run and run.font_family
+                  else style.require("font_family"))
+        bold = run.bold if run and run.bold else style.require("bold")
+        italic = run.italic if run and run.italic else style.require("italic")
+        return self.fonts.resolve(family, bold=bold, italic=italic)
+
+    def _size(self, style, run=None) -> float:
+        if run is not None and run.font_size:
+            return run.font_size
+        return style.require("font_size")
+
+    # -- measurement --
+
+    def measure(self, element, width: float) -> MeasuredBlock:
+        if isinstance(element, Heading):
+            return self._measure_text(
+                element, element.runs,
+                self.sheet.resolved(self.sheet.for_heading(element.level),
+                                    element.style),
+                width,
+            )
+        if isinstance(element, Paragraph):
+            return self._measure_text(
+                element, element.runs,
+                self.sheet.resolved(self.sheet.body, element.style),
+                width,
+            )
+        if isinstance(element, BulletList):
+            return self._measure_list(element, width)
+        if isinstance(element, Table):
+            return self._measure_table(element, width)
+        if isinstance(element, HorizontalRule):
+            return MeasuredBlock(
+                element=element,
+                height=element.thickness,
+                style=self.sheet.resolved(self.sheet.body),
+                space_before=element.space_before,
+                space_after=element.space_after,
+            )
+        if isinstance(element, PageBreak):
+            return MeasuredBlock(
+                element=element, height=0.0,
+                style=self.sheet.resolved(self.sheet.body),
+            )
+        raise TypeError(f"cannot measure {type(element).__name__}")
+
+    def _layout_runs(self, runs, style, width: float,
+                     first_indent: float = 0.0) -> list:
+        """Break runs into positioned lines within `width`."""
+        align = style.require("align")
+        justified = align == "justify"
+        hyphenate = bool(style.hyphenate) and self.hyphenator is not None
+
+        items = build_items(
+            runs,
+            metrics_for=lambda r: self._metrics(style, r),
+            size_for=lambda r: self._size(style, r),
+            hyphenator=self.hyphenator,
+            justified=justified,
+            hyphenate=hyphenate,
+        )
+
+        def width_for(line_number: int) -> float:
+            return width - (first_indent if line_number == 0 else 0.0)
+
+        raw_lines = self.breaker.break_paragraph(items, width_for)
+
+        base_metrics = self._metrics(style)
+        base_size = self._size(style)
+        multiplier = style.require("line_height")
+        line_height = base_metrics.line_height(base_size, multiplier)
+        ascent = base_metrics.ascent(base_size)
+
+        laid_out = []
+        for index, line in enumerate(raw_lines):
+            available = width_for(index)
+            fragments, cursor = [], 0.0
+
+            natural = line.width
+            glue_count = sum(1 for it in line.items if isinstance(it, Glue))
+            extra = 0.0
+            if justified and not line.is_last and glue_count:
+                slack = available - natural
+                if line.hyphenated:
+                    slack -= 0.0
+                extra = slack / glue_count
+
+            for item in line.items:
+                if isinstance(item, Box):
+                    if item.text:
+                        fragments.append((item.text, runs[item.run_index], cursor))
+                    cursor += item.width
+                elif isinstance(item, Glue):
+                    cursor += item.width + extra
+
+            content_width = cursor
+            if line.hyphenated and fragments:
+                text, run, offset = fragments[-1]
+                fragments[-1] = (text + "-", run, offset)
+                metrics = self._metrics(style, run)
+                content_width += metrics.text_width("-", self._size(style, run))
+
+            offset = 0.0
+            if not justified or line.is_last:
+                if align == "center":
+                    offset = (available - content_width) / 2.0
+                elif align == "right":
+                    offset = available - content_width
+            if index == 0 and first_indent:
+                offset += first_indent
+
+            if offset:
+                fragments = [(t, r, x + offset) for t, r, x in fragments]
+
+            laid_out.append(
+                LaidOutLine(
+                    fragments=fragments,
+                    width=content_width,
+                    height=line_height,
+                    ascent=ascent,
+                    ratio=line.ratio,
+                    is_last=line.is_last,
+                    hyphenated=line.hyphenated,
+                )
+            )
+        return laid_out
+
+    def _measure_text(self, element, runs, style, width: float) -> MeasuredBlock:
+        indent_left = style.require("indent_left")
+        indent_right = style.require("indent_right")
+        usable = width - indent_left - indent_right
+        lines = self._layout_runs(
+            runs, style, usable, first_indent=style.require("indent_first")
+        )
+        for run in runs:
+            self._metrics(style, run).note_usage(run.text)
+
+        return MeasuredBlock(
+            element=element,
+            height=sum(line.height for line in lines),
+            style=style,
+            lines=lines,
+            can_split=len(lines) > (self.MIN_WIDOW_LINES + self.MIN_ORPHAN_LINES - 1)
+            and not style.require("keep_together"),
+            keep_with_next=style.require("keep_with_next"),
+            space_before=style.require("space_before"),
+            space_after=style.require("space_after"),
+        )
+
+    def _measure_list(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.list_item, element.style)
+        indent = style.require("indent_left")
+        metrics = self._metrics(style)
+        size = self._size(style)
+        bullet_width = metrics.text_width(element.bullet + " ", size)
+        usable = width - indent - bullet_width
+
+        items, total = [], 0.0
+        for runs in element.item_runs:
+            lines = self._layout_runs(runs, style, usable)
+            for run in runs:
+                self._metrics(style, run).note_usage(run.text)
+            metrics.note_usage(element.bullet)
+            height = sum(line.height for line in lines)
+            items.append(lines)
+            total += height + style.require("space_after")
+
+        total -= style.require("space_after") if items else 0.0
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=style.require("space_before"),
+            space_after=style.require("space_after") + 2.0,
+            list_items=items,
+        )
+
+    # -- tables --
+
+    def _measure_table(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.table_cell, element.style)
+        header_style = self.sheet.resolved(self.sheet.table_header)
+        pad_x = self.sheet.table_cell_padding_x
+        pad_y = self.sheet.table_cell_padding_y
+
+        columns = element.column_count
+        if columns == 0:
+            return MeasuredBlock(element=element, height=0.0, style=style)
+
+        widths = self._solve_columns(element, style, header_style, width, pad_x)
+
+        header_cells = element.header_cells
+        header_lines, header_height = [], 0.0
+        if header_cells:
+            for index, cell in enumerate(header_cells):
+                available = widths[index] - 2 * pad_x
+                cell_style = header_style.with_(align=_cell_align(cell.align))
+                lines = self._layout_runs(cell.runs, cell_style, available)
+                for run in cell.runs:
+                    self._metrics(cell_style, run).note_usage(run.text)
+                header_lines.append(lines)
+                header_height = max(
+                    header_height, sum(l.height for l in lines)
+                )
+            header_height += 2 * pad_y
+
+        row_lines, row_heights = [], []
+        for row in element.body_rows:
+            cells, height = [], 0.0
+            for index in range(columns):
+                cell = row[index] if index < len(row) else None
+                if cell is None:
+                    cells.append([])
+                    continue
+                available = widths[index] - 2 * pad_x
+                cell_style = style.with_(align=_cell_align(cell.align))
+                lines = self._layout_runs(cell.runs, cell_style, available)
+                for run in cell.runs:
+                    self._metrics(cell_style, run).note_usage(run.text)
+                cells.append(lines)
+                height = max(height, sum(l.height for l in lines))
+            row_lines.append(cells)
+            row_heights.append(height + 2 * pad_y)
+
+        layout = TableLayout(
+            column_widths=widths,
+            header_height=header_height,
+            row_heights=row_heights,
+            header_lines=header_lines,
+            row_lines=row_lines,
+        )
+        total = header_height + sum(row_heights)
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=len(row_heights) > self.MIN_TABLE_ROWS_PER_PAGE,
+            space_before=8.0,
+            space_after=12.0,
+            table=layout,
+        )
+
+    def _solve_columns(self, element, style, header_style,
+                       width: float, pad_x: float) -> list:
+        """Compute column widths from actual content metrics.
+
+        Minimum width is the widest single word (so text never overflows);
+        preferred width is the longest unwrapped cell. Available space is
+        distributed between the two.
+        """
+        columns = element.column_count
+        if element.column_widths:
+            total = sum(element.column_widths)
+            return [width * (w / total) for w in element.column_widths]
+
+        minimums = [0.0] * columns
+        preferred = [0.0] * columns
+
+        def consider(index: int, text: str, cell_style) -> None:
+            if index >= columns:
+                return
+            metrics = self._metrics(cell_style)
+            size = self._size(cell_style)
+            full = metrics.text_width(text, size) + 2 * pad_x
+            preferred[index] = max(preferred[index], full)
+            widest_word = max(
+                (metrics.text_width(word, size) for word in text.split()),
+                default=0.0,
+            )
+            minimums[index] = max(minimums[index], widest_word + 2 * pad_x)
+
+        for index, cell in enumerate(element.header_cells):
+            consider(index, cell.plain_text, header_style)
+        for row in element.body_rows:
+            for index, cell in enumerate(row):
+                consider(index, cell.plain_text, style)
+
+        for index in range(columns):
+            if preferred[index] == 0.0:
+                preferred[index] = minimums[index] = 36.0
+
+        total_preferred = sum(preferred)
+        if total_preferred <= width:
+            slack = width - total_preferred
+            return [w + slack * (w / total_preferred) for w in preferred]
+
+        total_minimum = sum(minimums)
+        if total_minimum <= width:
+            slack = width - total_minimum
+            spread = total_preferred - total_minimum
+            return [
+                minimums[i] + slack * ((preferred[i] - minimums[i]) / spread)
+                if spread > 0 else minimums[i] + slack / columns
+                for i in range(columns)
+            ]
+
+        # Content genuinely cannot fit: scale everything down proportionally
+        # and let cell text wrap.
+        return [width * (m / total_minimum) for m in minimums]
+
+    # -- pagination --
+
+    def paginate(self, blocks: list, page_spec) -> list:
+        pages: list = []
+        current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
+        left = page_spec.margin_left
+
+        index = 0
+        while index < len(blocks):
+            block = blocks[index]
+
+            if isinstance(block.element, PageBreak):
+                pages.append(current)
+                current = Page(number=len(pages) + 1,
+                               cursor=page_spec.content_top, spec=page_spec)
+                index += 1
+                continue
+
+            if block.style.page_break_before and current.blocks:
+                pages.append(current)
+                current = Page(number=len(pages) + 1,
+                               cursor=page_spec.content_top, spec=page_spec)
+
+            gap = block.space_before if current.blocks else 0.0
+            available = current.remaining() - gap
+
+            # Heading that would be stranded at the foot of a page.
+            if block.keep_with_next and index + 1 < len(blocks):
+                nxt = blocks[index + 1]
+                needed = block.height + min(
+                    nxt.height, self.KEEP_WITH_NEXT_LOOKAHEAD
+                )
+                if needed > available and current.blocks:
+                    pages.append(current)
+                    current = Page(number=len(pages) + 1,
+                                   cursor=page_spec.content_top, spec=page_spec)
+                    gap = 0.0
+                    available = current.remaining()
+
+            if block.height <= available:
+                current.cursor -= gap
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block, x=left, y=current.cursor,
+                        height=block.height, lines=block.lines,
+                        table_rows=list(range(len(block.table.row_heights)))
+                        if block.table else None,
+                    )
+                )
+                current.cursor -= block.height + block.space_after
+                index += 1
+                continue
+
+            if block.table is not None and block.can_split:
+                current, tail, consumed = self._split_table(
+                    block, current, pages, page_spec, gap
+                )
+                if tail is not None:
+                    blocks[index] = tail
+                elif consumed:
+                    index += 1
+                continue
+
+            if block.can_split and block.lines:
+                fitting = block.lines_fitting(available - gap)
+                remaining = len(block.lines) - fitting
+
+                if (fitting < self.MIN_ORPHAN_LINES
+                        or remaining < self.MIN_WIDOW_LINES):
+                    if fitting >= self.MIN_ORPHAN_LINES and remaining > 0:
+                        fitting = max(
+                            self.MIN_ORPHAN_LINES,
+                            len(block.lines) - self.MIN_WIDOW_LINES,
+                        )
+                        if block.height_of_lines(fitting) > available - gap:
+                            fitting = 0
+                    else:
+                        fitting = 0
+
+                if fitting == 0:
+                    if not current.blocks:
+                        # Block is taller than an empty page: place what
+                        # fits rather than looping forever.
+                        fitting = max(1, block.lines_fitting(available))
+                    else:
+                        pages.append(current)
+                        current = Page(number=len(pages) + 1,
+                                       cursor=page_spec.content_top,
+                                       spec=page_spec)
+                        continue
+
+                head = block.lines[:fitting]
+                current.cursor -= gap
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block, x=left, y=current.cursor,
+                        height=sum(l.height for l in head), lines=head,
+                    )
+                )
+                pages.append(current)
+                current = Page(number=len(pages) + 1,
+                               cursor=page_spec.content_top, spec=page_spec)
+
+                tail = MeasuredBlock(
+                    element=block.element,
+                    height=sum(l.height for l in block.lines[fitting:]),
+                    style=block.style,
+                    lines=block.lines[fitting:],
+                    can_split=True,
+                    space_before=0.0,
+                    space_after=block.space_after,
+                )
+                blocks[index] = tail
+                continue
+
+            # Atomic block that does not fit: move it to a fresh page.
+            if current.blocks:
+                pages.append(current)
+                current = Page(number=len(pages) + 1,
+                               cursor=page_spec.content_top, spec=page_spec)
+                continue
+
+            current.blocks.append(
+                PlacedBlock(
+                    block=block, x=left, y=current.cursor,
+                    height=block.height, lines=block.lines,
+                    table_rows=list(range(len(block.table.row_heights)))
+                    if block.table else None,
+                )
+            )
+            current.cursor -= block.height + block.space_after
+            index += 1
+
+        if current.blocks or not pages:
+            pages.append(current)
+        return pages
+
+    def _split_table(self, block, current, pages, page_spec, gap):
+        """Place as many table rows as fit, repeating the header.
+
+        Returns (active_page, tail_block_or_None, consumed). When a tail
+        block is returned the caller substitutes it for the original and
+        re-runs placement, so no layout state lives outside this call.
+        """
+        layout = block.table
+        repeat = getattr(block.element, "repeat_header", True)
+        available = current.remaining() - gap - layout.header_height
+
+        rows, used = [], 0.0
+        for row_index, height in enumerate(layout.row_heights):
+            if used + height > available:
+                break
+            rows.append(row_index)
+            used += height
+
+        # Too little room for a meaningful chunk: start a fresh page and
+        # retry the whole table there.
+        if len(rows) < self.MIN_TABLE_ROWS_PER_PAGE and current.blocks:
+            pages.append(current)
+            fresh = Page(number=len(pages) + 1, cursor=page_spec.content_top,
+                         spec=page_spec)
+            return fresh, None, False
+
+        if not rows:
+            rows = [0]
+            used = layout.row_heights[0]
+
+        current.cursor -= gap
+        current.blocks.append(
+            PlacedBlock(
+                block=block, x=page_spec.margin_left, y=current.cursor,
+                height=layout.header_height + used,
+                table_rows=rows, include_table_header=True,
+            )
+        )
+        current.cursor -= layout.header_height + used
+
+        remaining = list(range(len(rows), len(layout.row_heights)))
+        if not remaining:
+            current.cursor -= block.space_after
+            return current, None, True
+
+        pages.append(current)
+        page = Page(number=len(pages) + 1, cursor=page_spec.content_top,
+                    spec=page_spec)
+
+        tail_layout = TableLayout(
+            column_widths=layout.column_widths,
+            header_height=layout.header_height if repeat else 0.0,
+            row_heights=[layout.row_heights[i] for i in remaining],
+            header_lines=layout.header_lines if repeat else [],
+            row_lines=[layout.row_lines[i] for i in remaining],
+        )
+        tail = MeasuredBlock(
+            element=block.element,
+            height=tail_layout.header_height + sum(tail_layout.row_heights),
+            style=block.style,
+            can_split=len(remaining) > self.MIN_TABLE_ROWS_PER_PAGE,
+            space_before=0.0,
+            space_after=block.space_after,
+            table=tail_layout,
+        )
+        return page, tail, False
+
+
+def _cell_align(align: str) -> str:
+    """Map cell alignment to a text alignment the line layout understands."""
+    if align == "decimal":
+        return "right"
+    return align
