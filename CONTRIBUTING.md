@@ -10,7 +10,22 @@ cd Emboss
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+pre-commit install
 pytest
+```
+
+## Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to enforce code quality before every commit. Once installed (`pre-commit install`), hooks run automatically on `git commit`. They include:
+
+- **Ruff** lint + format
+- **Mypy** type checking
+- Trailing whitespace, YAML/TOML validation, large file guard, merge conflict detection, debug statement detection
+
+To run all hooks manually against the full codebase:
+
+```bash
+pre-commit run --all-files
 ```
 
 ## Code Standards

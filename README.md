@@ -1,5 +1,9 @@
 # Emboss
 
+[![CI](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml/badge.svg)](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
+
 Precision PDF generation for Python. Describe a document with a declarative spec; the engine handles typography, layout, accessibility tagging, and the complete PDF structure. Output is deterministic and byte-identical across runs.
 
 ```python
