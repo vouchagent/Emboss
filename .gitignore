@@ -11,3 +11,5 @@ build/
 .pytest_cache/
 .ruff_cache/
 examples/output/
+CLAUDE.md
+.claude/
