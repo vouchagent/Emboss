@@ -31,7 +31,8 @@ _ROLE_MAP = {
     "P": "P", "L": "L", "LI": "LI", "LBody": "LBody", "Lbl": "Lbl",
     "Table": "Table", "THead": "THead", "TBody": "TBody",
     "TR": "TR", "TH": "TH", "TD": "TD",
-    "Caption": "Caption", "Figure": "Figure", "Document": "Document",
+    "Caption": "Caption", "Figure": "Figure", "Code": "Code",
+    "Document": "Document",
 }
 
 

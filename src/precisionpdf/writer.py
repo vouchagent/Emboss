@@ -20,8 +20,9 @@ from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
-    BulletList, Callout, Chart, Document, Footnote, Heading, HorizontalRule,
-    Image, PageBreak, Paragraph, Table,
+    BibliographyBlock, BulletList, Callout, Chart, CodeBlock, Document,
+    Footnote, Heading, HorizontalRule, Image, MathBlock, PageBreak,
+    Paragraph, Table,
 )
 from .typography.font_metrics import FontRegistry
 from .typography.hyphenation import Hyphenator
@@ -53,7 +54,7 @@ class Renderer:
     """Owns one render pass over one document."""
 
     def __init__(self, document: Document, strict: bool = False) -> None:
-        self.fonts = FontRegistry()
+        self.fonts = document.fonts
         self.validator = ConstraintValidator(fonts=self.fonts, strict=strict)
         self.source = document
         self.strict = strict
@@ -271,6 +272,18 @@ class Renderer:
                 self._draw_chart(
                     stream, placed, page_index, root, font_registry
                 )
+            elif isinstance(element, CodeBlock):
+                self._draw_code_block(
+                    stream, placed, page_index, root, font_registry
+                )
+            elif isinstance(element, MathBlock):
+                self._draw_math(
+                    stream, placed, page_index, root, font_registry
+                )
+            elif isinstance(element, BibliographyBlock):
+                self._draw_bibliography(
+                    stream, placed, page_index, root, font_registry
+                )
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, document, sheet)
 
@@ -336,6 +349,7 @@ class Renderer:
                     text, key, size,
                     placed.x + indent + offset, baseline, color,
                     kern_pairs=metrics.kern_pairs(text),
+                    gid_map=metrics.gid_map,
                 )
             y -= line.height
 
@@ -368,6 +382,7 @@ class Renderer:
                 stream.text_line(
                     element.bullet, key, size,
                     placed.x + indent, y - lines[0].ascent, color,
+                    gid_map=metrics.gid_map,
                 )
             stream.end_marked()
 
@@ -388,6 +403,7 @@ class Renderer:
                         placed.x + indent + bullet_width + offset,
                         baseline, run.color or color,
                         kern_pairs=run_metrics.kern_pairs(text),
+                        gid_map=run_metrics.gid_map,
                     )
                 y -= line.height
             stream.end_marked()
@@ -504,6 +520,7 @@ class Renderer:
                     text, key, size, x + offset, baseline,
                     run.color or style.require("color"),
                     kern_pairs=metrics.kern_pairs(text),
+                    gid_map=metrics.gid_map,
                 )
             cursor -= line.height
 
@@ -562,7 +579,10 @@ class Renderer:
             cap_y = y - cap_size - 2.0
             color = style.require("color")
             cap_x = x + (display_w - metrics.text_width(element.caption, cap_size)) / 2
-            stream.text_line(element.caption, key, cap_size, cap_x, cap_y, color)
+            stream.text_line(
+                element.caption, key, cap_size, cap_x, cap_y, color,
+                gid_map=metrics.gid_map,
+            )
 
         stream.end_marked()
 
@@ -632,7 +652,10 @@ class Renderer:
 
         y = placed.y
         baseline = y - placed.lines[0].ascent if placed.lines else y
-        stream.text_line(marker, key, size, placed.x, baseline, color)
+        stream.text_line(
+            marker, key, size, placed.x, baseline, color,
+            gid_map=metrics.gid_map,
+        )
 
         for line in placed.lines:
             baseline = y - line.ascent
@@ -644,6 +667,7 @@ class Renderer:
                     text, run_key, run_size,
                     placed.x + marker_width + offset,
                     baseline, run.color or color,
+                    gid_map=run_metrics.gid_map,
                 )
             y -= line.height
 
@@ -690,6 +714,7 @@ class Renderer:
                 element.icon, key, icon_size,
                 content_x, y - metrics.ascent(icon_size),
                 element.border_color,
+                gid_map=metrics.gid_map,
             )
             content_x += icon_size + 4.0
 
@@ -703,10 +728,218 @@ class Renderer:
                     text, run_key, run_size,
                     content_x + offset, baseline,
                     run.color or color,
+                    gid_map=run_metrics.gid_map,
                 )
             y -= line.height
 
         stream.end_marked()
+
+    def _draw_code_block(self, stream, placed, page_index, root,
+                         registry) -> None:
+        from .code_highlight import tokenize, colorize, THEME_BACKGROUNDS
+
+        element = placed.block.element
+        style = placed.block.style
+        code_size = style.require("font_size") * 0.85
+
+        metrics = self.fonts.resolve("Courier", bold=False, italic=False)
+        key = self._font_key(metrics, registry)
+        line_height = metrics.line_height(code_size, 1.4)
+        padding = 10.0
+
+        bg_color = THEME_BACKGROUNDS.get(element.theme, "1e1e1e")
+        content_width = style.require("font_size") * 30
+        stream.begin_artifact("Background")
+        stream.rect(
+            placed.x, placed.y - placed.height,
+            content_width, placed.height,
+            fill=bg_color,
+        )
+        stream.end_marked()
+
+        code_el = StructureElement(tag="Code")
+        root.children.append(code_el)
+        mcid = stream.next_mcid()
+        code_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Code", mcid)
+
+        lines = element.code.split("\n")
+        gutter_width = 0.0
+        if element.line_numbers:
+            max_num = str(element.start_line + len(lines) - 1)
+            gutter_width = metrics.text_width(max_num + "  ", code_size)
+
+        y = placed.y - padding
+        for i, line_text in enumerate(lines):
+            line_num = element.start_line + i
+            baseline = y - metrics.ascent(code_size)
+
+            if element.highlight_lines and line_num in element.highlight_lines:
+                stream.save()
+                stream.rect(
+                    placed.x, y - line_height,
+                    content_width, line_height,
+                    fill="ffffff",
+                )
+                stream.restore()
+
+            if element.line_numbers:
+                num_str = str(line_num)
+                num_width = metrics.text_width(num_str, code_size)
+                num_x = placed.x + padding + gutter_width - num_width - metrics.text_width("  ", code_size)
+                stream.text_line(
+                    num_str, key, code_size,
+                    num_x, baseline, "6a737d",
+                    gid_map=metrics.gid_map,
+                )
+
+            tokens = tokenize(line_text, element.language)
+            colored = colorize(tokens, element.theme)
+
+            x = placed.x + padding + gutter_width
+            for text, color in colored:
+                if not text:
+                    continue
+                stream.text_line(
+                    text, key, code_size,
+                    x, baseline, color,
+                    gid_map=metrics.gid_map,
+                )
+                x += metrics.text_width(text, code_size)
+
+            y -= line_height
+
+        stream.end_marked()
+
+        if element.caption:
+            body_metrics, body_size, body_key = self._resolve_font(
+                style, None, registry
+            )
+            cap_size = body_size * 0.85
+            cap_y = placed.y - placed.height + cap_size + 2.0
+            cap_color = style.require("color")
+            stream.text_line(
+                element.caption, body_key, cap_size,
+                placed.x, cap_y - cap_size, cap_color,
+                gid_map=body_metrics.gid_map,
+            )
+
+    def _draw_math(self, stream, placed, page_index, root, registry) -> None:
+        from .math_render import MathExpression, render_math
+
+        element = placed.block.element
+        style = placed.block.style
+
+        formula_el = StructureElement(tag="Formula")
+        root.children.append(formula_el)
+
+        mcid = stream.next_mcid()
+        formula_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Formula", mcid)
+
+        metrics, size, key = self._resolve_font(style, None, registry)
+        color = style.require("color")
+
+        if element.display:
+            size *= 1.2
+
+        italic_metrics = self.fonts.resolve(
+            style.require("font_family"), bold=False, italic=True
+        )
+        italic_key = self._font_key(italic_metrics, registry)
+
+        expr = MathExpression(source=element.source, display=element.display)
+        baseline_y = placed.y - size
+        content_width = style.require("font_size") * 30
+
+        from .math_render import parse_math, MathLayoutEngine
+        node = parse_math(element.source)
+        engine = MathLayoutEngine(base_size=size)
+        layout = engine.layout(node)
+
+        x = placed.x
+        if element.display:
+            x = placed.x + (content_width - layout.width) / 2
+
+        render_math(stream, expr, x, baseline_y, key, size, color,
+                    italic_key=italic_key)
+
+        if element.caption:
+            cap_size = size * 0.7
+            cap_y = baseline_y - layout.depth - cap_size - 4.0
+            cap_width = metrics.text_width(element.caption, cap_size)
+            cap_x = placed.x + (content_width - cap_width) / 2
+            stream.text_line(
+                element.caption, key, cap_size, cap_x, cap_y, color,
+                gid_map=metrics.gid_map,
+            )
+
+        stream.end_marked()
+
+    def _draw_bibliography(self, stream, placed, page_index, root,
+                           registry) -> None:
+        from .bibliography import format_bibliography
+
+        element = placed.block.element
+        style = placed.block.style
+        metrics, size, key = self._resolve_font(style, None, registry)
+        color = style.require("color")
+
+        bib_el = StructureElement(tag="Div")
+        root.children.append(bib_el)
+
+        y = placed.y
+
+        if element.title:
+            heading_style = self.source.stylesheet.resolved(
+                self.source.stylesheet.for_heading(element.heading_level),
+                element.style,
+            )
+            h_metrics, h_size, h_key = self._resolve_font(
+                heading_style, None, registry
+            )
+            h_color = heading_style.require("color")
+            h_tag = f"H{element.heading_level}"
+
+            h_el = StructureElement(tag=h_tag)
+            bib_el.children.append(h_el)
+            mcid = stream.next_mcid()
+            h_el.add_mcid(page_index, mcid)
+            stream.begin_marked(h_tag, mcid)
+
+            baseline = y - h_metrics.ascent(h_size)
+            stream.text_line(
+                element.title, h_key, h_size,
+                placed.x, baseline, h_color,
+                gid_map=h_metrics.gid_map,
+            )
+            y -= h_metrics.line_height(
+                h_size, heading_style.require("line_height")
+            )
+            y -= heading_style.require("space_after")
+            stream.end_marked()
+
+        entries = format_bibliography(element.citations, element.bib_style)
+        line_h = metrics.line_height(size, style.require("line_height"))
+        indent = style.require("indent_left")
+
+        for entry_text in entries:
+            p_el = StructureElement(tag="P")
+            bib_el.children.append(p_el)
+            mcid = stream.next_mcid()
+            p_el.add_mcid(page_index, mcid)
+            stream.begin_marked("P", mcid)
+
+            baseline = y - metrics.ascent(size)
+            stream.text_line(
+                entry_text, key, size,
+                placed.x + indent, baseline, color,
+                kern_pairs=metrics.kern_pairs(entry_text),
+                gid_map=metrics.gid_map,
+            )
+            y -= line_h
+            y -= style.require("space_after") * 0.5
+            stream.end_marked()
 
     def _draw_watermark(self, stream, document, sheet, legal,
                         registry) -> None:
@@ -740,12 +973,14 @@ class Renderer:
         spec = document.page
         legal = document.legal
 
+        gmap = metrics.gid_map
+
         if document.header_text:
             stream.begin_artifact("Header")
             stream.text_line(
                 document.header_text, key, size,
                 spec.margin_left, spec.height - spec.margin_top + 22.0,
-                color,
+                color, gid_map=gmap,
             )
             stream.end_marked()
 
@@ -754,7 +989,7 @@ class Renderer:
             stream.begin_artifact("Footer")
             stream.text_line(
                 document.footer_text, key, size,
-                spec.margin_left, footer_y, color,
+                spec.margin_left, footer_y, color, gid_map=gmap,
             )
             stream.end_marked()
 
@@ -765,6 +1000,7 @@ class Renderer:
             stream.text_line(
                 label, key, size,
                 spec.width - spec.margin_right - width, footer_y, color,
+                gid_map=gmap,
             )
             stream.end_marked()
 
@@ -783,7 +1019,9 @@ class Renderer:
                 x = spec.width - spec.margin_right - width
                 y = footer_y - 11.0
             stream.begin_artifact("Footer")
-            stream.text_line(label, key, bates_size, x, y, "44403c")
+            stream.text_line(
+                label, key, bates_size, x, y, "44403c", gid_map=gmap,
+            )
             stream.end_marked()
 
         if legal and legal.line_numbering:
@@ -821,6 +1059,7 @@ class Renderer:
         slots = int(spec.content_height // pitch)
         x = spec.margin_left - 14.0
 
+        gmap = metrics.gid_map
         stream.begin_artifact("LineNumber")
         for slot in range(slots):
             number = legal.line_number_start + slot
@@ -828,6 +1067,6 @@ class Renderer:
             width = metrics.text_width(label, size)
             y = spec.content_top - (slot + 1) * pitch + pitch * 0.25
             stream.text_line(
-                label, key, size, x - width, y, color,
+                label, key, size, x - width, y, color, gid_map=gmap,
             )
         stream.end_marked()

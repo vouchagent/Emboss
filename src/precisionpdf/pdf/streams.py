@@ -7,6 +7,9 @@ operators carrying an MCID, which is what links the visible page to the
 PDF/UA structure tree. Decorative material (rules, watermarks, running
 heads, Bates numbers) is marked as /Artifact so assistive technology
 skips it.
+
+Embedded fonts use CID (2-byte hex) encoding via Identity-H; base-14
+fonts use single-byte WinAnsi literal strings.
 """
 
 from __future__ import annotations
@@ -37,13 +40,27 @@ def _escape_text(text: str) -> bytes:
             out.append(0x5C)
             out.append(code)
         elif code < 32 or code > 126:
-            # WinAnsi single-byte fallback; codepoints beyond it are
-            # replaced rather than emitted as invalid bytes.
             out.extend(f"\\{min(code, 255):03o}".encode("ascii"))
         else:
             out.append(code)
     out.append(0x29)
     return bytes(out)
+
+
+def _cid_encode_text(text: str, gid_map: dict) -> bytes:
+    """Encode text as a hex string of 2-byte glyph IDs for CIDFont."""
+    parts = []
+    for ch in text:
+        gid = gid_map.get(ord(ch), 0)
+        parts.append(f"{gid:04X}")
+    return b"<" + "".join(parts).encode("ascii") + b">"
+
+
+def _encode_text(text: str, gid_map: dict | None) -> bytes:
+    """Encode text for a PDF content stream, choosing the right mode."""
+    if gid_map is not None:
+        return _cid_encode_text(text, gid_map)
+    return _escape_text(text)
 
 
 @dataclass
@@ -111,8 +128,13 @@ class ContentStream:
         y: float,
         color: str,
         kern_pairs=None,
+        gid_map=None,
     ) -> None:
-        """Draw one run of text at (x, y), applying kerning via TJ."""
+        """Draw one run of text at (x, y).
+
+        When *gid_map* is provided (embedded CIDFont), text is encoded
+        as 2-byte hex glyph IDs. Otherwise WinAnsi literal strings are used.
+        """
         if not text:
             return
         self.raw(b"BT")
@@ -121,12 +143,12 @@ class ContentStream:
         self.raw(b" ".join([self._num(x), self._num(y), b"Td"]))
 
         if kern_pairs:
-            self.raw(self._kerned_array(text, kern_pairs) + b" TJ")
+            self.raw(self._kerned_array(text, kern_pairs, gid_map) + b" TJ")
         else:
-            self.raw(_escape_text(text) + b" Tj")
+            self.raw(_encode_text(text, gid_map) + b" Tj")
         self.raw(b"ET")
 
-    def _kerned_array(self, text: str, kern_pairs) -> bytes:
+    def _kerned_array(self, text: str, kern_pairs, gid_map=None) -> bytes:
         """Build a TJ array: strings interleaved with kern adjustments.
 
         PDF kern values are in thousandths of an em and subtract from the
@@ -136,13 +158,13 @@ class ContentStream:
         previous = 0
         for index, adjustment in kern_pairs:
             if index > previous:
-                segments.extend(_escape_text(text[previous:index]))
+                segments.extend(_encode_text(text[previous:index], gid_map))
             segments.extend(b" ")
             segments.extend(fmt_number(-adjustment, precision=2))
             segments.extend(b" ")
             previous = index
         if previous < len(text):
-            segments.extend(_escape_text(text[previous:]))
+            segments.extend(_encode_text(text[previous:], gid_map))
         segments.extend(b"]")
         return bytes(segments)
 
@@ -176,7 +198,8 @@ class ContentStream:
         self.raw(b"S")
 
     def rotated_text(self, text: str, font_key: str, size: float,
-                     x: float, y: float, color: str, degrees: float) -> None:
+                     x: float, y: float, color: str, degrees: float,
+                     gid_map=None) -> None:
         """Draw text rotated about (x, y) — used for diagonal watermarks."""
         import math
 
@@ -189,7 +212,7 @@ class ContentStream:
             self._num(cos), self._num(sin), self._num(-sin), self._num(cos),
             self._num(x), self._num(y), b"Tm",
         ]))
-        self.raw(_escape_text(text) + b" Tj")
+        self.raw(_encode_text(text, gid_map) + b" Tj")
         self.raw(b"ET")
 
     def next_mcid(self) -> int:

@@ -18,7 +18,8 @@ from .styles import Style, StyleSheet, resolve_preset
 
 __all__ = [
     "TextRun", "Heading", "Paragraph", "BulletList", "Table", "TableCell",
-    "Image", "Chart", "Footnote", "Callout", "PageBreak", "HorizontalRule",
+    "Image", "Chart", "Footnote", "Callout", "MathBlock", "CodeBlock",
+    "BibliographyBlock", "Citation", "PageBreak", "HorizontalRule",
     "PageSpec", "Document", "LegalFeatures", "BlockElement",
 ]
 
@@ -303,9 +304,43 @@ class HorizontalRule:
     structure_tag: str = field(default="Artifact", init=False)
 
 
+@dataclass
+class CodeBlock:
+    """A code block with optional syntax highlighting."""
+    code: str
+    language: str = "text"
+    line_numbers: bool = True
+    theme: str = "dark_modern"
+    start_line: int = 1
+    highlight_lines: list = field(default_factory=list)
+    caption: str | None = None
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Code"
+
+
+@dataclass
+class MathBlock:
+    """A block-level mathematical expression."""
+    source: str
+    display: bool = True
+    caption: str | None = None
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Formula"
+
+
+from .bibliography import BibliographyBlock, Citation  # noqa: E402
+
+
 BlockElement = Union[
     Heading, Paragraph, BulletList, Table, Image, Chart,
-    Footnote, Callout, PageBreak, HorizontalRule,
+    Footnote, Callout, CodeBlock, MathBlock, BibliographyBlock,
+    PageBreak, HorizontalRule,
 ]
 
 
@@ -400,6 +435,14 @@ class Document:
     creator: str = "PrecisionPDF"
     producer: str = "PrecisionPDF"
 
+    def __post_init__(self) -> None:
+        from .typography.font_metrics import FontRegistry
+        self._fonts = FontRegistry()
+
+    @property
+    def fonts(self):
+        return self._fonts
+
     def add(self, element: BlockElement) -> "Document":
         """Append a block element. Returns self so calls can chain."""
         self.content.append(element)
@@ -421,6 +464,9 @@ class Document:
     def bullets(self, items, **kw) -> "Document":
         return self.add(BulletList(items, **kw))
 
+    def bullet_list(self, items, **kw) -> "Document":
+        return self.add(BulletList(items, **kw))
+
     def table(self, headers, rows, **kw) -> "Document":
         return self.add(Table(headers=headers, rows=rows, **kw))
 
@@ -439,6 +485,15 @@ class Document:
 
     def callout(self, content, variant="note", **kw) -> "Document":
         return self.add(Callout(content=content, variant=variant, **kw))
+
+    def code_block(self, code, language="text", **kw) -> "Document":
+        return self.add(CodeBlock(code=code, language=language, **kw))
+
+    def math(self, source, **kw) -> "Document":
+        return self.add(MathBlock(source=source, **kw))
+
+    def bibliography(self, citations, **kw) -> "Document":
+        return self.add(BibliographyBlock(citations=citations, **kw))
 
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))

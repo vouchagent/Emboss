@@ -94,6 +94,7 @@ class FontMetrics:
     _kerning: dict = field(default_factory=dict)
     _default_width: float = _MISSING_WIDTH
     _used_codepoints: set = field(default_factory=set)
+    _gid_map: dict = field(default_factory=dict)
 
     # -- construction --
 
@@ -150,6 +151,13 @@ class FontMetrics:
                 descender = hhea.descent * scale
                 cap_height = ascender * 0.7
 
+            gid_map = {}
+            for codepoint_key, glyph_name in cmap.items():
+                try:
+                    gid_map[codepoint_key] = font.getGlyphID(glyph_name)
+                except Exception:
+                    pass
+
             name = _postscript_name(font) or path.stem
             flags = 4 if not _is_symbolic(font) else 4
             metrics = cls(
@@ -161,6 +169,7 @@ class FontMetrics:
                 is_embedded=True,
                 font_path=path,
                 _widths=widths,
+                _gid_map=gid_map,
             )
             metrics._kerning = _extract_kerning(font, scale)
             return metrics
@@ -220,6 +229,10 @@ class FontMetrics:
 
     def supports(self, char: str) -> bool:
         return ord(char) in self._widths
+
+    @property
+    def gid_map(self) -> dict | None:
+        return self._gid_map if self.is_embedded and self._gid_map else None
 
 
 def _postscript_name(font) -> str | None:

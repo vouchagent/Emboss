@@ -37,13 +37,16 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
     When standalone=False, returns just the <article> content.
     """
     from ..spec import (
+        BibliographyBlock,
         BulletList,
         Callout,
         Chart,
+        CodeBlock,
         Footnote,
         Heading,
         HorizontalRule,
         Image,
+        MathBlock,
         PageBreak,
         Paragraph,
         Table,
@@ -130,6 +133,38 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
                 f'padding:10px;border-radius:{element.border_radius}pt;margin:8pt 0">'
                 f'{icon_html}{title_html}{runs_html}</div>'
             )
+
+        elif isinstance(element, CodeBlock):
+            from ..code_highlight import tokenize, colorize, THEME_BACKGROUNDS
+            bg = THEME_BACKGROUNDS.get(element.theme, "1e1e1e")
+            lang_attr = f' class="language-{_esc(element.language)}"' if element.language != "text" else ""
+            parts.append(f'<pre style="background:#{bg};padding:10px;border-radius:4px;overflow-x:auto;margin:8pt 0"><code{lang_attr}>')
+            tokens = tokenize(element.code, element.language)
+            colored = colorize(tokens, element.theme)
+            for text, color in colored:
+                parts.append(f'<span style="color:#{color}">{_esc(text)}</span>')
+            parts.append("</code></pre>")
+            if element.caption:
+                parts.append(f"<p><em>{_esc(element.caption)}</em></p>")
+
+        elif isinstance(element, MathBlock):
+            display = "display:block;text-align:center;margin:1em 0" if element.display else "display:inline"
+            parts.append(f'<div class="math" style="{display}">')
+            parts.append(f"  <code>{_esc(element.source)}</code>")
+            parts.append("</div>")
+            if element.caption:
+                parts.append(f'<p style="text-align:center"><em>{_esc(element.caption)}</em></p>')
+
+        elif isinstance(element, BibliographyBlock):
+            from ..bibliography import format_bibliography
+            if element.title:
+                tag = f"h{element.heading_level}"
+                parts.append(f"<{tag}>{_esc(element.title)}</{tag}>")
+            entries = format_bibliography(element.citations, element.bib_style)
+            parts.append('<ol class="bibliography" style="padding-left:0;list-style:none">')
+            for entry in entries:
+                parts.append(f"  <li>{_esc(entry)}</li>")
+            parts.append("</ol>")
 
         elif isinstance(element, PageBreak):
             parts.append('<div style="page-break-before:always"></div>')

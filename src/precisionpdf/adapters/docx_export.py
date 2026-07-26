@@ -32,13 +32,16 @@ def to_office_dict(document: "Document") -> dict:
       - content: ordered list of typed blocks with full formatting
     """
     from ..spec import (
+        BibliographyBlock,
         BulletList,
         Callout,
         Chart,
+        CodeBlock,
         Footnote,
         Heading,
         HorizontalRule,
         Image,
+        MathBlock,
         PageBreak,
         Paragraph,
         Table,
@@ -116,6 +119,34 @@ def to_office_dict(document: "Document") -> dict:
                 "runs": _serialize_runs(element.runs),
                 "background": element.background,
                 "border_color": element.border_color,
+            })
+
+        elif isinstance(element, CodeBlock):
+            blocks.append({
+                "type": "code_block",
+                "code": element.code,
+                "language": element.language,
+                "line_numbers": element.line_numbers,
+                "caption": element.caption,
+            })
+
+        elif isinstance(element, MathBlock):
+            blocks.append({
+                "type": "math",
+                "source": element.source,
+                "display": element.display,
+                "caption": element.caption,
+            })
+
+        elif isinstance(element, BibliographyBlock):
+            from ..bibliography import format_bibliography
+            blocks.append({
+                "type": "bibliography",
+                "title": element.title,
+                "heading_level": element.heading_level,
+                "entries": format_bibliography(
+                    element.citations, element.bib_style
+                ),
             })
 
         elif isinstance(element, HorizontalRule):

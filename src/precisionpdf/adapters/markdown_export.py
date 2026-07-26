@@ -22,12 +22,15 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
     """Convert a Document to clean Markdown."""
     from ..spec import (
         BulletList,
+        BibliographyBlock,
         Callout,
         Chart,
+        CodeBlock,
         Footnote,
         Heading,
         HorizontalRule,
         Image,
+        MathBlock,
         PageBreak,
         Paragraph,
         Table,
@@ -100,6 +103,35 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
             icon = f"{element.icon} " if element.icon else ""
             parts.append(f"> {icon}{title}{text}")
             parts.append("")
+
+        elif isinstance(element, CodeBlock):
+            lang = element.language if element.language != "text" else ""
+            parts.append(f"```{lang}")
+            parts.append(element.code)
+            parts.append("```")
+            if element.caption:
+                parts.append(f"*{element.caption}*")
+            parts.append("")
+
+        elif isinstance(element, MathBlock):
+            if element.display:
+                parts.append(f"$${element.source}$$")
+            else:
+                parts.append(f"${element.source}$")
+            if element.caption:
+                parts.append(f"*{element.caption}*")
+            parts.append("")
+
+        elif isinstance(element, BibliographyBlock):
+            from ..bibliography import format_bibliography
+            if element.title:
+                prefix = "#" * element.heading_level
+                parts.append(f"{prefix} {element.title}")
+                parts.append("")
+            entries = format_bibliography(element.citations, element.bib_style)
+            for entry in entries:
+                parts.append(entry)
+                parts.append("")
 
         elif isinstance(element, HorizontalRule):
             parts.append("---")

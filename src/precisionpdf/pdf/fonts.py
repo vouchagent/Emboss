@@ -1,10 +1,11 @@
 """Font resource construction and embedding.
 
-Base-14 fonts need only a simple dictionary. Embedded fonts are subsetted
-with fontTools so only glyphs actually used are written, and every
-embedded font gets a /ToUnicode CMap -- without it text extraction and
-screen readers produce garbage, which fails PDF/UA regardless of how
-correct the structure tree is.
+Base-14 fonts need only a simple dictionary. Embedded fonts use the
+Type0/CIDFontType2 composite font architecture, which supports the
+full Unicode range via Identity-H encoding and 2-byte glyph IDs.
+Every embedded font gets a /ToUnicode CMap so text extraction, search,
+and screen readers produce correct Unicode — without it PDF/UA fails
+regardless of structure tree correctness.
 """
 
 from __future__ import annotations
@@ -14,9 +15,6 @@ from dataclasses import dataclass
 from .objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 
 __all__ = ["FontResource", "build_font_resource"]
-
-_WINANSI_FIRST = 32
-_WINANSI_LAST = 255
 
 
 @dataclass
@@ -48,7 +46,12 @@ def _build_base14(assembler, metrics) -> PdfRef:
 
 
 def _subset_font(metrics) -> tuple:
-    """Subset the font to used codepoints. Returns (bytes, glyph_order)."""
+    """Subset the font to used codepoints.
+
+    Returns (bytes, sorted_codepoints).  retain_gids=True preserves
+    original glyph IDs so the CID mapping built before subsetting
+    stays valid in the content streams.
+    """
     from io import BytesIO
 
     from fontTools import subset
@@ -60,6 +63,7 @@ def _subset_font(metrics) -> tuple:
     options = subset.Options()
     options.set(layout_features=["*"], notdef_outline=True,
                 recalc_bounds=True, drop_tables=[], hinting=True)
+    options.retain_gids = True
     options.name_IDs = ["*"]
     options.name_legacy = True
     options.glyph_names = True
@@ -92,19 +96,44 @@ def _subset_tag(codepoints) -> str:
     return "".join(letters)
 
 
-def _build_embedded(assembler, metrics) -> PdfRef:
-    from fontTools.ttLib import TTFont
+def _build_cid_widths(codepoints, metrics, gid_map) -> PdfArray:
+    """Build the W (widths) array for a CIDFont.
 
+    Groups consecutive GIDs for compact representation:
+    [startGID [w1 w2 w3 ...] nextStartGID [w4] ...]
+    """
+    entries = []
+    for cp in codepoints:
+        gid = gid_map.get(cp, 0)
+        if gid == 0:
+            continue
+        width = round(metrics.width_of(cp), 2)
+        entries.append((gid, width))
+    entries.sort()
+
+    if not entries:
+        return PdfArray()
+
+    w = PdfArray()
+    i = 0
+    while i < len(entries):
+        start_gid = entries[i][0]
+        widths = [entries[i][1]]
+        j = i + 1
+        while j < len(entries) and entries[j][0] == start_gid + len(widths):
+            widths.append(entries[j][1])
+            j += 1
+        w.items.append(start_gid)
+        w.items.append(PdfArray(widths))
+        i = j
+    return w
+
+
+def _build_embedded(assembler, metrics) -> PdfRef:
     data, codepoints = _subset_font(metrics)
+    gid_map = metrics.gid_map or {}
     tag = _subset_tag(codepoints)
     base_name = f"{tag}+{metrics.name}".replace(" ", "")
-
-    # Widths must be indexed by character code for a simple font, so we
-    # emit the WinAnsi range and fall back to the missing width elsewhere.
-    first, last = _WINANSI_FIRST, _WINANSI_LAST
-    widths = PdfArray([
-        round(metrics.width_of(code), 2) for code in range(first, last + 1)
-    ])
 
     file_stream = PdfStream(data=data)
     file_stream.dictionary["Length1"] = len(data)
@@ -125,30 +154,51 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     descriptor["FontFile2"] = file_ref
     descriptor_ref = assembler.add(descriptor)
 
-    to_unicode = _build_to_unicode(codepoints)
+    cid_sys = PdfDict()
+    cid_sys["Registry"] = "Adobe"
+    cid_sys["Ordering"] = "Identity"
+    cid_sys["Supplement"] = 0
+
+    w_array = _build_cid_widths(codepoints, metrics, gid_map)
+
+    cid_font = PdfDict()
+    cid_font["Type"] = PdfName("Font")
+    cid_font["Subtype"] = PdfName("CIDFontType2")
+    cid_font["BaseFont"] = PdfName(base_name)
+    cid_font["CIDSystemInfo"] = cid_sys
+    cid_font["W"] = w_array
+    cid_font["DW"] = round(metrics._default_width)
+    cid_font["FontDescriptor"] = descriptor_ref
+    cid_font["CIDToGIDMap"] = PdfName("Identity")
+    cid_font_ref = assembler.add(cid_font)
+
+    to_unicode = _build_to_unicode(codepoints, gid_map)
     to_unicode_ref = assembler.add(PdfStream(data=to_unicode))
 
     font = PdfDict()
     font["Type"] = PdfName("Font")
-    font["Subtype"] = PdfName("TrueType")
+    font["Subtype"] = PdfName("Type0")
     font["BaseFont"] = PdfName(base_name)
-    font["FirstChar"] = first
-    font["LastChar"] = last
-    font["Widths"] = widths
-    font["FontDescriptor"] = descriptor_ref
-    font["Encoding"] = PdfName("WinAnsiEncoding")
+    font["Encoding"] = PdfName("Identity-H")
+    font["DescendantFonts"] = PdfArray([cid_font_ref])
     font["ToUnicode"] = to_unicode_ref
     return assembler.add(font)
 
 
-def _build_to_unicode(codepoints) -> bytes:
-    """Build a CMap mapping character codes back to Unicode.
+def _build_to_unicode(codepoints, gid_map) -> bytes:
+    """Build a CMap mapping 2-byte CIDs (= GIDs) back to Unicode.
 
     This is what makes copy-paste, search, and screen readers work.
     """
-    entries = [c for c in codepoints if _WINANSI_FIRST <= c <= _WINANSI_LAST]
+    entries = []
+    for cp in sorted(codepoints):
+        gid = gid_map.get(cp)
+        if gid is not None and gid > 0:
+            entries.append((gid, cp))
+    entries.sort()
+
     if not entries:
-        entries = [0x20]
+        entries = [(0, 0x20)]
 
     lines = [
         "/CIDInit /ProcSet findresource begin",
@@ -158,16 +208,20 @@ def _build_to_unicode(codepoints) -> bytes:
         "/CMapName /Adobe-Identity-UCS def",
         "/CMapType 2 def",
         "1 begincodespacerange",
-        "<00> <FF>",
+        "<0000> <FFFF>",
         "endcodespacerange",
     ]
 
-    # bfchar sections are capped at 100 entries by the specification.
     for start in range(0, len(entries), 100):
         chunk = entries[start:start + 100]
         lines.append(f"{len(chunk)} beginbfchar")
-        for code in chunk:
-            lines.append(f"<{code:02X}> <{code:04X}>")
+        for gid, cp in chunk:
+            if cp <= 0xFFFF:
+                lines.append(f"<{gid:04X}> <{cp:04X}>")
+            else:
+                hi = 0xD800 + ((cp - 0x10000) >> 10)
+                lo = 0xDC00 + ((cp - 0x10000) & 0x3FF)
+                lines.append(f"<{gid:04X}> <{hi:04X}{lo:04X}>")
         lines.append("endbfchar")
 
     lines.extend([

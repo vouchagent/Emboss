@@ -29,15 +29,18 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..spec import (
+    BibliographyBlock,
     BulletList,
     Callout,
     Chart,
+    CodeBlock,
     Document,
     Footnote,
     Heading,
     HorizontalRule,
     Image,
     LegalFeatures,
+    MathBlock,
     PageBreak,
     PageSpec,
     Paragraph,
@@ -45,6 +48,7 @@ from ..spec import (
     TableCell,
     TextRun,
 )
+from ..bibliography import Citation
 from ..intelligence import ContentAnalyzer
 from ..styles import PRESETS, Style
 
@@ -513,6 +517,113 @@ class CalloutSpec(BaseModel):
         )
 
 
+class CodeBlockSpec(BaseModel):
+    """A code block with syntax highlighting."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Code Block",
+            "examples": [
+                {
+                    "type": "code_block",
+                    "code": "def hello():\n    print('Hello, world!')",
+                    "language": "python",
+                },
+            ],
+        }
+    }
+
+    type: Literal["code_block"] = "code_block"
+    code: str = Field(..., description="The source code to display.")
+    language: str = Field("text", description="Programming language for syntax highlighting.")
+    line_numbers: bool = Field(True, description="Show line numbers in the gutter.")
+    theme: str = Field("dark_modern", description="Color theme: dark_modern, light_clean, or night_owl.")
+    start_line: int = Field(1, ge=1, description="Starting line number.")
+    highlight_lines: list[int] = Field(default_factory=list, description="Line numbers to highlight.")
+    caption: str | None = Field(None, description="Optional caption below the code block.")
+
+    def to_element(self) -> CodeBlock:
+        return CodeBlock(
+            code=self.code,
+            language=self.language,
+            line_numbers=self.line_numbers,
+            theme=self.theme,
+            start_line=self.start_line,
+            highlight_lines=self.highlight_lines,
+            caption=self.caption,
+        )
+
+
+class MathBlockSpec(BaseModel):
+    """A mathematical expression rendered in the document."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Math Block",
+            "examples": [{"type": "math", "source": "E = mc^{2}"}],
+        }
+    }
+
+    type: Literal["math"] = "math"
+    source: str = Field(..., description="LaTeX-subset math expression.")
+    display: bool = Field(True, description="Display mode (centered, larger) vs inline.")
+    caption: str | None = Field(None, description="Optional caption below the equation.")
+
+    def to_element(self) -> MathBlock:
+        return MathBlock(source=self.source, display=self.display, caption=self.caption)
+
+
+class CitationSpec(BaseModel):
+    """A bibliographic reference."""
+
+    key: str = Field(..., description="Unique citation key.")
+    authors: list[str] = Field(default_factory=list, description="Author names.")
+    title: str = Field("", description="Title of the work.")
+    year: int | str = Field("", description="Publication year.")
+    journal: str | None = Field(None, description="Journal name.")
+    volume: str | None = None
+    pages: str | None = None
+    publisher: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    entry_type: Literal["article", "book", "inproceedings", "misc"] = "article"
+
+    def to_citation(self) -> Citation:
+        return Citation(
+            key=self.key, authors=self.authors, title=self.title,
+            year=self.year, journal=self.journal, volume=self.volume,
+            pages=self.pages, publisher=self.publisher, doi=self.doi,
+            url=self.url, entry_type=self.entry_type,
+        )
+
+
+class BibliographySpec(BaseModel):
+    """A formatted bibliography section."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Bibliography",
+            "examples": [{
+                "type": "bibliography",
+                "citations": [{"key": "ref1", "authors": ["A. Author"], "title": "A Paper", "year": 2024}],
+            }],
+        }
+    }
+
+    type: Literal["bibliography"] = "bibliography"
+    citations: list[CitationSpec] = Field(default_factory=list)
+    bib_style: str = Field("ieee", description="Citation style: ieee, apa, or numbered.")
+    title: str | None = Field("References", description="Section heading.")
+    heading_level: int = Field(2, ge=1, le=6)
+
+    def to_element(self) -> BibliographyBlock:
+        return BibliographyBlock(
+            citations=[c.to_citation() for c in self.citations],
+            bib_style=self.bib_style, title=self.title,
+            heading_level=self.heading_level,
+        )
+
+
 class PageBreakSpec(BaseModel):
     """Forces subsequent content onto a new page."""
 
@@ -543,6 +654,9 @@ ContentBlock = Annotated[
         ChartSpec,
         FootnoteSpec,
         CalloutSpec,
+        CodeBlockSpec,
+        MathBlockSpec,
+        BibliographySpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],

@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..spec import (
-    BulletList, Callout, Chart, Footnote, Heading, HorizontalRule, Image,
-    PageBreak, Paragraph, Table,
+    BibliographyBlock, BulletList, Callout, Chart, CodeBlock, Footnote,
+    Heading, HorizontalRule, Image, MathBlock, PageBreak, Paragraph, Table,
 )
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
 
@@ -168,6 +168,12 @@ class LayoutEngine:
             return self._measure_image(element, width)
         if isinstance(element, Chart):
             return self._measure_chart(element, width)
+        if isinstance(element, CodeBlock):
+            return self._measure_code_block(element, width)
+        if isinstance(element, MathBlock):
+            return self._measure_math(element, width)
+        if isinstance(element, BibliographyBlock):
+            return self._measure_bibliography(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
                 element=element, height=0.0,
@@ -391,6 +397,96 @@ class LayoutEngine:
             style=style,
             can_split=False,
             space_before=8.0,
+            space_after=8.0,
+        )
+
+    def _measure_math(self, element, width: float) -> MeasuredBlock:
+        from ..math_render import parse_math, MathLayoutEngine
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        size = self._size(style)
+        if element.display:
+            size *= 1.2
+        engine = MathLayoutEngine(base_size=size)
+        node = parse_math(element.source)
+        layout = engine.layout(node)
+        height = layout.height + layout.depth + size * 0.5
+        if element.caption:
+            height += size * 0.85 + 4.0
+        return MeasuredBlock(
+            element=element,
+            height=height,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
+        )
+
+    def _measure_code_block(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        code_size = style.require("font_size") * 0.85
+        metrics = self.fonts.resolve("Courier", bold=False, italic=False)
+        line_height = metrics.line_height(code_size, 1.4)
+
+        lines = element.code.split("\n")
+        padding = 10.0
+        total = 2 * padding + len(lines) * line_height
+
+        if element.caption:
+            total += code_size + 6.0
+
+        metrics.note_usage(element.code)
+        if element.line_numbers:
+            max_num = str(element.start_line + len(lines) - 1)
+            metrics.note_usage(max_num)
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
+        )
+
+    def _measure_bibliography(self, element, width: float) -> MeasuredBlock:
+        from ..bibliography import format_bibliography
+        from ..spec import TextRun
+
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        metrics = self._metrics(style)
+        size = self._size(style)
+        line_h = metrics.line_height(size, style.require("line_height"))
+
+        total = 0.0
+        if element.title:
+            heading_style = self.sheet.resolved(
+                self.sheet.for_heading(element.heading_level), element.style
+            )
+            heading_size = self._size(heading_style)
+            heading_metrics = self._metrics(heading_style)
+            total += heading_metrics.line_height(
+                heading_size, heading_style.require("line_height")
+            )
+            total += heading_style.require("space_after")
+
+        entries = format_bibliography(element.citations, element.bib_style)
+        all_lines = []
+        for entry in entries:
+            runs = [TextRun(entry)]
+            lines = self._layout_runs(runs, style, width)
+            for run in runs:
+                metrics.note_usage(run.text)
+            all_lines.extend(lines)
+            total += sum(l.height for l in lines)
+            total += style.require("space_after") * 0.5
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            lines=all_lines,
+            can_split=len(all_lines) > 4,
+            space_before=12.0,
             space_after=8.0,
         )
 
