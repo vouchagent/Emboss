@@ -291,6 +291,7 @@ class FontRegistry:
         ("courier", True, False): "Courier-Bold",
         ("courier", False, True): "Courier-Oblique",
         ("courier", True, True): "Courier-BoldOblique",
+        ("symbol", False, False): "Symbol",
     }
 
     def __init__(self) -> None:

@@ -19,6 +19,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Printing",
     "Topic :: Text Processing :: Fonts",
     "Typing :: Typed",
@@ -29,17 +31,18 @@ dependencies = ["fonttools>=4.40"]
 [project.optional-dependencies]
 llm = ["pydantic>=2.0"]
 verify = ["pikepdf>=8.0"]
-dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "mypy>=1.8", "ruff>=0.3"]
-all = ["pydantic>=2.0", "pikepdf>=8.0"]
+signing = ["cryptography>=41.0"]
+dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "cryptography>=41.0", "mypy>=1.8", "ruff>=0.3"]
+all = ["pydantic>=2.0", "pikepdf>=8.0", "cryptography>=41.0"]
 
 [project.scripts]
 precisionpdf = "precisionpdf.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/gauravgupta/precision-pdf"
-Documentation = "https://github.com/gauravgupta/precision-pdf#readme"
-Issues = "https://github.com/gauravgupta/precision-pdf/issues"
-Changelog = "https://github.com/gauravgupta/precision-pdf/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/GGChamp85/PrecisionPDF"
+Documentation = "https://github.com/GGChamp85/PrecisionPDF#readme"
+Issues = "https://github.com/GGChamp85/PrecisionPDF/issues"
+Changelog = "https://github.com/GGChamp85/PrecisionPDF/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

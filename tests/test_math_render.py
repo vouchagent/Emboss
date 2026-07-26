@@ -27,8 +27,8 @@ from precisionpdf.math_render import (
 class TestParseMath:
     def test_simple_text(self):
         node = parse_math("abc")
-        assert isinstance(node, GroupNode)
-        assert len(node.children) == 3
+        assert isinstance(node, TextNode)
+        assert node.text == "abc"
 
     def test_single_char(self):
         node = parse_math("x")
@@ -85,7 +85,8 @@ class TestParseMath:
 
     def test_text_command(self):
         node = parse_math("\\text{hello}")
-        assert isinstance(node, GroupNode)
+        assert isinstance(node, TextNode)
+        assert node.italic is False
 
     def test_nested_fraction(self):
         node = parse_math("\\frac{\\frac{a}{b}}{c}")

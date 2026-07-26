@@ -31,8 +31,19 @@ def hex_color(value: str) -> tuple:
     return tuple(int(text[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
 
 
+_UNICODE_TO_WINANSI: dict[int, int] = {
+    0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84,
+    0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88,
+    0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C,
+    0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93,
+    0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,
+    0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B,
+    0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F,
+}
+
+
 def _escape_text(text: str) -> bytes:
-    """Escape a string for a PDF literal string in a content stream."""
+    """Escape a string for a PDF literal string in WinAnsiEncoding."""
     out = bytearray(b"(")
     for char in text:
         code = ord(char)
@@ -40,7 +51,11 @@ def _escape_text(text: str) -> bytes:
             out.append(0x5C)
             out.append(code)
         elif code < 32 or code > 126:
-            out.extend(f"\\{min(code, 255):03o}".encode("ascii"))
+            winansi = _UNICODE_TO_WINANSI.get(code, code)
+            if winansi <= 255:
+                out.extend(f"\\{winansi:03o}".encode("ascii"))
+            else:
+                out.append(0x3F)  # '?' for unmappable
         else:
             out.append(code)
     out.append(0x29)

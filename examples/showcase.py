@@ -4,10 +4,10 @@ Run:
     python examples/showcase.py
 
 Output:
-    examples/output/showcase.pdf        — full-feature document
-    examples/output/math_notes.pdf      — mathematical notation showcase
-    examples/output/presentation.pdf    — slide-format presentation
-    examples/output/architecture.pdf    — technical architecture document
+    examples/output/showcase.pdf        -full-feature document
+    examples/output/math_notes.pdf      -mathematical notation showcase
+    examples/output/presentation.pdf    -slide-format presentation
+    examples/output/architecture.pdf    -technical architecture document
 """
 
 from pathlib import Path
@@ -41,7 +41,7 @@ def build_showcase() -> bytes:
     doc.paragraph(
         "PrecisionPDF generates deterministic, constraint-driven PDFs with "
         "full PDF/UA accessibility tagging. Every render is byte-identical "
-        "across platforms — ideal for CI pipelines, legal filings, and "
+        "across platforms -ideal for CI pipelines, legal filings, and "
         "archival storage."
     )
 
@@ -58,7 +58,7 @@ def build_showcase() -> bytes:
 
     doc.heading("Bullet Lists", level=2)
     doc.bullets([
-        "Deterministic output — same input always produces identical bytes",
+        "Deterministic output -same input always produces identical bytes",
         "PDF/UA structure tags for screen reader accessibility",
         "Constraint validation catches errors before rendering",
         "Pluggable style presets: corporate, academic, legal, finance",
@@ -92,7 +92,7 @@ def build_showcase() -> bytes:
     doc.heading("Code Syntax Highlighting", level=1)
     doc.paragraph(
         "Lightweight built-in syntax highlighting with multiple themes "
-        "and language support — no external dependencies required."
+        "and language support -no external dependencies required."
     )
     doc.code_block(
         code='''def fibonacci(n: int) -> list[int]:
@@ -115,8 +115,8 @@ print(f"Fibonacci: {result}")''',
 
     doc.heading("Mathematical Notation", level=1)
     doc.paragraph(
-        "LaTeX-subset math rendering — fractions, subscripts, superscripts, "
-        "Greek letters, operators, and more — all without external dependencies."
+        "LaTeX-subset math rendering -fractions, subscripts, superscripts, "
+        "Greek letters, operators, and more -all without external dependencies."
     )
 
     doc.math(r"E = mc^{2}", caption="Einstein's mass-energy equivalence")
@@ -167,7 +167,7 @@ print(f"Fibonacci: {result}")''',
 
     doc.callout(
         "PrecisionPDF validates all constraints before rendering. "
-        "Font availability, page geometry, heading hierarchy — "
+        "Font availability, page geometry, heading hierarchy -"
         "problems are caught early, not discovered in the output.",
         variant="info",
     )
@@ -267,7 +267,7 @@ def build_presentation() -> bytes:
     """Build a slide-format presentation."""
     doc = slide_document(
         title="PrecisionPDF Overview",
-        theme="dark",
+        theme="default",
     )
 
     doc.heading("PrecisionPDF", level=1)
@@ -279,7 +279,7 @@ def build_presentation() -> bytes:
     doc.page_break()
     doc.heading("Key Features", level=1)
     doc.bullets([
-        "Deterministic rendering — identical bytes every time",
+        "Deterministic rendering -identical bytes every time",
         "Full Unicode/CIDFont support with OpenType metrics",
         "PDF/UA accessibility with structure tags",
         "LaTeX-subset mathematical notation",
@@ -321,7 +321,6 @@ def build_architecture_doc() -> bytes:
         tagged=True,
         toc=True,
         legal=LegalFeatures(
-            watermark="DRAFT",
             bates_prefix="ARCH-",
             bates_start=1,
         ),
@@ -436,25 +435,25 @@ def main():
     print("\nBuilding showcase.pdf...")
     showcase = build_showcase()
     (OUTPUT / "showcase.pdf").write_bytes(showcase)
-    verify_pdf(showcase, "showcase.pdf — Full Feature Showcase")
+    verify_pdf(showcase, "showcase.pdf -Full Feature Showcase")
 
     # 2. Math notes
     print("\nBuilding math_notes.pdf...")
     math = build_math_notes()
     (OUTPUT / "math_notes.pdf").write_bytes(math)
-    verify_pdf(math, "math_notes.pdf — Mathematical Notation")
+    verify_pdf(math, "math_notes.pdf -Mathematical Notation")
 
     # 3. Presentation
     print("\nBuilding presentation.pdf...")
     pres = build_presentation()
     (OUTPUT / "presentation.pdf").write_bytes(pres)
-    verify_pdf(pres, "presentation.pdf — Slide Presentation")
+    verify_pdf(pres, "presentation.pdf -Slide Presentation")
 
     # 4. Architecture doc
     print("\nBuilding architecture.pdf...")
     arch = build_architecture_doc()
     (OUTPUT / "architecture.pdf").write_bytes(arch)
-    verify_pdf(arch, "architecture.pdf — Technical Architecture")
+    verify_pdf(arch, "architecture.pdf -Technical Architecture")
 
     # Summary
     total_size = len(showcase) + len(math) + len(pres) + len(arch)

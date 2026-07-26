@@ -825,7 +825,7 @@ class Renderer:
             )
 
     def _draw_math(self, stream, placed, page_index, root, registry) -> None:
-        from .math_render import MathExpression, render_math
+        from .math_render import MathExpression, render_math, parse_math, MathLayoutEngine
 
         element = placed.block.element
         style = placed.block.style
@@ -848,11 +848,13 @@ class Renderer:
         )
         italic_key = self._font_key(italic_metrics, registry)
 
+        symbol_metrics = self.fonts.resolve("Symbol")
+        symbol_key = self._font_key(symbol_metrics, registry)
+
         expr = MathExpression(source=element.source, display=element.display)
         baseline_y = placed.y - size
         content_width = style.require("font_size") * 30
 
-        from .math_render import parse_math, MathLayoutEngine
         node = parse_math(element.source)
         engine = MathLayoutEngine(base_size=size)
         layout = engine.layout(node)
@@ -862,7 +864,7 @@ class Renderer:
             x = placed.x + (content_width - layout.width) / 2
 
         render_math(stream, expr, x, baseline_y, key, size, color,
-                    italic_key=italic_key)
+                    italic_key=italic_key, symbol_key=symbol_key)
 
         if element.caption:
             cap_size = size * 0.7

@@ -1,8 +1,8 @@
 """Mathematical notation rendering for PDF content streams.
 
 Renders a LaTeX-like subset of math notation directly to PDF operators.
-No external dependencies — all glyph placement is computed internally
-using the document's font metrics.
+No external dependencies. Greek letters and math symbols use the PDF
+Symbol font; regular text uses the document font.
 
 Supported syntax:
   - Superscripts: x^{2}, e^{i\\pi}
@@ -74,35 +74,99 @@ MATH_SYMBOLS: dict[str, str] = {
     "aleph": "ℵ",
 }
 
-# WinAnsi-safe fallbacks for symbols that aren't in the standard encoding
-_WINANSI_FALLBACK: dict[str, str] = {
-    "∑": "E",  # sum -> Sigma-like
-    "∏": "P",  # prod
-    "∫": "S",  # integral -> S shape
-    "∂": "d",  # partial
-    "∞": "oo",  # infinity
-    "≤": "<=",  # leq
-    "≥": ">=",  # geq
-    "≠": "=/=",  # neq
-    "≈": "~=",  # approx
-    "≡": "===",  # equiv
-    "→": "->",  # rightarrow
-    "←": "<-",  # leftarrow
-    "⇒": "=>",  # Rightarrow
-    "⇐": "<=",  # Leftarrow
-    "∈": "in",  # in
-    "∉": "!in",  # notin
-    "⊂": "c",  # subset
-    "∪": "U",  # cup
-    "∩": "n",  # cap
-    "∅": "0/",  # emptyset
-    "∀": "A",  # forall
-    "∃": "E",  # exists
-    "…": "...",  # ldots
-    "±": "+/-",  # pm
-    "×": "x",  # times
-    "·": ".",  # cdot
+# Unicode codepoint -> Symbol font byte value
+_UNICODE_TO_SYMBOL: dict[int, int] = {
+    # Lowercase Greek
+    0x03B1: 0x61, 0x03B2: 0x62, 0x03B3: 0x67, 0x03B4: 0x64,
+    0x03B5: 0x65, 0x03B6: 0x7A, 0x03B7: 0x68, 0x03B8: 0x71,
+    0x03B9: 0x69, 0x03BA: 0x6B, 0x03BB: 0x6C, 0x03BC: 0x6D,
+    0x03BD: 0x6E, 0x03BE: 0x78, 0x03C0: 0x70, 0x03C1: 0x72,
+    0x03C3: 0x73, 0x03C4: 0x74, 0x03C5: 0x75, 0x03C6: 0x66,
+    0x03C7: 0x63, 0x03C8: 0x79, 0x03C9: 0x77,
+    # Uppercase Greek
+    0x0391: 0x41, 0x0392: 0x42, 0x0393: 0x47, 0x0394: 0x44,
+    0x0395: 0x45, 0x0396: 0x5A, 0x0397: 0x48, 0x0398: 0x51,
+    0x0399: 0x49, 0x039A: 0x4B, 0x039B: 0x4C, 0x039C: 0x4D,
+    0x039D: 0x4E, 0x039E: 0x58, 0x03A0: 0x50, 0x03A1: 0x52,
+    0x03A3: 0x53, 0x03A4: 0x54, 0x03A5: 0x55, 0x03A6: 0x46,
+    0x03A7: 0x43, 0x03A8: 0x59, 0x03A9: 0x57,
+    # Math operators and symbols
+    0x2211: 0xE5,  # summation
+    0x220F: 0xD5,  # product
+    0x222B: 0xF2,  # integral
+    0x2202: 0xB6,  # partial
+    0x2207: 0xD1,  # nabla
+    0x221E: 0xA5,  # infinity
+    0x00B1: 0xB1,  # plus-minus
+    0x00D7: 0xB4,  # times
+    0x00F7: 0xB8,  # division
+    0x00B7: 0xD7,  # middle dot
+    0x2022: 0xB7,  # bullet
+    0x2264: 0xA3,  # leq
+    0x2265: 0xB3,  # geq
+    0x2260: 0xB9,  # neq
+    0x2248: 0xBB,  # approx
+    0x2261: 0xBA,  # equiv
+    0x223C: 0x7E,  # sim (tilde)
+    0x221D: 0xB5,  # propto
+    0x2192: 0xAE,  # rightarrow
+    0x2190: 0xAC,  # leftarrow
+    0x2191: 0xAD,  # uparrow
+    0x2193: 0xAF,  # downarrow
+    0x21D2: 0xDE,  # Rightarrow
+    0x21D0: 0xDC,  # Leftarrow
+    0x2194: 0xAB,  # leftrightarrow
+    0x21D4: 0xDB,  # Leftrightarrow
+    0x2208: 0xCE,  # element of
+    0x2209: 0xCF,  # not element of
+    0x220B: 0x27,  # contains
+    0x2282: 0xCC,  # subset
+    0x2283: 0xC9,  # superset
+    0x2286: 0xCD,  # subset-eq
+    0x2287: 0xCA,  # superset-eq
+    0x222A: 0xC8,  # union
+    0x2229: 0xC7,  # intersection
+    0x2205: 0xC6,  # empty set
+    0x2200: 0x22,  # forall
+    0x2203: 0x24,  # exists
+    0x00AC: 0xD8,  # not
+    0x2227: 0xD9,  # logical and
+    0x2228: 0xDA,  # logical or
+    0x2026: 0xBC,  # ellipsis
+    0x2032: 0xA2,  # prime
+    0x2020: 0x86,  # dagger (use WinAnsi for this)
+    0x2021: 0x87,  # double dagger
+    0x2135: 0xC0,  # aleph
+    0x221A: 0xD6,  # radical/sqrt
 }
+
+
+def _needs_symbol(text: str) -> bool:
+    """Check if text contains characters that require the Symbol font."""
+    for ch in text:
+        if ord(ch) in _UNICODE_TO_SYMBOL and ord(ch) > 0xFF:
+            return True
+    return False
+
+
+def _symbol_encode(text: str) -> bytes:
+    """Encode text for the PDF Symbol font."""
+    out = bytearray(b"(")
+    for ch in text:
+        code = ord(ch)
+        sym_byte = _UNICODE_TO_SYMBOL.get(code)
+        if sym_byte is not None:
+            if sym_byte in (0x28, 0x29, 0x5C):  # ()\ need escaping
+                out.append(0x5C)
+            out.append(sym_byte)
+        elif code < 128:
+            if ch in "()\\":
+                out.append(0x5C)
+            out.append(code)
+        else:
+            out.append(0x3F)
+    out.append(0x29)
+    return bytes(out)
 
 
 @dataclass
@@ -226,10 +290,14 @@ class MathParser:
                 nodes.append(self._parse_command())
             elif ch == ' ':
                 self.pos += 1
-                nodes.append(SpaceNode(width_em=0.2))
+                nodes.append(SpaceNode(width_em=0.15))
             else:
-                self.pos += 1
-                nodes.append(TextNode(ch))
+                start = self.pos
+                while (self.pos < len(self.source)
+                       and self.source[self.pos] not in stop_at
+                       and self.source[self.pos] not in '{^_\\ '):
+                    self.pos += 1
+                nodes.append(TextNode(self.source[start:self.pos]))
         return nodes
 
     def _parse_atom(self) -> MathNode:
@@ -253,7 +321,6 @@ class MathParser:
         if self.pos >= len(self.source):
             return TextNode("\\")
 
-        # Read command name
         start = self.pos
         while self.pos < len(self.source) and self.source[self.pos].isalpha():
             self.pos += 1
@@ -311,6 +378,26 @@ class MathParser:
             return SpaceNode(width_em=1.0)
         elif name == "qquad":
             return SpaceNode(width_em=2.0)
+        elif name == "lim":
+            return TextNode("lim", italic=False)
+        elif name == "sin":
+            return TextNode("sin", italic=False)
+        elif name == "cos":
+            return TextNode("cos", italic=False)
+        elif name == "tan":
+            return TextNode("tan", italic=False)
+        elif name == "log":
+            return TextNode("log", italic=False)
+        elif name == "ln":
+            return TextNode("ln", italic=False)
+        elif name == "exp":
+            return TextNode("exp", italic=False)
+        elif name == "det":
+            return TextNode("det", italic=False)
+        elif name == "max":
+            return TextNode("max", italic=False)
+        elif name == "min":
+            return TextNode("min", italic=False)
         elif name in GREEK_LETTERS:
             return SymbolNode(symbol=name, display=GREEK_LETTERS[name])
         elif name in MATH_SYMBOLS:
@@ -333,6 +420,7 @@ class MathBox:
     size: float
     italic: bool = False
     bold: bool = False
+    symbol: bool = False
 
 
 @dataclass
@@ -351,7 +439,7 @@ class MathLayout:
     lines: list = field(default_factory=list)
     width: float = 0.0
     height: float = 0.0
-    depth: float = 0.0  # below baseline
+    depth: float = 0.0
 
 
 class MathLayoutEngine:
@@ -363,8 +451,7 @@ class MathLayoutEngine:
 
     def layout(self, node: MathNode, size: float | None = None) -> MathLayout:
         size = size or self.base_size
-        result = self._layout_node(node, 0.0, 0.0, size)
-        return result
+        return self._layout_node(node, 0.0, 0.0, size)
 
     def _layout_node(self, node: MathNode, x: float, y: float,
                      size: float) -> MathLayout:
@@ -398,17 +485,16 @@ class MathLayoutEngine:
 
     def _layout_text(self, node: TextNode, x: float, y: float,
                      size: float) -> MathLayout:
-        text = node.text
-        fallback = _winansi_safe(text)
-        w = len(fallback) * self._char_w(size)
-        box = MathBox(text=fallback, x=x, y=y, size=size, italic=node.italic)
+        w = len(node.text) * self._char_w(size)
+        box = MathBox(text=node.text, x=x, y=y, size=size,
+                      italic=node.italic, symbol=False)
         return MathLayout(boxes=[box], width=w, height=size, depth=0)
 
     def _layout_symbol(self, node: SymbolNode, x: float, y: float,
                        size: float) -> MathLayout:
-        fallback = _winansi_safe(node.display)
-        w = len(fallback) * self._char_w(size)
-        box = MathBox(text=fallback, x=x, y=y, size=size, italic=False)
+        w = self._char_w(size)
+        box = MathBox(text=node.display, x=x, y=y, size=size,
+                      italic=False, symbol=True)
         return MathLayout(boxes=[box], width=w, height=size, depth=0)
 
     def _layout_group(self, node: GroupNode, x: float, y: float,
@@ -505,9 +591,8 @@ class MathLayoutEngine:
     def _layout_sqrt(self, node: SqrtNode, x: float, y: float,
                      size: float) -> MathLayout:
         inner = self._layout_node(node.radicand, 0, 0, size)
-        hook_w = size * 0.4
-        pad = size * 0.1
-        total_h = inner.height + pad
+        hook_w = size * 0.5
+        pad = size * 0.15
 
         inner_shifted = self._layout_node(
             node.radicand, x + hook_w, y, size
@@ -517,28 +602,20 @@ class MathLayoutEngine:
         layout.boxes = inner_shifted.boxes
         layout.lines = inner_shifted.lines
 
-        # Sqrt symbol drawn as lines
         bar_y = y + inner.height + pad * 0.5
-        # Horizontal bar over radicand
         layout.lines.append(MathLine(
             x=x + hook_w - 1, y=bar_y,
             width=inner.width + 2,
             thickness=size * 0.04,
         ))
-        # Diagonal stroke (approximated as a short line)
-        layout.lines.append(MathLine(
-            x=x + hook_w * 0.3, y=y - inner.depth,
-            width=hook_w * 0.7,
-            thickness=size * 0.05,
-        ))
 
-        # V-check character
-        check = MathBox(text="V", x=x, y=y - size * 0.1,
-                        size=size * 0.9, italic=False)
-        layout.boxes.append(check)
+        # Radical sign from Symbol font
+        radical = MathBox(text="√", x=x, y=y - size * 0.1,
+                          size=size * 1.1, italic=False, symbol=True)
+        layout.boxes.append(radical)
 
         layout.width = hook_w + inner.width
-        layout.height = total_h
+        layout.height = inner.height + pad
         layout.depth = inner.depth
         return layout
 
@@ -546,17 +623,20 @@ class MathLayoutEngine:
                        size: float) -> MathLayout:
         base = self._layout_node(node.base, x, y, size)
         accent_map = {
-            "hat": "^", "bar": "_", "dot": ".",
-            "vec": "->", "tilde": "~",
+            "hat": ("^", False),
+            "bar": ("¯", False),
+            "dot": (".", False),
+            "vec": ("→", True),
+            "tilde": ("~", False),
         }
-        accent_text = accent_map.get(node.accent_type, "^")
+        accent_text, is_symbol = accent_map.get(node.accent_type, ("^", False))
         accent_y = y + base.height + size * 0.05
         accent_x = x + (base.width - self._char_w(size * 0.8)) / 2
 
         layout = MathLayout()
         layout.boxes = base.boxes + [
             MathBox(text=accent_text, x=accent_x, y=accent_y,
-                    size=size * 0.7, italic=False)
+                    size=size * 0.7, italic=False, symbol=is_symbol)
         ]
         layout.lines = base.lines
         layout.width = base.width
@@ -589,20 +669,6 @@ class MathLayoutEngine:
         return layout
 
 
-def _winansi_safe(text: str) -> str:
-    """Convert Unicode to WinAnsi-safe representation."""
-    result = []
-    for ch in text:
-        code = ord(ch)
-        if code < 256:
-            result.append(ch)
-        elif ch in _WINANSI_FALLBACK:
-            result.append(_WINANSI_FALLBACK[ch])
-        else:
-            result.append(ch)
-    return "".join(result)
-
-
 @dataclass
 class MathExpression:
     """A mathematical expression to render in a document."""
@@ -617,7 +683,8 @@ class MathExpression:
 
 def render_math(stream, math_expr: MathExpression, x: float, y: float,
                 font_key: str, size: float, color: str = "000000",
-                italic_key: str | None = None) -> float:
+                italic_key: str | None = None,
+                symbol_key: str | None = None) -> float:
     """Render a math expression into a content stream.
 
     Returns the total width of the rendered expression.
@@ -627,11 +694,24 @@ def render_math(stream, math_expr: MathExpression, x: float, y: float,
     layout = engine.layout(node)
 
     for box in layout.boxes:
-        key = italic_key if (italic_key and box.italic) else font_key
-        stream.text_line(
-            box.text, key, box.size,
-            x + box.x, y + box.y, color,
-        )
+        if box.symbol and symbol_key:
+            encoded = _symbol_encode(box.text)
+            stream.raw(b"BT")
+            stream.set_fill(color)
+            stream.raw(f"/{symbol_key} ".encode("ascii")
+                       + stream._num(box.size) + b" Tf")
+            stream.raw(b" ".join([
+                stream._num(x + box.x),
+                stream._num(y + box.y), b"Td"
+            ]))
+            stream.raw(encoded + b" Tj")
+            stream.raw(b"ET")
+        else:
+            key = italic_key if (italic_key and box.italic) else font_key
+            stream.text_line(
+                box.text, key, box.size,
+                x + box.x, y + box.y, color,
+            )
 
     for line in layout.lines:
         stream.line(
