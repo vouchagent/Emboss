@@ -120,6 +120,28 @@ class ContentStream:
     def set_ext_gstate(self, name: str) -> None:
         self.raw(f"/{name} gs".encode("ascii"))
 
+    def set_fill_cmyk(self, c: float, m: float, y: float, k: float) -> None:
+        """Set fill color in CMYK color space (DeviceCMYK)."""
+        self.raw(b" ".join([
+            self._num(c), self._num(m), self._num(y), self._num(k), b"k"
+        ]))
+
+    def set_stroke_cmyk(self, c: float, m: float, y: float, k: float) -> None:
+        """Set stroke color in CMYK color space (DeviceCMYK)."""
+        self.raw(b" ".join([
+            self._num(c), self._num(m), self._num(y), self._num(k), b"K"
+        ]))
+
+    def set_fill_spot(self, cs_name: str, tint: float = 1.0) -> None:
+        """Set fill color using a named Separation (spot) color space."""
+        self.raw(f"/{cs_name} cs".encode("ascii"))
+        self.raw(self._num(tint) + b" scn")
+
+    def set_stroke_spot(self, cs_name: str, tint: float = 1.0) -> None:
+        """Set stroke color using a named Separation (spot) color space."""
+        self.raw(f"/{cs_name} CS".encode("ascii"))
+        self.raw(self._num(tint) + b" SCN")
+
     # -- marked content (accessibility) --
 
     def begin_marked(self, tag: str, mcid: int) -> None:
@@ -144,23 +166,33 @@ class ContentStream:
         color: str,
         kern_pairs=None,
         gid_map=None,
+        h_scale: float = 100.0,
     ) -> None:
         """Draw one run of text at (x, y).
 
         When *gid_map* is provided (embedded CIDFont), text is encoded
         as 2-byte hex glyph IDs. Otherwise WinAnsi literal strings are used.
+
+        *h_scale* sets the PDF ``Tz`` horizontal scaling operator.  A
+        value of 100.0 is normal width; 98.0 compresses glyphs to 98 %
+        of their natural width.  Used by the hz-program font expansion
+        feature to improve justification.
         """
         if not text:
             return
         self.raw(b"BT")
         self.set_fill(color)
         self.raw(f"/{font_key} ".encode("ascii") + self._num(size) + b" Tf")
+        if h_scale != 100.0:
+            self.raw(self._num(h_scale) + b" Tz")
         self.raw(b" ".join([self._num(x), self._num(y), b"Td"]))
 
         if kern_pairs:
             self.raw(self._kerned_array(text, kern_pairs, gid_map) + b" TJ")
         else:
             self.raw(_encode_text(text, gid_map) + b" Tj")
+        if h_scale != 100.0:
+            self.raw(b"100 Tz")
         self.raw(b"ET")
 
     def _kerned_array(self, text: str, kern_pairs, gid_map=None) -> bytes:

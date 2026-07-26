@@ -371,6 +371,8 @@ class Renderer:
 
     def _draw_text_block(self, stream, placed, page_index, root, registry,
                          tag: str) -> None:
+        from .typography.protrusion import left_protrusion
+
         style = placed.block.style
         element = StructureElement(tag=tag)
         root.children.append(element)
@@ -381,16 +383,45 @@ class Renderer:
 
         y = placed.y
         indent = style.require("indent_left")
+
+        align = style.require("align")
+        justified = align == "justify"
+        apply_protrusion = align in ("justify", "left")
+
         for line in placed.lines:
             baseline = y - line.ascent
+
+            h_scale = 100.0
+            if justified and not line.is_last:
+                h_scale = 100.0 + (line.ratio * 1.0)
+                h_scale = max(98.0, min(102.0, h_scale))
+
+            protrusion_shift = 0.0
+            if apply_protrusion and line.fragments:
+                first_text = line.fragments[0][0]
+                if first_text:
+                    first_run = line.fragments[0][1]
+                    first_metrics, first_size, _ = self._resolve_font(
+                        style, first_run, registry
+                    )
+                    char = first_text[0]
+                    factor = left_protrusion(char)
+                    if factor > 0:
+                        char_width = first_metrics.text_width(
+                            char, first_size
+                        )
+                        protrusion_shift = -(char_width * factor)
+
             for text, run, offset in line.fragments:
                 metrics, size, key = self._resolve_font(style, run, registry)
                 color = run.color or style.require("color")
                 stream.text_line(
                     text, key, size,
-                    placed.x + indent + offset, baseline, color,
+                    placed.x + indent + offset + protrusion_shift,
+                    baseline, color,
                     kern_pairs=metrics.kern_pairs(text),
                     gid_map=metrics.gid_map,
+                    h_scale=h_scale,
                 )
             y -= line.height
 

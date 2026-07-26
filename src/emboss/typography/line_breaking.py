@@ -22,14 +22,14 @@ from typing import Callable, Sequence
 
 __all__ = [
     "Box", "Glue", "Penalty", "Line", "LineBreaker",
-    "INFINITE_PENALTY", "build_items",
+    "INFINITE_PENALTY", "build_items", "detect_rivers",
 ]
 
 INFINITE_PENALTY = 10_000.0
 _EJECT_PENALTY = -INFINITE_PENALTY
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Box:
     """Unbreakable typeset material."""
 
@@ -38,7 +38,7 @@ class Box:
     run_index: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Glue:
     """Stretchable and shrinkable space."""
 
@@ -48,7 +48,7 @@ class Glue:
     run_index: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Penalty:
     """A potential breakpoint.
 
@@ -65,7 +65,7 @@ class Penalty:
 Item = Box | Glue | Penalty
 
 
-@dataclass
+@dataclass(slots=True)
 class Line:
     """One laid-out line: the items on it and how its glue was adjusted."""
 
@@ -89,7 +89,7 @@ class Line:
         return text + "-" if self.hyphenated else text
 
 
-@dataclass
+@dataclass(slots=True)
 class _Node:
     """An active breakpoint in the dynamic program."""
 
@@ -131,6 +131,8 @@ class LineBreaker:
     hyphen_penalty: float = 50.0
     flagged_demerit: float = 3000.0
     fitness_demerit: float = 3000.0
+    protrusion: bool = True
+    avoid_rivers: bool = True
 
     def break_paragraph(
         self,
@@ -148,30 +150,43 @@ class LineBreaker:
 
         best = self._optimize(items, sums, width_for, self.tolerance)
         if best is None:
-            # Widen tolerance before giving up: a hard-to-set paragraph
-            # (long URLs, narrow columns) should still produce output.
             best = self._optimize(items, sums, width_for, self.tolerance * 4)
         if best is None:
             return self._greedy(items, width_for)
 
-        return self._assemble(items, best)
+        lines = self._assemble(items, best)
+
+        if self.avoid_rivers and len(lines) >= 3:
+            rivers = detect_rivers(lines)
+            if rivers > 0:
+                tighter = self._optimize(
+                    items, sums, width_for, self.tolerance * 0.8,
+                )
+                if tighter is not None:
+                    alt = self._assemble(items, tighter)
+                    if detect_rivers(alt) < rivers:
+                        lines = alt
+
+        return lines
 
     # -- internals --
 
     @staticmethod
     def _running_sums(items: Sequence) -> list:
         """Cumulative width/stretch/shrink, so any span is an O(1) lookup."""
-        sums = []
+        n = len(items)
+        sums = [None] * (n + 1)
         width = stretch = shrink = 0.0
-        for item in items:
-            sums.append((width, stretch, shrink))
+        for i in range(n):
+            sums[i] = (width, stretch, shrink)
+            item = items[i]
             if isinstance(item, Box):
                 width += item.width
             elif isinstance(item, Glue):
                 width += item.width
                 stretch += item.stretch
                 shrink += item.shrink
-        sums.append((width, stretch, shrink))
+        sums[n] = (width, stretch, shrink)
         return sums
 
     @staticmethod
@@ -193,17 +208,46 @@ class LineBreaker:
         if isinstance(item, Penalty):
             width += item.width
 
-        if width < target:
+        effective_target = target
+        if self.protrusion:
+            effective_target += self._protrusion_slack(
+                items, node.position, index
+            )
+
+        if width < effective_target:
             stretch = sums[index][1] - node.total_stretch
             if stretch <= 0:
                 return INFINITE_PENALTY
-            return (target - width) / stretch
-        if width > target:
+            return (effective_target - width) / stretch
+        if width > effective_target:
             shrink = sums[index][2] - node.total_shrink
             if shrink <= 0:
                 return -INFINITE_PENALTY
-            return (target - width) / shrink
+            return (effective_target - width) / shrink
         return 0.0
+
+    @staticmethod
+    def _protrusion_slack(items: Sequence, start: int, end: int) -> float:
+        from .protrusion import left_protrusion, right_protrusion
+
+        slack = 0.0
+        for i in range(start, end):
+            it = items[i]
+            if isinstance(it, Box) and it.text:
+                factor = left_protrusion(it.text[0])
+                if factor > 0:
+                    slack += it.width * factor * (1 / max(len(it.text), 1))
+                break
+
+        for i in range(end - 1, start - 1, -1):
+            it = items[i]
+            if isinstance(it, Box) and it.text:
+                factor = right_protrusion(it.text[-1])
+                if factor > 0:
+                    slack += it.width * factor * (1 / max(len(it.text), 1))
+                break
+
+        return slack
 
     def _demerits(self, ratio: float, item, node: _Node, fitness: int) -> float:
         badness = 100.0 * abs(ratio) ** 3
@@ -401,12 +445,16 @@ def build_items(
     hyphenator=None,
     justified: bool = False,
     hyphenate: bool = False,
+    tracking: float = 0.0,
 ) -> list:
     """Convert styled text runs into a Knuth-Plass item list.
 
     `metrics_for(run)` returns the FontMetrics for a run and `size_for(run)`
     its point size, so mixed formatting within a paragraph measures
     correctly.
+
+    `tracking` is a uniform letter-spacing adjustment in points added to
+    every character advance.
     """
     items: list = []
 
@@ -418,8 +466,8 @@ def build_items(
         # Justified text needs elastic spaces; ragged text keeps them fixed
         # so word spacing stays even and the rag falls where it falls.
         if justified:
-            stretch = space_width * 0.55
-            shrink = space_width * 0.35
+            stretch = space_width * 0.45
+            shrink = space_width * 0.30
         else:
             stretch = 0.0
             shrink = 0.0
@@ -439,9 +487,13 @@ def build_items(
             else:
                 points = []
 
+            token_width = metrics.text_width(token, size)
+            if tracking:
+                token_width += len(token) * tracking
+
             if not points:
                 items.append(
-                    Box(width=metrics.text_width(token, size), text=token,
+                    Box(width=token_width, text=token,
                         run_index=run_index)
                 )
                 continue
@@ -450,8 +502,11 @@ def build_items(
             previous = 0
             for point in points:
                 fragment = token[previous:point]
+                frag_width = metrics.text_width(fragment, size)
+                if tracking:
+                    frag_width += len(fragment) * tracking
                 items.append(
-                    Box(width=metrics.text_width(fragment, size),
+                    Box(width=frag_width,
                         text=fragment, run_index=run_index)
                 )
                 items.append(
@@ -460,8 +515,11 @@ def build_items(
                 )
                 previous = point
             tail = token[previous:]
+            tail_width = metrics.text_width(tail, size)
+            if tracking:
+                tail_width += len(tail) * tracking
             items.append(
-                Box(width=metrics.text_width(tail, size), text=tail,
+                Box(width=tail_width, text=tail,
                     run_index=run_index)
             )
 
@@ -470,3 +528,43 @@ def build_items(
     items.append(Glue(width=0.0, stretch=INFINITE_PENALTY, shrink=0.0))
     items.append(Penalty(penalty=_EJECT_PENALTY))
     return items
+
+
+def _space_positions(line: Line) -> list[float]:
+    positions: list[float] = []
+    cursor = 0.0
+    for item in line.items:
+        if isinstance(item, Box):
+            cursor += item.width
+        elif isinstance(item, Glue):
+            positions.append(cursor + item.width / 2.0)
+            cursor += item.width
+    return positions
+
+
+def detect_rivers(lines: Sequence[Line], tolerance: float = 2.0) -> int:
+    """Count rivers of whitespace spanning three or more consecutive lines."""
+    if len(lines) < 3:
+        return 0
+
+    all_positions = [_space_positions(line) for line in lines]
+
+    rivers = 0
+    for start in range(len(lines) - 2):
+        for sx in all_positions[start]:
+            depth = 1
+            ref = sx
+            for row in range(start + 1, len(lines)):
+                matched = False
+                for rx in all_positions[row]:
+                    if abs(rx - ref) <= tolerance:
+                        depth += 1
+                        ref = rx
+                        matched = True
+                        break
+                if not matched:
+                    break
+            if depth >= 3:
+                rivers += 1
+
+    return rivers

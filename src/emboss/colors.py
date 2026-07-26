@@ -1,19 +1,31 @@
-"""Named color palettes and theme system.
+"""Named color palettes, CMYK/spot color support, and theme system.
 
 Named color palettes with Tailwind CSS-style naming. Lets LLMs
 say ``"blue-600"`` instead of ``"2563eb"`` — fewer tokens, fewer mistakes,
 and documents get a consistent palette instead of random hex strings.
 
+CMYK colors can be expressed as ``"cmyk(0,0,0,100)"`` strings or as
+``CmykColor`` dataclass instances. Spot colors (Pantone, etc.) are
+supported via ``SpotColor`` with a CMYK fallback.
+
 Usage:
-    from emboss.colors import resolve_color, PALETTES
+    from emboss.colors import resolve_color, PALETTES, CmykColor, SpotColor
 
     hex_val = resolve_color("blue-600")   # -> "2563eb"
     hex_val = resolve_color("ff0000")     # -> "ff0000" (pass-through)
+
+    cmyk = CmykColor(0.0, 1.0, 1.0, 0.0)      # pure red in CMYK
+    spot = SpotColor("PANTONE 485 C", 0.0, 1.0, 0.95, 0.0)
 """
 
 from __future__ import annotations
 
-__all__ = ["resolve_color", "PALETTES", "ColorTheme"]
+from dataclasses import dataclass
+
+__all__ = [
+    "resolve_color", "PALETTES", "ColorTheme",
+    "CmykColor", "SpotColor", "rgb_to_cmyk", "parse_cmyk",
+]
 
 PALETTES: dict[str, dict[str, str]] = {
     "slate": {
@@ -145,3 +157,142 @@ class ColorTheme:
 
     def __contains__(self, name: str) -> bool:
         return name in self._colors
+
+
+# ---------------------------------------------------------------------------
+# CMYK and spot color support
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class CmykColor:
+    """A color in the CMYK color space.
+
+    Component values are floats in 0.0-1.0 range.
+    """
+
+    c: float
+    m: float
+    y: float
+    k: float
+
+    def __post_init__(self) -> None:
+        for name, val in [("c", self.c), ("m", self.m),
+                          ("y", self.y), ("k", self.k)]:
+            if not (0.0 <= val <= 1.0):
+                raise ValueError(
+                    f"CMYK component {name} must be 0.0-1.0, got {val}"
+                )
+
+    @property
+    def components(self) -> tuple[float, float, float, float]:
+        return (self.c, self.m, self.y, self.k)
+
+
+@dataclass(frozen=True, slots=True)
+class SpotColor:
+    """A spot/named color (e.g. Pantone) with a CMYK fallback.
+
+    PDF represents spot colors as Separation color spaces with an
+    alternate space (DeviceCMYK) and a tint transform function.
+    """
+
+    name: str
+    c: float
+    m: float
+    y: float
+    k: float
+
+    @property
+    def fallback_cmyk(self) -> CmykColor:
+        return CmykColor(self.c, self.m, self.y, self.k)
+
+
+def rgb_to_cmyk(r: float, g: float, b: float) -> CmykColor:
+    """Convert an RGB color (0.0-1.0 components) to CMYK.
+
+    Uses a basic algorithmic conversion. For production print work,
+    ICC profile-based conversion is preferred.
+    """
+    k = 1.0 - max(r, g, b)
+    if k >= 1.0:
+        return CmykColor(0.0, 0.0, 0.0, 1.0)
+    c = (1.0 - r - k) / (1.0 - k)
+    m = (1.0 - g - k) / (1.0 - k)
+    y_val = (1.0 - b - k) / (1.0 - k)
+    return CmykColor(c, m, y_val, k)
+
+
+def hex_to_cmyk(hex_color: str) -> CmykColor:
+    """Convert a 6-digit hex RGB color to CMYK."""
+    text = hex_color.lstrip("#")
+    if len(text) != 6:
+        raise ValueError(f"invalid hex color for CMYK conversion: {hex_color!r}")
+    r = int(text[0:2], 16) / 255.0
+    g = int(text[2:4], 16) / 255.0
+    b = int(text[4:6], 16) / 255.0
+    return rgb_to_cmyk(r, g, b)
+
+
+_CMYK_RE = re.compile(
+    r"^cmyk\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,"
+    r"\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)$"
+)
+
+
+def parse_cmyk(value: str) -> CmykColor | None:
+    """Parse a ``cmyk(c,m,y,k)`` string into a CmykColor.
+
+    Component values may be 0-100 (percentage) or 0.0-1.0 (fraction).
+    Values > 1.0 are treated as percentages and divided by 100.
+
+    Returns None if the string is not a CMYK color specification.
+    """
+    match = _CMYK_RE.match(value.strip())
+    if not match:
+        return None
+    components = [float(match.group(i)) for i in range(1, 5)]
+    # Auto-detect percentage vs fraction: if any value > 1.0, treat
+    # all as percentages.
+    if any(v > 1.0 for v in components):
+        components = [v / 100.0 for v in components]
+    return CmykColor(*components)
+
+
+def build_spot_color_resource(assembler, name: str,
+                              c: float, m: float, y: float, k: float) -> str:
+    """Register a spot color as a PDF Separation color space.
+
+    Creates a ``/ColorSpace`` entry with a ``/Separation`` array that
+    uses ``/DeviceCMYK`` as the alternate space and a tint-transform
+    ``/Function`` that scales the CMYK fallback by the tint value.
+
+    Returns the resource name (e.g. ``CS0``) to use in content stream
+    operators like ``/CS0 cs 1 scn``.
+    """
+    from .pdf.objects import PdfArray, PdfDict, PdfName, PdfStream
+
+    # Tint transform: a Type 4 PostScript calculator function.
+    # Input: tint (0-1). Output: C M Y K scaled by tint.
+    func_code = (
+        f"{{ dup {c:.4f} mul exch dup {m:.4f} mul exch "
+        f"dup {y:.4f} mul exch {k:.4f} mul }}"
+    ).encode("ascii")
+    func_dict = PdfDict()
+    func_dict["FunctionType"] = 4
+    func_dict["Domain"] = PdfArray([0.0, 1.0])
+    func_dict["Range"] = PdfArray([0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0])
+    func_stream = PdfStream(data=func_code, dictionary=func_dict, compress=False)
+    func_ref = assembler.add(func_stream)
+
+    cs_array = PdfArray([
+        PdfName("Separation"),
+        PdfName(name),
+        PdfName("DeviceCMYK"),
+        func_ref,
+    ])
+    cs_ref = assembler.add(cs_array)
+
+    # Return a sanitized resource name derived from the spot color name.
+    safe = re.sub(r"[^A-Za-z0-9]", "", name)
+    resource_name = f"CS{safe}" if safe else "CS0"
+    return resource_name, cs_ref

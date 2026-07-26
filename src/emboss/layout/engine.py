@@ -5,7 +5,8 @@ tall a block is and where it may legally split. Overflow is therefore
 impossible by construction rather than detected after the fact.
 
 Pagination enforces widow/orphan minimums, keep-with-next for headings,
-keep-together for atomic blocks, and header repetition for split tables.
+keep-together for atomic blocks, header repetition for split tables,
+and float placement for figures.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ __all__ = [
 ]
 
 
-@dataclass
+@dataclass(slots=True)
 class LaidOutLine:
     """One line of text with its resolved geometry."""
 
@@ -76,7 +77,7 @@ class MeasuredBlock:
         return len(self.lines)
 
 
-@dataclass
+@dataclass(slots=True)
 class PlacedBlock:
     """A measured block positioned on a page."""
 
@@ -103,6 +104,16 @@ class Page:
         return self.cursor - self.spec.content_bottom
 
 
+@dataclass
+class _FloatEntry:
+    block: MeasuredBlock
+    float_type: str
+    origin_page: int
+
+
+_FLOATABLE_TYPES = (Image, Chart, SvgBlock)
+
+
 class LayoutEngine:
     """Measures content and composes it into pages."""
 
@@ -113,11 +124,17 @@ class LayoutEngine:
     MIN_ORPHAN_LINES = 2
     MIN_TABLE_ROWS_PER_PAGE = 2
 
-    def __init__(self, fonts, sheet, hyphenator=None, breaker=None):
+    FLOAT_AUTO_THRESHOLD = 0.40
+    FLOAT_MIN_TEXT_SPACE = 0.15
+    FLOAT_MAX_DRIFT = 2
+
+    def __init__(self, fonts, sheet, hyphenator=None, breaker=None,
+                 optimize_layout=True):
         self.fonts = fonts
         self.sheet = sheet
         self.hyphenator = hyphenator
         self.breaker = breaker or LineBreaker()
+        self.optimize_layout = optimize_layout
 
     # -- font resolution --
 
@@ -687,12 +704,26 @@ class LayoutEngine:
         # and let cell text wrap.
         return [width * (m / total_minimum) for m in minimums]
 
+    # -- float helpers --
+
+    @staticmethod
+    def _get_float_type(block: MeasuredBlock) -> str | None:
+        element = block.element
+        if isinstance(element, _FLOATABLE_TYPES):
+            ft = getattr(element, "float", None)
+            if ft and ft != "here":
+                return ft
+        return None
+
     # -- pagination --
 
     def paginate(self, blocks: list, page_spec) -> list:
         if page_spec.columns > 1:
             return self._paginate_multicolumn(blocks, page_spec)
-        return self._paginate_single(blocks, page_spec)
+        pages = self._paginate_single(blocks, page_spec)
+        if self.optimize_layout:
+            pages = self._optimize_pages(pages, page_spec)
+        return pages
 
     def _paginate_multicolumn(self, blocks: list, page_spec) -> list:
         cols = page_spec.columns
@@ -782,22 +813,127 @@ class LayoutEngine:
         pages: list = []
         current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
         left = page_spec.margin_left
+        content_height = page_spec.content_height
+
+        float_queue: list[_FloatEntry] = []
+        bottom_floats: list[_FloatEntry] = []
+        bottom_reserved: float = 0.0
+
+        def _eff_remaining() -> float:
+            return current.cursor - (page_spec.content_bottom + bottom_reserved)
+
+        def _place_bottom_floats() -> None:
+            if not bottom_floats:
+                return
+            y = page_spec.content_bottom
+            for entry in bottom_floats:
+                blk = entry.block
+                y += blk.height
+                current.blocks.append(PlacedBlock(
+                    block=blk, x=left, y=y,
+                    height=blk.height, lines=blk.lines,
+                ))
+                y += blk.space_before
+
+        def _start_new_page() -> None:
+            nonlocal current, bottom_floats, bottom_reserved
+            _place_bottom_floats()
+            pages.append(current)
+            current = Page(number=len(pages) + 1,
+                           cursor=page_spec.content_top, spec=page_spec)
+            bottom_floats = []
+            bottom_reserved = 0.0
+            _flush_top_floats()
+
+        def _flush_top_floats() -> None:
+            nonlocal float_queue
+            remaining: list[_FloatEntry] = []
+            for entry in float_queue:
+                blk = entry.block
+                gap_f = blk.space_before if current.blocks else 0.0
+                needed = blk.height + gap_f
+                if needed <= _eff_remaining():
+                    current.cursor -= gap_f
+                    current.blocks.append(PlacedBlock(
+                        block=blk, x=left, y=current.cursor,
+                        height=blk.height, lines=blk.lines,
+                    ))
+                    current.cursor -= blk.height + blk.space_after
+                else:
+                    remaining.append(entry)
+            float_queue = remaining
+
+        def _force_overdue_floats() -> None:
+            nonlocal float_queue
+            current_page_num = len(pages) + 1
+            remaining: list[_FloatEntry] = []
+            for entry in float_queue:
+                if current_page_num - entry.origin_page > self.FLOAT_MAX_DRIFT:
+                    blk = entry.block
+                    gap_f = blk.space_before if current.blocks else 0.0
+                    if blk.height + gap_f > _eff_remaining():
+                        _start_new_page()
+                        gap_f = blk.space_before if current.blocks else 0.0
+                    current.cursor -= gap_f
+                    current.blocks.append(PlacedBlock(
+                        block=blk, x=left, y=current.cursor,
+                        height=blk.height, lines=blk.lines,
+                    ))
+                    current.cursor -= blk.height + blk.space_after
+                else:
+                    remaining.append(entry)
+            float_queue = remaining
 
         index = 0
         while index < len(blocks):
             block = blocks[index]
 
+            if float_queue:
+                _force_overdue_floats()
+
             if isinstance(block.element, PageBreak):
-                pages.append(current)
-                current = Page(number=len(pages) + 1,
-                               cursor=page_spec.content_top, spec=page_spec)
+                _start_new_page()
                 index += 1
                 continue
 
+            float_type = self._get_float_type(block)
+            if float_type:
+                current_page_num = len(pages) + 1
+                if float_type == "top":
+                    float_queue.append(_FloatEntry(
+                        block=block, float_type="top",
+                        origin_page=current_page_num,
+                    ))
+                    index += 1
+                    continue
+                elif float_type == "bottom":
+                    needed = block.height + block.space_before
+                    min_text = self.FLOAT_MIN_TEXT_SPACE * content_height
+                    if needed + min_text <= _eff_remaining():
+                        bottom_reserved += needed
+                        bottom_floats.append(_FloatEntry(
+                            block=block, float_type="bottom",
+                            origin_page=current_page_num,
+                        ))
+                    else:
+                        float_queue.append(_FloatEntry(
+                            block=block, float_type="top",
+                            origin_page=current_page_num,
+                        ))
+                    index += 1
+                    continue
+                elif float_type == "auto":
+                    frac = _eff_remaining() / content_height if content_height else 0
+                    if frac < self.FLOAT_AUTO_THRESHOLD:
+                        float_queue.append(_FloatEntry(
+                            block=block, float_type="top",
+                            origin_page=current_page_num,
+                        ))
+                        index += 1
+                        continue
+
             if block.style.page_break_before and current.blocks:
-                pages.append(current)
-                current = Page(number=len(pages) + 1,
-                               cursor=page_spec.content_top, spec=page_spec)
+                _start_new_page()
 
             gap = block.space_before if current.blocks else 0.0
             available = current.remaining() - gap
@@ -809,9 +945,7 @@ class LayoutEngine:
                     nxt.height, self.KEEP_WITH_NEXT_LOOKAHEAD
                 )
                 if needed > available and current.blocks:
-                    pages.append(current)
-                    current = Page(number=len(pages) + 1,
-                                   cursor=page_spec.content_top, spec=page_spec)
+                    _start_new_page()
                     gap = 0.0
                     available = current.remaining()
 
@@ -857,14 +991,9 @@ class LayoutEngine:
 
                 if fitting == 0:
                     if not current.blocks:
-                        # Block is taller than an empty page: place what
-                        # fits rather than looping forever.
                         fitting = max(1, block.lines_fitting(available))
                     else:
-                        pages.append(current)
-                        current = Page(number=len(pages) + 1,
-                                       cursor=page_spec.content_top,
-                                       spec=page_spec)
+                        _start_new_page()
                         continue
 
                 head = block.lines[:fitting]
@@ -875,9 +1004,7 @@ class LayoutEngine:
                         height=sum(l.height for l in head), lines=head,
                     )
                 )
-                pages.append(current)
-                current = Page(number=len(pages) + 1,
-                               cursor=page_spec.content_top, spec=page_spec)
+                _start_new_page()
 
                 tail = MeasuredBlock(
                     element=block.element,
@@ -891,11 +1018,8 @@ class LayoutEngine:
                 blocks[index] = tail
                 continue
 
-            # Atomic block that does not fit: move it to a fresh page.
             if current.blocks:
-                pages.append(current)
-                current = Page(number=len(pages) + 1,
-                               cursor=page_spec.content_top, spec=page_spec)
+                _start_new_page()
                 continue
 
             current.blocks.append(
@@ -908,6 +1032,29 @@ class LayoutEngine:
             )
             current.cursor -= block.height + block.space_after
             index += 1
+
+        leftover = list(float_queue)
+        float_queue.clear()
+        for entry in leftover:
+            blk = entry.block
+            gap_f = blk.space_before if current.blocks else 0.0
+            if blk.height + gap_f > _eff_remaining():
+                _place_bottom_floats()
+                pages.append(current)
+                current = Page(number=len(pages) + 1,
+                               cursor=page_spec.content_top, spec=page_spec)
+                bottom_floats = []
+                bottom_reserved = 0.0
+                gap_f = blk.space_before if current.blocks else 0.0
+            current.cursor -= gap_f
+            current.blocks.append(PlacedBlock(
+                block=blk, x=left, y=current.cursor,
+                height=blk.height, lines=blk.lines,
+            ))
+            current.cursor -= blk.height + blk.space_after
+
+        if bottom_floats:
+            _place_bottom_floats()
 
         if current.blocks or not pages:
             pages.append(current)
@@ -979,6 +1126,132 @@ class LayoutEngine:
             table=tail_layout,
         )
         return page, tail, False
+
+    # -- two-pass optimization --
+
+    def _optimize_pages(self, pages: list, page_spec) -> list:
+        if len(pages) < 2:
+            return pages
+
+        content_height = page_spec.content_height
+        left = page_spec.margin_left
+        changed = True
+        iterations = 0
+
+        while changed and iterations < 3:
+            changed = False
+            iterations += 1
+            i = 0
+            while i < len(pages) - 1:
+                page = pages[i]
+                next_page = pages[i + 1]
+
+                if not page.blocks or not next_page.blocks:
+                    i += 1
+                    continue
+
+                last_pb = page.blocks[-1]
+                page_bottom_edge = last_pb.y - last_pb.height
+                remaining = page_bottom_edge - page_spec.content_bottom
+                empty_frac = remaining / content_height if content_height else 0.0
+
+                first_next = next_page.blocks[0]
+
+                if (empty_frac > 0.30
+                        and isinstance(first_next.block.element,
+                                       _FLOATABLE_TYPES)):
+                    fig_needed = first_next.height + first_next.block.space_before
+                    if fig_needed <= remaining:
+                        y = page_bottom_edge - first_next.block.space_before
+                        next_page.blocks.pop(0)
+                        page.blocks.append(PlacedBlock(
+                            block=first_next.block, x=left, y=y,
+                            height=first_next.height,
+                            lines=first_next.lines,
+                        ))
+                        page.cursor = y - first_next.height - first_next.block.space_after
+                        self._reflow_page(next_page, page_spec)
+                        changed = True
+                        if not next_page.blocks:
+                            pages.pop(i + 1)
+                        continue
+
+                if (first_next.lines
+                        and len(first_next.lines) == 1
+                        and page.blocks):
+                    last_this = page.blocks[-1]
+                    if (last_this.block.element is first_next.block.element
+                            and last_this.lines):
+                        widow_line = first_next.lines[0]
+                        if widow_line.height <= remaining:
+                            new_lines = list(last_this.lines) + [widow_line]
+                            new_height = sum(l.height for l in new_lines)
+                            page.blocks[-1] = PlacedBlock(
+                                block=last_this.block, x=last_this.x,
+                                y=last_this.y, height=new_height,
+                                lines=new_lines,
+                            )
+                            page.cursor = (last_this.y - new_height
+                                           - last_this.block.space_after)
+                            next_page.blocks.pop(0)
+                            self._reflow_page(next_page, page_spec)
+                            changed = True
+                            if not next_page.blocks:
+                                pages.pop(i + 1)
+                            continue
+
+                if (last_pb.lines
+                        and len(last_pb.lines) == 1
+                        and next_page.blocks):
+                    first_next_blk = next_page.blocks[0]
+                    if (first_next_blk.block.element is last_pb.block.element
+                            and first_next_blk.lines):
+                        orphan_line = last_pb.lines[0]
+                        new_next_lines = [orphan_line] + list(first_next_blk.lines)
+                        new_next_height = sum(l.height for l in new_next_lines)
+                        next_page.blocks[0] = PlacedBlock(
+                            block=first_next_blk.block,
+                            x=first_next_blk.x,
+                            y=page_spec.content_top,
+                            height=new_next_height,
+                            lines=new_next_lines,
+                        )
+                        page.blocks.pop()
+                        if page.blocks:
+                            prev = page.blocks[-1]
+                            page.cursor = (prev.y - prev.height
+                                           - prev.block.space_after)
+                        else:
+                            page.cursor = page_spec.content_top
+                        self._reflow_page(next_page, page_spec)
+                        changed = True
+                        if not page.blocks:
+                            pages.pop(i)
+                            continue
+                        continue
+
+                i += 1
+
+        for idx, pg in enumerate(pages):
+            pg.number = idx + 1
+
+        return pages
+
+    @staticmethod
+    def _reflow_page(page: Page, page_spec) -> None:
+        cursor = page_spec.content_top
+        for idx, pb in enumerate(page.blocks):
+            gap = pb.block.space_before if idx > 0 else 0.0
+            cursor -= gap
+            page.blocks[idx] = PlacedBlock(
+                block=pb.block, x=pb.x, y=cursor,
+                height=pb.height, lines=pb.lines,
+                is_continuation=pb.is_continuation,
+                table_rows=pb.table_rows,
+                include_table_header=pb.include_table_header,
+            )
+            cursor -= pb.height + pb.block.space_after
+        page.cursor = cursor
 
 
 def _cell_align(align: str | None, header_align: str | None = None) -> str:

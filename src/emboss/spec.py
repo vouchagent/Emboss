@@ -35,6 +35,7 @@ class TextRun:
     text: str
     bold: bool = False
     italic: bool = False
+    small_caps: bool = False
     font_size: float | None = None
     font_family: str | None = None
     color: str | None = None
@@ -243,6 +244,7 @@ class Image:
     label: str | None = None
     align: Literal["left", "center", "right"] = "center"
     style: Style | None = None
+    float: Literal["here", "top", "bottom", "auto"] | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -262,6 +264,7 @@ class Chart:
     width: float = 400.0
     height: float = 250.0
     style: Style | None = None
+    float: Literal["here", "top", "bottom", "auto"] | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -395,6 +398,7 @@ class SvgBlock:
     alt_text: str = ""
     align: Literal["left", "center", "right"] = "center"
     style: Style | None = None
+    float: Literal["here", "top", "bottom", "auto"] | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -518,6 +522,7 @@ class Document:
     redactions: list | None = None
     signatures: list | None = None
     toc: bool = False
+    color_mode: Literal["rgb", "cmyk"] = "rgb"
     creator: str = "Emboss"
     producer: str = "Emboss"
 
@@ -609,3 +614,33 @@ class Document:
         from pathlib import Path
 
         Path(path).write_bytes(self.render())
+
+    @classmethod
+    def from_markdown(cls, text: str, **kw) -> "Document":
+        """Create a Document from a Markdown string.
+
+        Any keyword arguments are passed to the Document constructor
+        (style, page, legal, header, footer, etc.).
+        """
+        from .markdown import parse_markdown
+
+        elements = parse_markdown(text)
+        title = kw.pop("title", "")
+        if not title:
+            for el in elements:
+                if isinstance(el, Heading) and el.level == 1:
+                    title = el.text
+                    break
+        doc = cls(title=title, content=elements, **kw)
+        return doc
+
+    @classmethod
+    def from_json(cls, json_str: str, **kw) -> "Document":
+        """Create a Document from an EmbossSpec JSON string.
+
+        Handles common LLM quirks: markdown fences, trailing commas.
+        Any keyword arguments override fields in the JSON.
+        """
+        from .generate import parse_spec_json
+
+        return parse_spec_json(json_str, **kw)

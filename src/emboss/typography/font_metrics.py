@@ -96,6 +96,15 @@ class FontMetrics:
     _used_codepoints: set = field(default_factory=set)
     _gid_map: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self._text_width_cache: dict[tuple, float] = {}
+
+    def __hash__(self) -> int:
+        return id(self)
+
+    def __eq__(self, other) -> bool:
+        return self is other
+
     # -- construction --
 
     @classmethod
@@ -185,6 +194,10 @@ class FontMetrics:
         """Exact advance width of `text` at `size` points."""
         if not text:
             return 0.0
+        cache_key = (text, size, kerning)
+        cached = self._text_width_cache.get(cache_key)
+        if cached is not None:
+            return cached
         total = 0.0
         previous = None
         for char in text:
@@ -193,7 +206,10 @@ class FontMetrics:
             if kerning and previous is not None:
                 total += self._kerning.get((previous, code), 0.0)
             previous = code
-        return total * size / 1000.0
+        result = total * size / 1000.0
+        if len(self._text_width_cache) < 4096:
+            self._text_width_cache[cache_key] = result
+        return result
 
     def kern_pairs(self, text: str) -> list:
         """Return (index, adjustment) pairs for kerning inside `text`."""
@@ -205,6 +221,22 @@ class FontMetrics:
             if adjust:
                 pairs.append((i, adjust))
         return pairs
+
+    def small_caps_width(self, text: str, size: float) -> float:
+        """Width of text rendered in small caps.
+
+        Lowercase letters are measured as their uppercase counterpart at
+        80% of the requested size; uppercase letters and non-alphabetic
+        characters use the full size.
+        """
+        total = 0.0
+        sc_size = size * 0.8
+        for char in text:
+            if char.islower():
+                total += self.width_of(ord(char.upper())) * sc_size / 1000.0
+            else:
+                total += self.width_of(ord(char)) * size / 1000.0
+        return total
 
     def line_height(self, size: float, multiplier: float = 1.2) -> float:
         natural = (self.ascender - self.descender) / 1000.0 * size
@@ -251,28 +283,112 @@ def _is_symbolic(font) -> bool:
 
 
 def _extract_kerning(font, scale: float) -> dict:
-    """Pull kern pairs from the legacy `kern` table.
+    """Pull kern pairs from the legacy ``kern`` table, then supplement
+    with GPOS PairPos subtables.
 
-    GPOS kerning requires a shaping engine (uharfbuzz) to apply correctly;
-    that is a later phase. The legacy table covers most Latin text fonts.
+    Legacy kern pairs take precedence when both tables define the same
+    pair, because hand-tuned kern table values are typically more
+    carefully adjusted for specific pairs.
     """
-    if "kern" not in font:
-        return {}
-    reverse_cmap = {}
+    reverse_cmap: dict = {}
     for codepoint, glyph_name in font.getBestCmap().items():
         reverse_cmap.setdefault(glyph_name, codepoint)
 
     pairs: dict = {}
-    try:
-        for subtable in font["kern"].kernTables:
-            for (left, right), value in subtable.kernTable.items():
-                left_cp = reverse_cmap.get(left)
-                right_cp = reverse_cmap.get(right)
-                if left_cp is not None and right_cp is not None:
-                    pairs[(left_cp, right_cp)] = value * scale
-    except Exception:
-        return {}
+
+    # -- legacy kern table --
+    if "kern" in font:
+        try:
+            for subtable in font["kern"].kernTables:
+                for (left, right), value in subtable.kernTable.items():
+                    left_cp = reverse_cmap.get(left)
+                    right_cp = reverse_cmap.get(right)
+                    if left_cp is not None and right_cp is not None:
+                        pairs[(left_cp, right_cp)] = value * scale
+        except Exception:
+            pass
+
+    # -- GPOS PairPos subtables --
+    _extract_gpos_kerning(font, scale, reverse_cmap, pairs)
+
     return pairs
+
+
+def _extract_gpos_kerning(
+    font, scale: float, reverse_cmap: dict, pairs: dict
+) -> None:
+    """Extract kerning from GPOS PairPos (Format 1 and 2) subtables.
+
+    Uses ``setdefault`` so that legacy kern values are never overwritten.
+    Wrapped in a broad ``except`` so unusual GPOS structures do not
+    crash font loading.
+    """
+    if "GPOS" not in font:
+        return
+    try:
+        gpos = font["GPOS"].table
+        for feature_record in gpos.FeatureList.FeatureRecord:
+            if feature_record.FeatureTag != "kern":
+                continue
+            for lookup_index in feature_record.Feature.LookupListIndex:
+                lookup = gpos.LookupList.Lookup[lookup_index]
+                for subtable in lookup.SubTable:
+                    if subtable.Format == 1:
+                        _gpos_format1(subtable, reverse_cmap, scale, pairs)
+                    elif subtable.Format == 2:
+                        _gpos_format2(subtable, reverse_cmap, scale, pairs)
+    except Exception:
+        pass
+
+
+def _gpos_format1(subtable, reverse_cmap, scale, pairs) -> None:
+    """PairPos Format 1: explicit individual pair list."""
+    for pairset_idx, pairset in enumerate(subtable.PairSet):
+        first_glyph = subtable.Coverage.glyphs[pairset_idx]
+        first_cp = reverse_cmap.get(first_glyph)
+        if first_cp is None:
+            continue
+        for pvr in pairset.PairValueRecord:
+            second_cp = reverse_cmap.get(pvr.SecondGlyph)
+            if second_cp is None:
+                continue
+            adj = (
+                getattr(pvr.Value1, "XAdvance", 0) if pvr.Value1 else 0
+            )
+            if adj:
+                pairs.setdefault((first_cp, second_cp), adj * scale)
+
+
+def _gpos_format2(subtable, reverse_cmap, scale, pairs) -> None:
+    """PairPos Format 2: class-based pair kerning."""
+    classDef1 = subtable.ClassDef1.classDefs
+    classDef2 = subtable.ClassDef2.classDefs
+    for cls1_idx, class1_rec in enumerate(subtable.Class1Record):
+        for cls2_idx, class2_rec in enumerate(class1_rec.Class2Record):
+            adj = (
+                getattr(class2_rec.Value1, "XAdvance", 0)
+                if class2_rec.Value1
+                else 0
+            )
+            if not adj:
+                continue
+            glyphs1 = [g for g, c in classDef1.items() if c == cls1_idx]
+            if cls1_idx == 0:
+                glyphs1.extend(
+                    g
+                    for g in subtable.Coverage.glyphs
+                    if g not in classDef1
+                )
+            glyphs2 = [g for g, c in classDef2.items() if c == cls2_idx]
+            for g1 in glyphs1:
+                cp1 = reverse_cmap.get(g1)
+                if cp1 is None:
+                    continue
+                for g2 in glyphs2:
+                    cp2 = reverse_cmap.get(g2)
+                    if cp2 is None:
+                        continue
+                    pairs.setdefault((cp1, cp2), adj * scale)
 
 
 class FontRegistry:

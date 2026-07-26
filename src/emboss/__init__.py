@@ -25,7 +25,10 @@ from .spec import (
 from .bibliography import format_citation, format_bibliography
 from .code_highlight import tokenize, colorize, THEMES as CODE_THEMES, LANGUAGES
 from .math_render import parse_math, MathExpression, render_math
-from .colors import ColorTheme, resolve_color, PALETTES
+from .colors import (
+    ColorTheme, resolve_color, PALETTES,
+    CmykColor, SpotColor, rgb_to_cmyk, parse_cmyk,
+)
 from .crossref import CrossReferenceIndex
 from .svg import SvgImage, parse_svg, render_svg
 from .numbering import NumberingContext
@@ -42,6 +45,8 @@ from .templates import (
     memo, report, letter, invoice, academic_paper, legal_brief,
     slide_deck, data_sheet,
 )
+from .markdown import parse_markdown
+from .generate import spec_prompt, generate, parse_spec_json
 from .writer import RenderResult, render_document
 
 __version__ = "0.1.0"
@@ -55,7 +60,9 @@ __all__ = [
     "format_citation", "format_bibliography",
     "tokenize", "colorize", "CODE_THEMES", "LANGUAGES",
     "parse_math", "MathExpression", "render_math",
-    "ColorTheme", "resolve_color", "PALETTES", "CrossReferenceIndex",
+    "ColorTheme", "resolve_color", "PALETTES",
+    "CmykColor", "SpotColor", "rgb_to_cmyk", "parse_cmyk",
+    "CrossReferenceIndex",
     "Style", "StyleSheet", "PRESETS", "resolve_preset",
     "FontRegistry", "FontMetrics", "Hyphenator", "LineBreaker",
     "ConstraintValidator", "ValidationResult", "ValidationError", "Issue",
@@ -63,6 +70,7 @@ __all__ = [
     "memo", "report", "letter", "invoice", "academic_paper",
     "legal_brief", "slide_deck", "data_sheet",
     "render_document", "RenderResult",
+    "parse_markdown", "spec_prompt", "generate", "parse_spec_json",
     "ContentAnalyzer", "QualityScorer", "SmartTypography",
     "TableIntelligence", "DocumentTypeDetector",
     "__version__",
