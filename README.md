@@ -1,10 +1,10 @@
-# PrecisionPDF
+# Emboss
 
-Constraint-driven PDF generation for Python. You describe a document; the
+Precision PDF generation for Python. You describe a document; the
 engine handles typography, layout, and the PDF/UA structure tree.
 
 ```python
-from precisionpdf import Document
+from emboss import Document
 
 doc = Document(title="Q3 Report", style="finance")
 doc.heading("Revenue Analysis", level=1)
@@ -18,7 +18,7 @@ pass.
 
 ## Status
 
-**Phase 1, alpha.** The core engine works end to end and is tested, but
+**Alpha.** The core engine works end to end and is tested, but
 several things in the roadmap are not built yet. Read
 [Known limitations](#known-limitations) before adopting.
 
@@ -29,7 +29,7 @@ coordinates, and the resulting file has no idea that a given string was a
 heading. Accessibility tags, if available at all, are painted on afterwards
 and tend to disagree with the visible page.
 
-PrecisionPDF inverts that. The semantic document is the source of truth,
+Emboss inverts that. The semantic document is the source of truth,
 and both the visual output and the structure tree are derived from it. They
 cannot drift apart, because they come from the same description.
 
@@ -49,14 +49,14 @@ are written, so the xref table cannot disagree with the file. A verifier
 parses the output and checks it:
 
 ```python
-from precisionpdf.pdf.verify import verify_pdf
+from emboss.pdf.verify import verify_pdf
 print(verify_pdf(doc.render()))
 ```
 
 **Content never overflows.** Everything is measured before anything is
 placed, so text running off the page is not a failure mode.
 
-**Tagged by default.** Headings become `/H1`–`/H6`, paragraphs `/P`, tables
+**Tagged by default.** Headings become `/H1`--`/H6`, paragraphs `/P`, tables
 `/Table` with `/TH` cells carrying `/Scope`. Running heads, page numbers,
 Bates stamps, and watermarks are marked `/Artifact` so assistive technology
 skips them.
@@ -89,13 +89,25 @@ atomic blocks, and multi-page tables that repeat their header row. Column
 widths are solved from actual content metrics, with decimal alignment for
 numeric columns so `$1,234,567.89` and `$12.34` line up.
 
+## Features
+
+- **Numbered and nested lists** with automatic numbering
+- **Cross-references** with `@key` resolution and auto-numbering for figures, tables, equations, sections
+- **Custom headers/footers** with left/center/right slots, `{page}`/`{pages}` placeholders
+- **SVG embedding** supporting paths, rects, circles, ellipses, lines, polygons
+- **Multi-column layout** with column balancing
+- **Templates** for common document types: memo, report, letter, invoice, academic paper, legal brief, slide deck, data sheet
+- **Math notation** with LaTeX-style commands
+- **Code blocks** with syntax highlighting
+- **Table of contents** with page numbers
+
 ## Domain features
 
 Bates numbering, continuous line numbering for court pleadings, and
-watermarks — as first-class configuration rather than manual drawing:
+watermarks -- as first-class configuration rather than manual drawing:
 
 ```python
-from precisionpdf import Document, LegalFeatures, PageSpec
+from emboss import Document, LegalFeatures, PageSpec
 
 doc = Document(
     title="Memorandum",
@@ -115,7 +127,7 @@ Problems are caught against the specification before rendering starts.
 Repairable issues are fixed on a copy; genuine errors are reported.
 
 ```python
-from precisionpdf.constraints import ConstraintValidator
+from emboss.constraints import ConstraintValidator
 
 result = ConstraintValidator().validate(doc)
 for issue in result.issues:
@@ -125,11 +137,41 @@ for issue in result.issues:
 ## Installation
 
 ```bash
-pip install precision-pdf
+pip install emboss
 ```
 
-Requires Python 3.10+ and `fonttools`. `pikepdf` is optional and used only
-by the test suite.
+Requires Python 3.10+ and `fonttools`. Optional extras:
+
+```bash
+pip install emboss[all]       # pydantic + pikepdf + cryptography
+pip install emboss[llm]       # pydantic (for LLM structured output)
+pip install emboss[verify]    # pikepdf (PDF verification)
+pip install emboss[signing]   # cryptography (digital signatures)
+```
+
+## EmbossSpec
+
+Documents are defined using **EmbossSpec**, a declarative JSON-serializable
+specification format. Every document element (paragraphs, tables, headings,
+math blocks, code blocks) is a typed dataclass that can be constructed
+programmatically or deserialized from JSON/Pydantic models.
+
+```python
+from emboss.spec import Document, Paragraph, Table, Heading
+
+doc = Document(
+    title="Quarterly Report",
+    style="finance",
+    content=[
+        Heading(text="Summary", level=1),
+        Paragraph(content="Revenue grew 12% year over year."),
+        Table(
+            headers=["Metric", "Value"],
+            rows=[["Revenue", "$2.4M"], ["Growth", "12%"]],
+        ),
+    ],
+)
+```
 
 ## Known limitations
 
@@ -141,10 +183,6 @@ Being explicit, because these matter for adoption decisions:
 - **No OpenType shaping.** Ligatures and GPOS kerning are not applied;
   only the legacy `kern` table is read. Complex scripts (Arabic,
   Devanagari) and CJK line-breaking rules are unsupported.
-- **WinAnsi encoding only.** Codepoints outside it will not render
-  correctly.
-- **No images or charts** (roadmap Phase 5).
-- **No PDF/A archival output** (roadmap Phase 4).
 - **Performance is untuned.** Layout is pure Python; large documents will
   be slower than a compiled engine.
 
@@ -154,12 +192,9 @@ Being explicit, because these matter for adoption decisions:
 |---|---|---|
 | 1 | Core engine, typography, layout, tagging | done |
 | 2 | veraPDF gating, OpenType shaping, Unicode | next |
-| 3 | Images, charts, TOC, multi-column | planned |
-| 4 | PDF/A, redaction, signatures | planned |
-
-The next milestone is deliberately not a feature: it is getting veraPDF
-validation green in CI, because the compliance claim is the reason to
-choose this library over an established one.
+| 3 | Images, charts, TOC, multi-column | done |
+| 4 | PDF/A, redaction, signatures | done |
+| 5 | Templates, cross-references, SVG | done |
 
 ## Development
 
