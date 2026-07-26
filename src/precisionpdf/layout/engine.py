@@ -13,7 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..spec import (
-    BulletList, Heading, HorizontalRule, PageBreak, Paragraph, Table,
+    BulletList, Chart, Heading, HorizontalRule, Image, PageBreak,
+    Paragraph, Table,
 )
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
 
@@ -159,6 +160,10 @@ class LayoutEngine:
                 space_before=element.space_before,
                 space_after=element.space_after,
             )
+        if isinstance(element, Image):
+            return self._measure_image(element, width)
+        if isinstance(element, Chart):
+            return self._measure_chart(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
                 element=element, height=0.0,
@@ -298,6 +303,42 @@ class LayoutEngine:
             list_items=items,
         )
 
+    def _measure_image(self, element, width: float) -> MeasuredBlock:
+        from ..images import load_image
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        img = load_image(element.source)
+        display_w = element.width or min(img.width, width)
+        if display_w > width:
+            display_w = width
+        scale = display_w / img.width
+        display_h = element.height or img.height * scale
+        total = display_h
+        if element.caption:
+            metrics = self._metrics(style)
+            cap_size = self._size(style) * 0.85
+            total += cap_size + 4.0
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
+        )
+
+    def _measure_chart(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        display_w = min(element.width, width)
+        display_h = element.height * (display_w / element.width)
+        return MeasuredBlock(
+            element=element,
+            height=display_h,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
+        )
+
     # -- tables --
 
     def _measure_table(self, element, width: float) -> MeasuredBlock:
@@ -425,6 +466,84 @@ class LayoutEngine:
     # -- pagination --
 
     def paginate(self, blocks: list, page_spec) -> list:
+        if page_spec.columns > 1:
+            return self._paginate_multicolumn(blocks, page_spec)
+        return self._paginate_single(blocks, page_spec)
+
+    def _paginate_multicolumn(self, blocks: list, page_spec) -> list:
+        cols = page_spec.columns
+        gap = page_spec.column_gap
+        total_w = page_spec.content_width
+        col_w = (total_w - gap * (cols - 1)) / cols
+
+        pages: list = []
+        current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
+        col_idx = 0
+        col_cursor = page_spec.content_top
+
+        def col_left(c: int) -> float:
+            return page_spec.margin_left + c * (col_w + gap)
+
+        for block in blocks:
+            if isinstance(block.element, PageBreak):
+                pages.append(current)
+                current = Page(number=len(pages) + 1,
+                               cursor=page_spec.content_top, spec=page_spec)
+                col_idx = 0
+                col_cursor = page_spec.content_top
+                continue
+
+            gap_before = block.space_before if current.blocks else 0.0
+            available = col_cursor - page_spec.content_bottom - gap_before
+
+            if block.height <= available:
+                col_cursor -= gap_before
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block, x=col_left(col_idx), y=col_cursor,
+                        height=block.height, lines=block.lines,
+                        table_rows=list(range(len(block.table.row_heights)))
+                        if block.table else None,
+                    )
+                )
+                col_cursor -= block.height + block.space_after
+                continue
+
+            col_idx += 1
+            if col_idx < cols:
+                col_cursor = page_spec.content_top
+                col_cursor -= 0.0
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block, x=col_left(col_idx), y=col_cursor,
+                        height=block.height, lines=block.lines,
+                        table_rows=list(range(len(block.table.row_heights)))
+                        if block.table else None,
+                    )
+                )
+                col_cursor -= block.height + block.space_after
+                continue
+
+            pages.append(current)
+            current = Page(number=len(pages) + 1,
+                           cursor=page_spec.content_top, spec=page_spec)
+            col_idx = 0
+            col_cursor = page_spec.content_top
+            current.blocks.append(
+                PlacedBlock(
+                    block=block, x=col_left(0), y=col_cursor,
+                    height=block.height, lines=block.lines,
+                    table_rows=list(range(len(block.table.row_heights)))
+                    if block.table else None,
+                )
+            )
+            col_cursor -= block.height + block.space_after
+
+        if current.blocks or not pages:
+            pages.append(current)
+        return pages
+
+    def _paginate_single(self, blocks: list, page_spec) -> list:
         pages: list = []
         current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
         left = page_spec.margin_left

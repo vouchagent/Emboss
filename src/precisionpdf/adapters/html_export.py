@@ -38,8 +38,10 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
     """
     from ..spec import (
         BulletList,
+        Chart,
         Heading,
         HorizontalRule,
+        Image,
         PageBreak,
         Paragraph,
         Table,
@@ -78,6 +80,36 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
                 f'<hr style="border:none;border-top:{element.thickness}pt solid #{element.color};'
                 f'margin:{element.space_before}pt 0 {element.space_after}pt 0">'
             )
+
+        elif isinstance(element, Image):
+            src = _esc(element.source) if isinstance(element.source, str) else ""
+            alt = _esc(element.alt_text)
+            style_parts = [f"text-align:{element.align}"]
+            img_style = "max-width:100%"
+            if element.width:
+                img_style += f";width:{element.width}pt"
+            if element.height:
+                img_style += f";height:{element.height}pt"
+            parts.append(f'<figure style="{";".join(style_parts)}">')
+            parts.append(f'  <img src="{src}" alt="{alt}" style="{img_style}">')
+            if element.caption:
+                parts.append(f"  <figcaption>{_esc(element.caption)}</figcaption>")
+            parts.append("</figure>")
+
+        elif isinstance(element, Chart):
+            parts.append(f'<div class="chart" data-type="{element.chart_type}">')
+            if element.title:
+                parts.append(f"  <p><strong>{_esc(element.title)}</strong></p>")
+            parts.append("  <table>")
+            parts.append("    <tr>")
+            for label in element.labels:
+                parts.append(f"      <th>{_esc(str(label))}</th>")
+            parts.append("    </tr><tr>")
+            for value in element.values:
+                parts.append(f"      <td>{_esc(str(value))}</td>")
+            parts.append("    </tr>")
+            parts.append("  </table>")
+            parts.append("</div>")
 
         elif isinstance(element, PageBreak):
             parts.append('<div style="page-break-before:always"></div>')

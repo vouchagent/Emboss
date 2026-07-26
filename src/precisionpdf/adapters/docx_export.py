@@ -33,8 +33,10 @@ def to_office_dict(document: "Document") -> dict:
     """
     from ..spec import (
         BulletList,
+        Chart,
         Heading,
         HorizontalRule,
+        Image,
         PageBreak,
         Paragraph,
         Table,
@@ -74,6 +76,28 @@ def to_office_dict(document: "Document") -> dict:
 
         elif isinstance(element, Table):
             blocks.append(_serialize_table(element))
+
+        elif isinstance(element, Image):
+            blocks.append({
+                "type": "image",
+                "source": element.source if isinstance(element.source, str) else "<bytes>",
+                "alt_text": element.alt_text,
+                "width": element.width,
+                "height": element.height,
+                "caption": element.caption,
+                "align": element.align,
+            })
+
+        elif isinstance(element, Chart):
+            blocks.append({
+                "type": "chart",
+                "chart_type": element.chart_type,
+                "labels": list(element.labels),
+                "values": list(element.values),
+                "title": element.title,
+                "width": element.width,
+                "height": element.height,
+            })
 
         elif isinstance(element, HorizontalRule):
             blocks.append({"type": "horizontal_rule"})

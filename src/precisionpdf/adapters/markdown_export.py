@@ -22,8 +22,10 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
     """Convert a Document to clean Markdown."""
     from ..spec import (
         BulletList,
+        Chart,
         Heading,
         HorizontalRule,
+        Image,
         PageBreak,
         Paragraph,
         Table,
@@ -63,6 +65,25 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
 
         elif isinstance(element, Table):
             parts.append(_render_table_md(element))
+            parts.append("")
+
+        elif isinstance(element, Image):
+            src = element.source if isinstance(element.source, str) else "image"
+            alt = element.alt_text or "image"
+            parts.append(f"![{alt}]({src})")
+            if element.caption:
+                parts.append(f"*{element.caption}*")
+            parts.append("")
+
+        elif isinstance(element, Chart):
+            if element.title:
+                parts.append(f"**{element.title}**")
+                parts.append("")
+            headers = [str(l) for l in element.labels]
+            values = [str(v) for v in element.values]
+            parts.append("| " + " | ".join(headers) + " |")
+            parts.append("| " + " | ".join("---" for _ in headers) + " |")
+            parts.append("| " + " | ".join(values) + " |")
             parts.append("")
 
         elif isinstance(element, HorizontalRule):

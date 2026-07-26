@@ -18,8 +18,8 @@ from .styles import Style, StyleSheet, resolve_preset
 
 __all__ = [
     "TextRun", "Heading", "Paragraph", "BulletList", "Table", "TableCell",
-    "PageBreak", "HorizontalRule", "PageSpec", "Document", "LegalFeatures",
-    "BlockElement",
+    "Image", "Chart", "PageBreak", "HorizontalRule", "PageSpec", "Document",
+    "LegalFeatures", "BlockElement",
 ]
 
 Alignment = Literal["left", "center", "right", "justify"]
@@ -185,6 +185,41 @@ class Table:
 
 
 @dataclass
+class Image:
+    """An embedded image (JPEG or PNG), tagged /Figure with alt text."""
+
+    source: Union[str, bytes] = ""
+    alt_text: str = ""
+    width: float | None = None
+    height: float | None = None
+    caption: str | None = None
+    align: Literal["left", "center", "right"] = "center"
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Figure"
+
+
+@dataclass
+class Chart:
+    """A data chart rendered as vector graphics."""
+
+    chart_type: Literal["bar", "line", "pie"] = "bar"
+    labels: Sequence = field(default_factory=list)
+    values: Sequence = field(default_factory=list)
+    colors: Sequence | None = None
+    title: str | None = None
+    width: float = 400.0
+    height: float = 250.0
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Figure"
+
+
+@dataclass
 class PageBreak:
     """Forces content after this point onto a new page."""
 
@@ -201,7 +236,8 @@ class HorizontalRule:
 
 
 BlockElement = Union[
-    Heading, Paragraph, BulletList, Table, PageBreak, HorizontalRule
+    Heading, Paragraph, BulletList, Table, Image, Chart,
+    PageBreak, HorizontalRule,
 ]
 
 
@@ -215,6 +251,8 @@ class PageSpec:
     margin_right: float = 72.0
     margin_bottom: float = 72.0
     margin_left: float = 72.0
+    columns: int = 1
+    column_gap: float = 18.0
 
     @classmethod
     def letter(cls, **kw) -> "PageSpec":
@@ -287,6 +325,10 @@ class Document:
     page_numbers: bool = True
     tagged: bool = True
     legal: LegalFeatures | None = None
+    pdfa: bool = False
+    redactions: list | None = None
+    signatures: list | None = None
+    toc: bool = False
     creator: str = "PrecisionPDF"
     producer: str = "PrecisionPDF"
 
@@ -316,6 +358,13 @@ class Document:
 
     def page_break(self) -> "Document":
         return self.add(PageBreak())
+
+    def image(self, source, **kw) -> "Document":
+        return self.add(Image(source=source, **kw))
+
+    def chart(self, chart_type, labels, values, **kw) -> "Document":
+        return self.add(Chart(chart_type=chart_type, labels=labels,
+                              values=values, **kw))
 
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))

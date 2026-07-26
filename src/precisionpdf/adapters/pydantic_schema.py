@@ -30,9 +30,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..spec import (
     BulletList,
+    Chart,
     Document,
     Heading,
     HorizontalRule,
+    Image,
     LegalFeatures,
     PageBreak,
     PageSpec,
@@ -50,6 +52,8 @@ __all__ = [
     "ParagraphSpec",
     "TableSpec",
     "BulletListSpec",
+    "ImageSpec",
+    "ChartSpec",
     "TextRunSpec",
     "TableCellSpec",
     "PageConfig",
@@ -383,6 +387,76 @@ class BulletListSpec(BaseModel):
         )
 
 
+class ImageSpec(BaseModel):
+    """An embedded image (JPEG or PNG file path)."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Image",
+            "examples": [
+                {"type": "image", "source": "chart.png", "alt_text": "Sales chart"},
+            ],
+        }
+    }
+
+    type: Literal["image"] = "image"
+    source: str = Field(..., description="File path to a JPEG or PNG image.")
+    alt_text: str = Field("", description="Alt text for accessibility.")
+    width: float | None = Field(None, ge=1, description="Display width in points.")
+    height: float | None = Field(None, ge=1, description="Display height in points.")
+    caption: str | None = Field(None, description="Image caption.")
+    align: Literal["left", "center", "right"] = Field("center", description="Horizontal alignment.")
+
+    def to_element(self) -> Image:
+        return Image(
+            source=self.source,
+            alt_text=self.alt_text,
+            width=self.width,
+            height=self.height,
+            caption=self.caption,
+            align=self.align,
+        )
+
+
+class ChartSpec(BaseModel):
+    """A data chart rendered as vector graphics."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Chart",
+            "examples": [
+                {
+                    "type": "chart",
+                    "chart_type": "bar",
+                    "labels": ["Q1", "Q2", "Q3", "Q4"],
+                    "values": [100, 150, 130, 180],
+                    "title": "Quarterly Revenue",
+                },
+            ],
+        }
+    }
+
+    type: Literal["chart"] = "chart"
+    chart_type: Literal["bar", "line", "pie"] = Field("bar", description="Chart type.")
+    labels: list[str] = Field(..., min_length=1, description="Data labels.")
+    values: list[float] = Field(..., min_length=1, description="Data values.")
+    colors: list[str] | None = Field(None, description="Hex colors for data series.")
+    title: str | None = Field(None, description="Chart title.")
+    width: float = Field(400.0, ge=50, description="Chart width in points.")
+    height: float = Field(250.0, ge=50, description="Chart height in points.")
+
+    def to_element(self) -> Chart:
+        return Chart(
+            chart_type=self.chart_type,
+            labels=self.labels,
+            values=self.values,
+            colors=self.colors,
+            title=self.title,
+            width=self.width,
+            height=self.height,
+        )
+
+
 class PageBreakSpec(BaseModel):
     """Forces subsequent content onto a new page."""
 
@@ -409,6 +483,8 @@ ContentBlock = Annotated[
         ParagraphSpec,
         TableSpec,
         BulletListSpec,
+        ImageSpec,
+        ChartSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],

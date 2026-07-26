@@ -17,8 +17,8 @@ from .constraints import (
     ConstraintValidator, Issue, ValidationError, ValidationResult,
 )
 from .spec import (
-    BulletList, Document, Heading, HorizontalRule, LegalFeatures, PageBreak,
-    PageSpec, Paragraph, Table, TableCell, TextRun,
+    BulletList, Chart, Document, Heading, HorizontalRule, Image,
+    LegalFeatures, PageBreak, PageSpec, Paragraph, Table, TableCell, TextRun,
 )
 from .styles import PRESETS, Style, StyleSheet, resolve_preset
 from .typography.font_metrics import FontMetrics, FontRegistry
@@ -34,7 +34,8 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Document", "PageSpec", "Heading", "Paragraph", "BulletList", "Table",
-    "TableCell", "TextRun", "PageBreak", "HorizontalRule", "LegalFeatures",
+    "TableCell", "TextRun", "Image", "Chart", "PageBreak", "HorizontalRule",
+    "LegalFeatures",
     "Style", "StyleSheet", "PRESETS", "resolve_preset",
     "FontRegistry", "FontMetrics", "Hyphenator", "LineBreaker",
     "ConstraintValidator", "ValidationResult", "ValidationError", "Issue",

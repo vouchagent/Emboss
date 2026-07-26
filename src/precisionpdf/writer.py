@@ -20,7 +20,8 @@ from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
-    BulletList, Document, Heading, HorizontalRule, PageBreak, Paragraph, Table,
+    BulletList, Chart, Document, Heading, HorizontalRule, Image, PageBreak,
+    Paragraph, Table,
 )
 from .typography.font_metrics import FontRegistry
 from .typography.hyphenation import Hyphenator
@@ -103,9 +104,21 @@ class Renderer:
             resource = build_font_resource(assembler, key, metrics)
             font_dict[key] = resource.ref
 
+        xobject_dict = PdfDict()
+        if hasattr(self, '_image_refs'):
+            from .images import load_image, image_xobject
+            for name, element in self._image_refs.values():
+                img_data = load_image(element.source)
+                ref = image_xobject(assembler, img_data)
+                xobject_dict[name] = ref
+
         resources = PdfDict()
         resources["Font"] = font_dict
-        resources["ProcSet"] = PdfArray([PdfName("PDF"), PdfName("Text")])
+        proc_set = [PdfName("PDF"), PdfName("Text")]
+        if xobject_dict.entries:
+            resources["XObject"] = xobject_dict
+            proc_set.append(PdfName("ImageC"))
+        resources["ProcSet"] = PdfArray(proc_set)
         if document.legal and document.legal.watermark:
             resources["ExtGState"] = self._watermark_gstate(
                 assembler, document.legal
@@ -149,6 +162,36 @@ class Renderer:
             view_prefs = PdfDict()
             view_prefs["DisplayDocTitle"] = True
             catalog["ViewerPreferences"] = view_prefs
+
+        if document.toc:
+            from .toc import build_toc_entries, build_outline_dict
+            entries = build_toc_entries(pages)
+            outline_ref = build_outline_dict(assembler, entries, page_refs)
+            if outline_ref:
+                catalog["Outlines"] = outline_ref
+
+        if document.pdfa:
+            from .pdfa import pdfa_catalog_entries
+            pdfa_entries = pdfa_catalog_entries(assembler, document)
+            for key, value in pdfa_entries.items():
+                catalog[key] = value
+
+        if document.signatures:
+            from .signing import (
+                SignatureField, build_sig_field_dict, build_acroform,
+            )
+            sig_field_refs = []
+            for sig in document.signatures:
+                if isinstance(sig, dict):
+                    sig = SignatureField(**sig)
+                pidx = min(sig.page_index, len(page_refs) - 1)
+                ref = build_sig_field_dict(
+                    assembler, sig, page_refs[pidx]
+                )
+                sig_field_refs.append(ref)
+            if sig_field_refs:
+                catalog["AcroForm"] = build_acroform(sig_field_refs)
+
         assembler.add(catalog, obj_id=catalog_id)
 
         info = PdfDict()
@@ -212,8 +255,41 @@ class Renderer:
                 self._draw_table(
                     stream, placed, page_index, root, font_registry, sheet
                 )
+            elif isinstance(element, Image):
+                self._draw_image(
+                    stream, placed, page_index, root, font_registry
+                )
+            elif isinstance(element, Chart):
+                self._draw_chart(
+                    stream, placed, page_index, root, font_registry
+                )
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, document, sheet)
+
+        if document.redactions:
+            from .redaction import apply_redactions, RedactionMark
+            marks = []
+            for r in document.redactions:
+                if isinstance(r, RedactionMark):
+                    marks.append(r)
+                elif isinstance(r, dict):
+                    marks.append(RedactionMark(**r))
+            if marks:
+                style = sheet.resolved(sheet.body)
+                _, size, key = self._resolve_font(style, None, font_registry)
+                apply_redactions(stream, marks, page_index, key, size * 0.8)
+
+        if document.signatures:
+            from .signing import SignatureField, build_signature_appearance
+            for sig in document.signatures:
+                if isinstance(sig, dict):
+                    sig = SignatureField(**sig)
+                if sig.page_index == page_index:
+                    style = sheet.resolved(sheet.body)
+                    _, size, key = self._resolve_font(
+                        style, None, font_registry
+                    )
+                    build_signature_appearance(stream, sig, key, size)
 
         self._draw_running_content(
             stream, document, sheet, page, page_index, total, font_registry
@@ -431,6 +507,95 @@ class Renderer:
             placed.x + document.page.content_width, placed.y,
             color=element.color, width=element.thickness,
         )
+        stream.end_marked()
+
+    def _draw_image(self, stream, placed, page_index, root, registry) -> None:
+        element = placed.block.element
+        style = placed.block.style
+
+        fig_el = StructureElement(tag="Figure")
+        if element.alt_text:
+            fig_el.alt = element.alt_text
+        root.children.append(fig_el)
+
+        mcid = stream.next_mcid()
+        fig_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Figure", mcid)
+
+        img_name = self._get_image_ref(element)
+        from .images import load_image
+        img = load_image(element.source)
+
+        content_width = placed.block.style.require("font_size") * 30
+        display_w = element.width or min(float(img.width), content_width)
+        scale = display_w / img.width
+        display_h = element.height or img.height * scale
+
+        x = placed.x
+        if element.align == "center":
+            x = placed.x + (content_width - display_w) / 2
+        elif element.align == "right":
+            x = placed.x + content_width - display_w
+
+        y = placed.y - display_h
+
+        stream.save()
+        stream.raw(b" ".join([
+            stream._num(display_w), b"0 0",
+            stream._num(display_h),
+            stream._num(x), stream._num(y), b"cm",
+        ]))
+        stream.raw(f"/{img_name} Do".encode("ascii"))
+        stream.restore()
+
+        if element.caption:
+            metrics, size, key = self._resolve_font(style, None, registry)
+            cap_size = size * 0.85
+            cap_y = y - cap_size - 2.0
+            color = style.require("color")
+            cap_x = x + (display_w - metrics.text_width(element.caption, cap_size)) / 2
+            stream.text_line(element.caption, key, cap_size, cap_x, cap_y, color)
+
+        stream.end_marked()
+
+    def _get_image_ref(self, element) -> str:
+        if not hasattr(self, '_image_refs'):
+            self._image_refs = {}
+        source_key = id(element)
+        if source_key not in self._image_refs:
+            name = f"Im{len(self._image_refs) + 1}"
+            self._image_refs[source_key] = (name, element)
+        return self._image_refs[source_key][0]
+
+    def _draw_chart(self, stream, placed, page_index, root, registry) -> None:
+        from .charts import ChartData, ChartSpec, render_chart
+
+        element = placed.block.element
+        style = placed.block.style
+
+        fig_el = StructureElement(tag="Figure")
+        root.children.append(fig_el)
+
+        mcid = stream.next_mcid()
+        fig_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Figure", mcid)
+
+        _, size, key = self._resolve_font(style, None, registry)
+
+        data = ChartData(
+            labels=list(element.labels),
+            values=list(element.values),
+            colors=list(element.colors) if element.colors else None,
+            title=element.title,
+        )
+        spec = ChartSpec(
+            chart_type=element.chart_type,
+            data=data,
+            width=element.width,
+            height=element.height,
+        )
+        render_chart(stream, spec, placed.x, placed.y, key, size * 0.8)
+
         stream.end_marked()
 
     def _draw_watermark(self, stream, document, sheet, legal,
