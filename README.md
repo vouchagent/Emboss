@@ -129,20 +129,44 @@ doc = Document(
 pdf_bytes = doc.render()
 ```
 
-### LLM Integration
+### LLM Integration (3 tiers)
 
-Emboss ships with a Pydantic schema adapter, so LLMs can generate documents via structured output:
+**Tier 1: Spec prompt** (full quality, recommended) -- pass the EmbossSpec format with your prompt:
 
 ```python
-from emboss.adapters.pydantic_schema import build_json_schema
+from emboss import spec_prompt, Document
 
-schema = build_json_schema()
-# Pass schema to any LLM API as response_format / tool schema
-# Parse the response into a Document and render:
-from emboss.adapters.pydantic_schema import parse_document
-doc = parse_document(llm_response_json)
-doc.save("llm_generated.pdf")
+system = spec_prompt(style="finance")  # compact EmbossSpec description for LLMs
+response = client.messages.create(
+    model="claude-sonnet-5",
+    system=system,
+    messages=[{"role": "user", "content": "Create a Q3 financial report"}],
+)
+doc = Document.from_json(response.text)
+doc.save("report.pdf")
 ```
+
+**Tier 2: One-liner** (zero friction):
+
+```python
+from emboss import generate
+
+generate("Create a quarterly financial report",
+         style="finance", output="report.pdf",
+         provider="anthropic")  # or "openai"
+```
+
+**Tier 3: Markdown** (works with any LLM output):
+
+```python
+from emboss import Document
+
+md = llm.generate("Write a quarterly report...")  # any LLM, any provider
+doc = Document.from_markdown(md, style="finance")
+doc.save("report.pdf")
+```
+
+All three tiers produce identical PDF quality -- the typography engine (Knuth-Plass, optical margins, kerning) runs the same regardless of input format.
 
 ---
 
