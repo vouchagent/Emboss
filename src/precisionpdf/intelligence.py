@@ -5,8 +5,8 @@ go beyond mechanical rendering:
 
   1. **Smart Typography** — transforms raw text into typographically correct
      output: smart quotes, proper dashes, ellipses, non-breaking spaces
-     before units, ordinal superscripts. ReportLab/fpdf2/WeasyPrint ship
-     raw text unchanged.
+     before units, ordinal superscripts. Other PDF tools ship raw text
+     unchanged.
 
   2. **Table Intelligence** — auto-detects summary rows (Total, Average,
      Subtotal), currency/percentage columns, and applies domain-specific

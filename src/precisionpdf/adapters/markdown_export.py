@@ -22,7 +22,9 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
     """Convert a Document to clean Markdown."""
     from ..spec import (
         BulletList,
+        Callout,
         Chart,
+        Footnote,
         Heading,
         HorizontalRule,
         Image,
@@ -84,6 +86,19 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
             parts.append("| " + " | ".join(headers) + " |")
             parts.append("| " + " | ".join("---" for _ in headers) + " |")
             parts.append("| " + " | ".join(values) + " |")
+            parts.append("")
+
+        elif isinstance(element, Footnote):
+            marker = element.marker or "*"
+            text = _render_runs_md(element.runs)
+            parts.append(f"[^{marker}]: {text}")
+            parts.append("")
+
+        elif isinstance(element, Callout):
+            title = f"**{element.title}**\n> " if element.title else ""
+            text = _render_runs_md(element.runs)
+            icon = f"{element.icon} " if element.icon else ""
+            parts.append(f"> {icon}{title}{text}")
             parts.append("")
 
         elif isinstance(element, HorizontalRule):

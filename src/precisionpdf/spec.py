@@ -18,8 +18,8 @@ from .styles import Style, StyleSheet, resolve_preset
 
 __all__ = [
     "TextRun", "Heading", "Paragraph", "BulletList", "Table", "TableCell",
-    "Image", "Chart", "PageBreak", "HorizontalRule", "PageSpec", "Document",
-    "LegalFeatures", "BlockElement",
+    "Image", "Chart", "Footnote", "Callout", "PageBreak", "HorizontalRule",
+    "PageSpec", "Document", "LegalFeatures", "BlockElement",
 ]
 
 Alignment = Literal["left", "center", "right", "justify"]
@@ -220,6 +220,74 @@ class Chart:
 
 
 @dataclass
+class Footnote:
+    """A footnote rendered at the bottom of the page."""
+
+    content: Union[str, TextRun, Sequence] = ""
+    marker: str | None = None
+    style: Style | None = None
+    runs: list = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self.runs = _as_runs(self.content)
+
+    @property
+    def structure_tag(self) -> str:
+        return "Note"
+
+
+@dataclass
+class Callout:
+    """A styled container block with optional icon and background."""
+
+    content: Union[str, TextRun, Sequence] = ""
+    variant: Literal["info", "warning", "success", "danger", "note"] = "note"
+    title: str | None = None
+    icon: str | None = None
+    background: str | None = None
+    border_color: str | None = None
+    border_radius: float = 4.0
+    style: Style | None = None
+    runs: list = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self.runs = _as_runs(self.content)
+        if self.background is None:
+            self.background = _CALLOUT_BACKGROUNDS.get(self.variant, "f5f5f4")
+        if self.border_color is None:
+            self.border_color = _CALLOUT_BORDERS.get(self.variant, "a8a29e")
+        if self.icon is None:
+            self.icon = _CALLOUT_ICONS.get(self.variant)
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+_CALLOUT_BACKGROUNDS = {
+    "info": "eff6ff",
+    "warning": "fffbeb",
+    "success": "f0fdf4",
+    "danger": "fef2f2",
+    "note": "f5f5f4",
+}
+_CALLOUT_BORDERS = {
+    "info": "3b82f6",
+    "warning": "f59e0b",
+    "success": "22c55e",
+    "danger": "ef4444",
+    "note": "a8a29e",
+}
+_CALLOUT_ICONS = {
+    "info": "i",
+    "warning": "!",
+    "success": "*",
+    "danger": "x",
+    "note": ">",
+}
+
+
+@dataclass
 class PageBreak:
     """Forces content after this point onto a new page."""
 
@@ -237,7 +305,7 @@ class HorizontalRule:
 
 BlockElement = Union[
     Heading, Paragraph, BulletList, Table, Image, Chart,
-    PageBreak, HorizontalRule,
+    Footnote, Callout, PageBreak, HorizontalRule,
 ]
 
 
@@ -365,6 +433,12 @@ class Document:
     def chart(self, chart_type, labels, values, **kw) -> "Document":
         return self.add(Chart(chart_type=chart_type, labels=labels,
                               values=values, **kw))
+
+    def footnote(self, content, **kw) -> "Document":
+        return self.add(Footnote(content=content, **kw))
+
+    def callout(self, content, variant="note", **kw) -> "Document":
+        return self.add(Callout(content=content, variant=variant, **kw))
 
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))

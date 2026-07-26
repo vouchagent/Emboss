@@ -17,9 +17,12 @@ from .constraints import (
     ConstraintValidator, Issue, ValidationError, ValidationResult,
 )
 from .spec import (
-    BulletList, Chart, Document, Heading, HorizontalRule, Image,
-    LegalFeatures, PageBreak, PageSpec, Paragraph, Table, TableCell, TextRun,
+    BulletList, Callout, Chart, Document, Footnote, Heading, HorizontalRule,
+    Image, LegalFeatures, PageBreak, PageSpec, Paragraph, Table, TableCell,
+    TextRun,
 )
+from .colors import ColorTheme, resolve_color, PALETTES
+from .crossref import CrossReferenceIndex
 from .styles import PRESETS, Style, StyleSheet, resolve_preset
 from .typography.font_metrics import FontMetrics, FontRegistry
 from .typography.hyphenation import Hyphenator
@@ -34,8 +37,9 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Document", "PageSpec", "Heading", "Paragraph", "BulletList", "Table",
-    "TableCell", "TextRun", "Image", "Chart", "PageBreak", "HorizontalRule",
-    "LegalFeatures",
+    "TableCell", "TextRun", "Image", "Chart", "Footnote", "Callout",
+    "PageBreak", "HorizontalRule", "LegalFeatures",
+    "ColorTheme", "resolve_color", "PALETTES", "CrossReferenceIndex",
     "Style", "StyleSheet", "PRESETS", "resolve_preset",
     "FontRegistry", "FontMetrics", "Hyphenator", "LineBreaker",
     "ConstraintValidator", "ValidationResult", "ValidationError", "Issue",

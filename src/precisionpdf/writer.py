@@ -20,8 +20,8 @@ from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
-    BulletList, Chart, Document, Heading, HorizontalRule, Image, PageBreak,
-    Paragraph, Table,
+    BulletList, Callout, Chart, Document, Footnote, Heading, HorizontalRule,
+    Image, PageBreak, Paragraph, Table,
 )
 from .typography.font_metrics import FontRegistry
 from .typography.hyphenation import Hyphenator
@@ -254,6 +254,14 @@ class Renderer:
             elif isinstance(element, Table):
                 self._draw_table(
                     stream, placed, page_index, root, font_registry, sheet
+                )
+            elif isinstance(element, Footnote):
+                self._draw_footnote(
+                    stream, placed, page_index, root, font_registry
+                )
+            elif isinstance(element, Callout):
+                self._draw_callout(
+                    stream, placed, page_index, root, font_registry
                 )
             elif isinstance(element, Image):
                 self._draw_image(
@@ -595,6 +603,108 @@ class Renderer:
             height=element.height,
         )
         render_chart(stream, spec, placed.x, placed.y, key, size * 0.8)
+
+        stream.end_marked()
+
+    def _draw_footnote(self, stream, placed, page_index, root, registry) -> None:
+        element = placed.block.element
+        style = placed.block.style
+
+        note_el = StructureElement(tag="Note")
+        root.children.append(note_el)
+
+        mcid = stream.next_mcid()
+        note_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Note", mcid)
+
+        metrics, size, key = self._resolve_font(style, None, registry)
+        color = style.require("color")
+        marker = element.marker or "*"
+        marker_width = metrics.text_width(marker + " ", size)
+
+        stream.begin_artifact()
+        stream.line(
+            placed.x, placed.y + 2.0,
+            placed.x + 100.0, placed.y + 2.0,
+            color="d6d3d1", width=0.5,
+        )
+        stream.end_marked()
+
+        y = placed.y
+        baseline = y - placed.lines[0].ascent if placed.lines else y
+        stream.text_line(marker, key, size, placed.x, baseline, color)
+
+        for line in placed.lines:
+            baseline = y - line.ascent
+            for text, run, offset in line.fragments:
+                run_metrics, run_size, run_key = self._resolve_font(
+                    style, run, registry
+                )
+                stream.text_line(
+                    text, run_key, run_size,
+                    placed.x + marker_width + offset,
+                    baseline, run.color or color,
+                )
+            y -= line.height
+
+        stream.end_marked()
+
+    def _draw_callout(self, stream, placed, page_index, root, registry) -> None:
+        element = placed.block.element
+        style = placed.block.style
+
+        div_el = StructureElement(tag="Div")
+        root.children.append(div_el)
+
+        mcid = stream.next_mcid()
+        div_el.add_mcid(page_index, mcid)
+
+        padding = 10.0
+        border_width = 3.0
+
+        stream.begin_artifact("Background")
+        stream.rect(
+            placed.x, placed.y - placed.height,
+            placed.block.style.require("font_size") * 30,
+            placed.height,
+            fill=element.background,
+        )
+        stream.rect(
+            placed.x, placed.y - placed.height,
+            border_width, placed.height,
+            fill=element.border_color,
+        )
+        stream.end_marked()
+
+        stream.begin_marked("Div", mcid)
+
+        metrics, size, key = self._resolve_font(style, None, registry)
+        color = style.require("color")
+        content_x = placed.x + padding + border_width
+
+        y = placed.y - padding
+
+        if element.icon:
+            icon_size = size * 1.2
+            stream.text_line(
+                element.icon, key, icon_size,
+                content_x, y - metrics.ascent(icon_size),
+                element.border_color,
+            )
+            content_x += icon_size + 4.0
+
+        for line in placed.lines:
+            baseline = y - line.ascent
+            for text, run, offset in line.fragments:
+                run_metrics, run_size, run_key = self._resolve_font(
+                    style, run, registry
+                )
+                stream.text_line(
+                    text, run_key, run_size,
+                    content_x + offset, baseline,
+                    run.color or color,
+                )
+            y -= line.height
 
         stream.end_marked()
 

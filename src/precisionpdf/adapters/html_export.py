@@ -38,7 +38,9 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
     """
     from ..spec import (
         BulletList,
+        Callout,
         Chart,
+        Footnote,
         Heading,
         HorizontalRule,
         Image,
@@ -110,6 +112,24 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
             parts.append("    </tr>")
             parts.append("  </table>")
             parts.append("</div>")
+
+        elif isinstance(element, Footnote):
+            marker = _esc(element.marker or "*")
+            runs_html = _render_runs(element.runs)
+            parts.append(f'<aside class="footnote"><sup>{marker}</sup> {runs_html}</aside>')
+
+        elif isinstance(element, Callout):
+            bg = element.background or "f5f5f4"
+            border = element.border_color or "a8a29e"
+            runs_html = _render_runs(element.runs)
+            title_html = f"<strong>{_esc(element.title)}</strong><br>" if element.title else ""
+            icon_html = f'<span class="callout-icon">{_esc(element.icon)}</span> ' if element.icon else ""
+            parts.append(
+                f'<div class="callout callout-{element.variant}" '
+                f'style="background:#{bg};border-left:3px solid #{border};'
+                f'padding:10px;border-radius:{element.border_radius}pt;margin:8pt 0">'
+                f'{icon_html}{title_html}{runs_html}</div>'
+            )
 
         elif isinstance(element, PageBreak):
             parts.append('<div style="page-break-before:always"></div>')

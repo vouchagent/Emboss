@@ -33,7 +33,9 @@ def to_office_dict(document: "Document") -> dict:
     """
     from ..spec import (
         BulletList,
+        Callout,
         Chart,
+        Footnote,
         Heading,
         HorizontalRule,
         Image,
@@ -97,6 +99,23 @@ def to_office_dict(document: "Document") -> dict:
                 "title": element.title,
                 "width": element.width,
                 "height": element.height,
+            })
+
+        elif isinstance(element, Footnote):
+            blocks.append({
+                "type": "footnote",
+                "marker": element.marker,
+                "runs": _serialize_runs(element.runs),
+            })
+
+        elif isinstance(element, Callout):
+            blocks.append({
+                "type": "callout",
+                "variant": element.variant,
+                "title": element.title,
+                "runs": _serialize_runs(element.runs),
+                "background": element.background,
+                "border_color": element.border_color,
             })
 
         elif isinstance(element, HorizontalRule):

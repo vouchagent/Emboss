@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .spec import (
-    BulletList, Chart, Document, Heading, HorizontalRule, Image, PageBreak,
-    Paragraph, Table,
+    BulletList, Callout, Chart, Document, Footnote, Heading, HorizontalRule,
+    Image, PageBreak, Paragraph, Table,
 )
 
 __all__ = ["Issue", "ValidationResult", "ConstraintValidator", "ValidationError"]
@@ -159,7 +159,7 @@ class ConstraintValidator:
             return
 
         known = (Heading, Paragraph, BulletList, Table, Image, Chart,
-                 PageBreak, HorizontalRule)
+                 Footnote, Callout, PageBreak, HorizontalRule)
         for index, element in enumerate(document.content):
             if not isinstance(element, known):
                 issues.append(Issue(

@@ -30,8 +30,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..spec import (
     BulletList,
+    Callout,
     Chart,
     Document,
+    Footnote,
     Heading,
     HorizontalRule,
     Image,
@@ -54,6 +56,8 @@ __all__ = [
     "BulletListSpec",
     "ImageSpec",
     "ChartSpec",
+    "FootnoteSpec",
+    "CalloutSpec",
     "TextRunSpec",
     "TableCellSpec",
     "PageConfig",
@@ -457,6 +461,58 @@ class ChartSpec(BaseModel):
         )
 
 
+class FootnoteSpec(BaseModel):
+    """A footnote rendered at the bottom of the page."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Footnote",
+            "examples": [
+                {"type": "footnote", "text": "Source: Annual Report 2024", "marker": "1"},
+            ],
+        }
+    }
+
+    type: Literal["footnote"] = "footnote"
+    text: str = Field(..., description="Footnote text content.")
+    marker: str | None = Field(None, description="Footnote marker (e.g. '1', '*').")
+
+    def to_element(self) -> Footnote:
+        return Footnote(content=self.text, marker=self.marker)
+
+
+class CalloutSpec(BaseModel):
+    """A styled container block for callouts, warnings, tips, etc."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Callout",
+            "examples": [
+                {
+                    "type": "callout",
+                    "text": "This action cannot be undone.",
+                    "variant": "warning",
+                    "title": "Warning",
+                },
+            ],
+        }
+    }
+
+    type: Literal["callout"] = "callout"
+    text: str = Field(..., description="Callout body text.")
+    variant: Literal["info", "warning", "success", "danger", "note"] = Field(
+        "note", description="Visual variant: info (blue), warning (amber), success (green), danger (red), note (gray)."
+    )
+    title: str | None = Field(None, description="Optional callout title.")
+
+    def to_element(self) -> Callout:
+        return Callout(
+            content=self.text,
+            variant=self.variant,
+            title=self.title,
+        )
+
+
 class PageBreakSpec(BaseModel):
     """Forces subsequent content onto a new page."""
 
@@ -485,6 +541,8 @@ ContentBlock = Annotated[
         BulletListSpec,
         ImageSpec,
         ChartSpec,
+        FootnoteSpec,
+        CalloutSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],

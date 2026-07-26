@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..spec import (
-    BulletList, Chart, Heading, HorizontalRule, Image, PageBreak,
-    Paragraph, Table,
+    BulletList, Callout, Chart, Footnote, Heading, HorizontalRule, Image,
+    PageBreak, Paragraph, Table,
 )
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
 
@@ -160,6 +160,10 @@ class LayoutEngine:
                 space_before=element.space_before,
                 space_after=element.space_after,
             )
+        if isinstance(element, Footnote):
+            return self._measure_footnote(element, width)
+        if isinstance(element, Callout):
+            return self._measure_callout(element, width)
         if isinstance(element, Image):
             return self._measure_image(element, width)
         if isinstance(element, Chart):
@@ -301,6 +305,57 @@ class LayoutEngine:
             space_before=style.require("space_before"),
             space_after=style.require("space_after") + 2.0,
             list_items=items,
+        )
+
+    def _measure_footnote(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        fn_style = style.with_(font_size=style.require("font_size") * 0.82)
+        marker_text = element.marker or "*"
+        marker_width = self._metrics(fn_style).text_width(
+            marker_text + " ", self._size(fn_style)
+        )
+        usable = width - marker_width
+        lines = self._layout_runs(element.runs, fn_style, usable)
+        for run in element.runs:
+            self._metrics(fn_style, run).note_usage(run.text)
+        return MeasuredBlock(
+            element=element,
+            height=sum(l.height for l in lines) + 2.0,
+            style=fn_style,
+            lines=lines,
+            can_split=False,
+            space_before=4.0,
+            space_after=2.0,
+        )
+
+    def _measure_callout(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        padding = 10.0
+        usable = width - 2 * padding - 4.0
+        total = 2 * padding
+        title_lines = []
+        if element.title:
+            title_style = style.with_(bold=True)
+            title_lines = self._layout_runs(
+                [__import__('precisionpdf.spec', fromlist=['TextRun']).TextRun(
+                    element.title, bold=True
+                )],
+                title_style, usable,
+            )
+            total += sum(l.height for l in title_lines)
+        content_lines = self._layout_runs(element.runs, style, usable)
+        for run in element.runs:
+            self._metrics(style, run).note_usage(run.text)
+        total += sum(l.height for l in content_lines)
+        all_lines = title_lines + content_lines
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            lines=all_lines,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
         )
 
     def _measure_image(self, element, width: float) -> MeasuredBlock:
