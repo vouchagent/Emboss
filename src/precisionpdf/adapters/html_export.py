@@ -290,7 +290,7 @@ def _render_table(table, sheet) -> str:
     if table.headers:
         parts.append("  <thead><tr>")
         for cell in table.header_cells:
-            align = f' style="text-align:{cell.align}"' if cell.align != "left" else ""
+            align = f' style="text-align:{cell.align}"' if cell.align and cell.align != "left" else ""
             parts.append(f"    <th{align}>{_esc(cell.plain_text)}</th>")
         parts.append("  </tr></thead>")
 

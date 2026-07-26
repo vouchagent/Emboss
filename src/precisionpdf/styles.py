@@ -247,15 +247,15 @@ PRESETS: dict = {
         table_header_rule_color="0f172a",
         table_stripe_color="f8fafc",
     ),
-    # Papers and dissertations: serif, justified, classic proportions.
+    # Papers and dissertations: serif body, sans headings, justified.
     "academic": _sheet(
         name="academic",
         body_font="Times",
-        heading_font="Times",
-        body_size=11.0,
+        heading_font="Helvetica",
+        body_size=11.5,
         align="justify",
         line_height=1.48,
-        scale=(1.45, 1.25, 1.1, 1.0, 1.0, 1.0),
+        scale=(1.6, 1.35, 1.15, 1.0, 1.0, 1.0),
     ),
     # Memos, policies, manuals: sans, readable, roomy.
     "corporate": _sheet(

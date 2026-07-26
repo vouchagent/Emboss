@@ -24,6 +24,7 @@ from .spec import (
     Footnote, Heading, HorizontalRule, Image, MathBlock, PageBreak,
     Paragraph, Table,
 )
+from .styles import Style
 from .typography.font_metrics import FontRegistry
 from .typography.hyphenation import Hyphenator
 
@@ -67,8 +68,11 @@ class Renderer:
         hyphenator = Hyphenator(language=document.language)
         engine = LayoutEngine(self.fonts, sheet, hyphenator=hyphenator)
 
+        content = list(document.content)
+        content = self._prepend_title_block(document, sheet, content)
+
         width = document.page.content_width
-        measured = [engine.measure(el, width) for el in document.content]
+        measured = [engine.measure(el, width) for el in content]
         pages = engine.paginate(measured, document.page)
 
         assembler = PDFAssembler()
@@ -77,6 +81,32 @@ class Renderer:
         return RenderResult(
             data=data, page_count=len(pages), issues=validation.issues
         )
+
+    @staticmethod
+    def _prepend_title_block(document, sheet, content: list) -> list:
+        """Insert a title heading and author line before the first content."""
+        if not document.title:
+            return content
+        first_is_heading = content and isinstance(content[0], Heading)
+        if first_is_heading and content[0].text == document.title:
+            return content
+        title_style = Style(
+            font_family=sheet.h1.font_family or "Helvetica",
+            font_size=(sheet.h1.font_size or 16.0) * 1.35,
+            bold=True,
+            align="center",
+            color=sheet.h1.color or "111111",
+            space_before=24.0,
+            space_after=8.0,
+        )
+        prefix = [Heading(document.title, level=1, style=title_style)]
+        if document.author:
+            author_style = Style(
+                align="center",
+                space_after=20.0,
+            )
+            prefix.append(Paragraph(document.author, style=author_style))
+        return prefix + content
 
     # -- assembly --
 
@@ -262,7 +292,8 @@ class Renderer:
                 )
             elif isinstance(element, Callout):
                 self._draw_callout(
-                    stream, placed, page_index, root, font_registry
+                    stream, placed, page_index, root, font_registry,
+                    document.page.content_width,
                 )
             elif isinstance(element, Image):
                 self._draw_image(
@@ -274,7 +305,8 @@ class Renderer:
                 )
             elif isinstance(element, CodeBlock):
                 self._draw_code_block(
-                    stream, placed, page_index, root, font_registry
+                    stream, placed, page_index, root, font_registry,
+                    document.page.content_width,
                 )
             elif isinstance(element, MathBlock):
                 self._draw_math(
@@ -673,7 +705,8 @@ class Renderer:
 
         stream.end_marked()
 
-    def _draw_callout(self, stream, placed, page_index, root, registry) -> None:
+    def _draw_callout(self, stream, placed, page_index, root, registry,
+                      page_content_width: float = 468.0) -> None:
         element = placed.block.element
         style = placed.block.style
 
@@ -689,7 +722,7 @@ class Renderer:
         stream.begin_artifact("Background")
         stream.rect(
             placed.x, placed.y - placed.height,
-            placed.block.style.require("font_size") * 30,
+            page_content_width,
             placed.height,
             fill=element.background,
         )
@@ -735,7 +768,7 @@ class Renderer:
         stream.end_marked()
 
     def _draw_code_block(self, stream, placed, page_index, root,
-                         registry) -> None:
+                         registry, page_content_width: float = 468.0) -> None:
         from .code_highlight import tokenize, colorize, THEME_BACKGROUNDS
 
         element = placed.block.element
@@ -748,7 +781,7 @@ class Renderer:
         padding = 10.0
 
         bg_color = THEME_BACKGROUNDS.get(element.theme, "1e1e1e")
-        content_width = style.require("font_size") * 30
+        content_width = page_content_width
         stream.begin_artifact("Background")
         stream.rect(
             placed.x, placed.y - placed.height,
@@ -768,6 +801,9 @@ class Renderer:
         if element.line_numbers:
             max_num = str(element.start_line + len(lines) - 1)
             gutter_width = metrics.text_width(max_num + "  ", code_size)
+
+        max_text_width = content_width - 2 * padding - gutter_width
+        ellipsis_w = metrics.text_width("...", code_size)
 
         y = placed.y - padding
         for i, line_text in enumerate(lines):
@@ -797,15 +833,41 @@ class Renderer:
             colored = colorize(tokens, element.theme)
 
             x = placed.x + padding + gutter_width
+            x_start = x
+            truncated = False
             for text, color in colored:
-                if not text:
+                if not text or truncated:
+                    continue
+                token_w = metrics.text_width(text, code_size)
+                if (x - x_start) + token_w > max_text_width - ellipsis_w:
+                    avail = max_text_width - ellipsis_w - (x - x_start)
+                    clipped = ""
+                    for ch in text:
+                        ch_w = metrics.text_width(ch, code_size)
+                        if avail < ch_w:
+                            break
+                        clipped += ch
+                        avail -= ch_w
+                    if clipped:
+                        stream.text_line(
+                            clipped, key, code_size,
+                            x, baseline, color,
+                            gid_map=metrics.gid_map,
+                        )
+                        x += metrics.text_width(clipped, code_size)
+                    stream.text_line(
+                        "...", key, code_size,
+                        x, baseline, "6a737d",
+                        gid_map=metrics.gid_map,
+                    )
+                    truncated = True
                     continue
                 stream.text_line(
                     text, key, code_size,
                     x, baseline, color,
                     gid_map=metrics.gid_map,
                 )
-                x += metrics.text_width(text, code_size)
+                x += token_w
 
             y -= line_height
 

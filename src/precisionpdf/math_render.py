@@ -179,6 +179,7 @@ class MathNode:
 class TextNode(MathNode):
     text: str
     italic: bool = True
+    bold: bool = False
 
 
 @dataclass
@@ -304,8 +305,12 @@ class MathParser:
 
     @staticmethod
     def _split_last_char(nodes: list, base: MathNode) -> MathNode:
-        """Split a multi-char TextNode so only the last char is the base."""
-        if isinstance(base, TextNode) and len(base.text) > 1:
+        """Split a multi-char TextNode so only the last char is the base.
+
+        Only splits italic (math-variable) text like "mc" into "m" + "c".
+        Non-italic text from \\text{} is a word and should not be split.
+        """
+        if isinstance(base, TextNode) and len(base.text) > 1 and base.italic:
             nodes.append(TextNode(base.text[:-1], italic=base.italic))
             return TextNode(base.text[-1], italic=base.italic)
         return base
@@ -325,6 +330,21 @@ class MathParser:
         else:
             self.pos += 1
             return TextNode(ch)
+
+    @staticmethod
+    def _flatten_to_text(node: MathNode) -> str:
+        """Reconstruct plain text from a parsed node tree."""
+        if isinstance(node, TextNode):
+            return node.text
+        if isinstance(node, SpaceNode):
+            return " "
+        if isinstance(node, SymbolNode):
+            return node.display
+        if isinstance(node, GroupNode):
+            return "".join(
+                MathParser._flatten_to_text(c) for c in node.children
+            )
+        return ""
 
     def _parse_command(self) -> MathNode:
         self.pos += 1  # skip backslash
@@ -361,13 +381,32 @@ class MathParser:
             return AccentNode(base=base, accent_type=name)
         elif name == "text":
             content = self._parse_atom()
-            if isinstance(content, TextNode):
-                content.italic = False
-            elif isinstance(content, GroupNode):
-                for child in content.children:
-                    if isinstance(child, TextNode):
-                        child.italic = False
-            return content
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=False)
+        elif name == "operatorname":
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=False)
+        elif name in ("mathcal", "mathscr"):
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=True)
+        elif name == "mathrm":
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=False)
+        elif name == "mathbf":
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=False, bold=True)
+        elif name == "mathbb":
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=False, bold=True)
+        elif name == "mathit":
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return TextNode(text, italic=True)
         elif name == "left":
             delim = self.source[self.pos] if self.pos < len(self.source) else "("
             self.pos += 1
@@ -497,7 +536,7 @@ class MathLayoutEngine:
                      size: float) -> MathLayout:
         w = len(node.text) * self._char_w(size)
         box = MathBox(text=node.text, x=x, y=y, size=size,
-                      italic=node.italic, symbol=False)
+                      italic=node.italic, bold=node.bold, symbol=False)
         return MathLayout(boxes=[box], width=w, height=size, depth=0)
 
     def _layout_symbol(self, node: SymbolNode, x: float, y: float,

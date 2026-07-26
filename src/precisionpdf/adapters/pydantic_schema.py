@@ -261,7 +261,7 @@ class TableCellSpec(BaseModel):
     def to_table_cell(self) -> TableCell:
         return TableCell(
             content=self.value,
-            align=self.align or "left",
+            align=self.align,
             bold=self.bold,
             background=self.background,
         )

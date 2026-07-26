@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 Alignment = Literal["left", "center", "right", "justify"]
-CellAlignment = Literal["left", "center", "right", "decimal"]
+CellAlignment = Literal["left", "center", "right", "decimal", None]
 
 
 @dataclass
@@ -127,7 +127,7 @@ class TableCell:
     """One table cell. `align='decimal'` aligns numbers on the decimal point."""
 
     content: Union[str, TextRun, Sequence] = ""
-    align: CellAlignment = "left"
+    align: CellAlignment = None
     bold: bool = False
     colspan: int = 1
     background: str | None = None

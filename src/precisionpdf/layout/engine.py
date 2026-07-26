@@ -506,10 +506,12 @@ class LayoutEngine:
 
         header_cells = element.header_cells
         header_lines, header_height = [], 0.0
+        col_aligns: list[str | None] = [None] * columns
         if header_cells:
             for index, cell in enumerate(header_cells):
                 available = widths[index] - 2 * pad_x
-                cell_style = header_style.with_(align=_cell_align(cell.align))
+                col_aligns[index] = cell.align
+                cell_style = header_style.with_(align=_cell_align(cell.align, None))
                 lines = self._layout_runs(cell.runs, cell_style, available)
                 for run in cell.runs:
                     self._metrics(cell_style, run).note_usage(run.text)
@@ -528,7 +530,8 @@ class LayoutEngine:
                     cells.append([])
                     continue
                 available = widths[index] - 2 * pad_x
-                cell_style = style.with_(align=_cell_align(cell.align))
+                header_align = col_aligns[index] if index < len(col_aligns) else None
+                cell_style = style.with_(align=_cell_align(cell.align, header_align))
                 lines = self._layout_runs(cell.runs, cell_style, available)
                 for run in cell.runs:
                     self._metrics(cell_style, run).note_usage(run.text)
@@ -897,8 +900,16 @@ class LayoutEngine:
         return page, tail, False
 
 
-def _cell_align(align: str) -> str:
-    """Map cell alignment to a text alignment the line layout understands."""
-    if align == "decimal":
+def _cell_align(align: str | None, header_align: str | None = None) -> str:
+    """Map cell alignment to a text alignment the line layout understands.
+
+    When a body cell has no explicit alignment (None), it inherits
+    from its column header. This keeps numeric columns aligned
+    consistently without requiring per-cell annotation.
+    """
+    effective = align if align is not None else header_align
+    if effective is None:
+        return "left"
+    if effective == "decimal":
         return "right"
-    return align
+    return effective
