@@ -32,18 +32,24 @@ class RefEntry:
     text: str
     anchor: str
     element_index: int
+    display: str | None = None
 
     @property
     def label(self) -> str:
-        return f"{self.kind} {self.number}"
+        return f"{self.kind} {self.display or self.number}"
 
 
 class CrossReferenceIndex:
     """Builds and resolves cross-references for a document."""
 
-    def __init__(self, document: "Document") -> None:
+    def __init__(
+        self,
+        document: "Document",
+        section_numbers: dict[int, str] | None = None,
+    ) -> None:
         self._entries: dict[str, RefEntry] = {}
         self._counters: dict[str, int] = {}
+        self._section_numbers = dict(section_numbers or {})
         self._build(document)
 
     def _build(self, document: "Document") -> None:
@@ -60,6 +66,7 @@ class CrossReferenceIndex:
                         text=element.text,
                         anchor=anchor,
                         element_index=idx,
+                        display=self._section_numbers.get(idx),
                     )
 
             elif isinstance(element, Table):

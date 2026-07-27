@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .colors import rgb_to_cmyk
+
 __all__ = ["RedactionMark", "apply_redactions"]
 
 
@@ -31,13 +33,36 @@ def apply_redactions(
     page_index: int,
     font_key: str,
     font_size: float,
+    color_mode: str = "rgb",
 ) -> None:
     """Draw redaction rectangles on a content stream for the given page.
 
     Each mark whose ``page_index`` matches is rendered as a filled rectangle
     in the mark's color. If ``replacement_text`` is set, it is drawn centered
-    within the rectangle in white.
+    within the rectangle in white. ``color_mode`` defaults to the stream's
+    own mode; pass ``"cmyk"`` explicitly to force DeviceCMYK operators.
     """
+    mode = _effective_mode(stream, color_mode)
+    previous = getattr(stream, "color_mode", None)
+    override = previous is not None and previous != mode
+    if override:
+        stream.color_mode = mode
+    try:
+        _draw_marks(stream, marks, page_index, font_key, font_size, mode)
+    finally:
+        if override:
+            stream.color_mode = previous
+
+
+def _draw_marks(
+    stream,
+    marks: list[RedactionMark],
+    page_index: int,
+    font_key: str,
+    font_size: float,
+    mode: str,
+) -> None:
+    """Emit the redaction rectangles and replacement text for one page."""
     for mark in marks:
         if mark.page_index != page_index:
             continue
@@ -59,7 +84,7 @@ def apply_redactions(
 
             stream.raw(b"BT")
             r, g, b = _hex_color(text_color)
-            stream.raw(f"{r:.4f} {g:.4f} {b:.4f} rg".encode("ascii"))
+            stream.raw(_fill_op(r, g, b, mode))
             stream.raw(f"/{font_key} {font_size:.2f} Tf".encode("ascii"))
 
             # Approximate text width for centering
@@ -72,6 +97,21 @@ def apply_redactions(
             stream.raw(b"ET")
 
         stream.end_marked()
+
+
+def _effective_mode(stream, color_mode: str) -> str:
+    """Resolve the color mode: explicit override wins, else the stream's."""
+    if color_mode != "rgb":
+        return color_mode
+    return getattr(stream, "color_mode", "rgb") or "rgb"
+
+
+def _fill_op(r: float, g: float, b: float, mode: str) -> bytes:
+    """Encode a fill-color operator for the given mode (rg or k)."""
+    if mode == "cmyk":
+        c, m, y, k = rgb_to_cmyk(r, g, b).components
+        return f"{c:.4f} {m:.4f} {y:.4f} {k:.4f} k".encode("ascii")
+    return f"{r:.4f} {g:.4f} {b:.4f} rg".encode("ascii")
 
 
 def _hex_color(value: str) -> tuple[float, float, float]:

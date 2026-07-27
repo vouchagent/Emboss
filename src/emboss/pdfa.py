@@ -4,7 +4,8 @@ Adds the metadata and output intent entries that upgrade a standard PDF
 to PDF/A-2b (ISO 19005-2, level B). Level B requires:
 
   - XMP metadata with pdfaid:part=2, conformance=B
-  - sRGB output intent with /DestOutputProfile
+  - An output intent with /DestOutputProfile (sRGB for RGB documents,
+    a generic CGATS TR 001 CMYK condition for color_mode="cmyk")
   - All fonts embedded (already handled by the core font pipeline)
   - No transparency issues (not applicable — we emit only opaque fills)
 
@@ -18,6 +19,7 @@ from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 
 __all__ = [
     "build_xmp_metadata",
+    "build_xmp_stream",
     "build_output_intent",
     "pdfa_catalog_entries",
 ]
@@ -33,10 +35,14 @@ def build_xmp_metadata(
     creator: str,
     producer: str,
     language: str,
+    pdfa: bool = True,
+    tagged: bool = True,
 ) -> bytes:
-    """Generate an XMP metadata packet for PDF/A-2b conformance.
+    """Generate an XMP metadata packet for PDF/A-2b and PDF/UA-1.
 
     The packet is a well-formed XML document with all required namespaces.
+    ``pdfa`` controls the pdfaid part/conformance declaration; ``tagged``
+    controls the pdfuaid part declaration (PDF/UA-1 for tagged output).
     Dates are deterministic for reproducible output.
     """
     keyword_tags = ""
@@ -46,14 +52,29 @@ def build_xmp_metadata(
             keyword_tags = f"""
          <pdf:Keywords>{_xml_escape(keywords)}</pdf:Keywords>"""
 
+    pdfa_ns = ""
+    pdfa_props = ""
+    if pdfa:
+        pdfa_ns = '\n      xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"'
+        pdfa_props = """
+      <pdfaid:part>2</pdfaid:part>
+      <pdfaid:conformance>B</pdfaid:conformance>
+"""
+    pdfua_ns = ""
+    pdfua_props = ""
+    if tagged:
+        pdfua_ns = '\n      xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/"'
+        pdfua_props = """
+      <pdfuaid:part>1</pdfuaid:part>
+"""
+
     xmp = f"""<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description rdf:about=""
       xmlns:dc="http://purl.org/dc/elements/1.1/"
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
-      xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">
+      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"{pdfa_ns}{pdfua_ns}>
 
       <dc:title>
         <rdf:Alt>
@@ -91,10 +112,7 @@ def build_xmp_metadata(
       <xmp:MetadataDate>{_FIXED_DATE}</xmp:MetadataDate>
 
       <pdf:Producer>{_xml_escape(producer)}</pdf:Producer>{keyword_tags}
-
-      <pdfaid:part>2</pdfaid:part>
-      <pdfaid:conformance>B</pdfaid:conformance>
-
+{pdfa_props}{pdfua_props}
     </rdf:Description>
   </rdf:RDF>
 </x:xmpmeta>
@@ -182,7 +200,7 @@ def _build_minimal_srgb_icc() -> bytes:
     desc_payload += b"\x00" * 4  # Unicode language code
     desc_payload += b"\x00" * 4  # Unicode count
     desc_payload += b"\x00" * 2  # ScriptCode code
-    desc_payload += (67).to_bytes(1, "big")  # ScriptCode count (pad)
+    desc_payload += b"\x00"  # ScriptCode count (no localized description)
     desc_payload += b"\x00" * 67
     add_tag(b"desc", desc_payload)
 
@@ -199,19 +217,13 @@ def _build_minimal_srgb_icc() -> bytes:
     add_tag(b"gXYZ", g_xyz)
     add_tag(b"bXYZ", b_xyz)
 
-    # rTRC, gTRC, bTRC — sRGB gamma curves (use parametric curve type 3)
-    # sRGB transfer function: if L <= 0.04045 then L/12.92 else ((L+0.055)/1.055)^2.4
-    # Parametric type 3: Y = (aX+b)^g + c for X >= d, Y = eX + f for X < d
-    # g=2.4, a=1/1.055≈0.9479, b=0.055/1.055≈0.0521, c=0, d=0.04045, e=1/12.92≈0.0774, f=0
-    gamma_payload = b"para" + b"\x00" * 4
-    gamma_payload += (3).to_bytes(2, "big") + b"\x00" * 2  # function type 3
-    gamma_payload += _s15f16(2.4)  # g
-    gamma_payload += _s15f16(0.9479)  # a
-    gamma_payload += _s15f16(0.0521)  # b
-    gamma_payload += _s15f16(0.0)  # c (not used for type 3 in this form)
-    gamma_payload += _s15f16(0.04045)  # d
-    gamma_payload += _s15f16(0.0774)  # e
-    gamma_payload += _s15f16(0.0)  # f
+    # rTRC, gTRC, bTRC — sRGB tone curve as an ICC v2 'curv' gamma tag.
+    # The 'para' parametric type is ICC v4-only and invalid in a v2 profile;
+    # a single-entry curv tag encodes gamma 2.2 (the standard sRGB
+    # approximation) as a u8Fixed8 value.
+    gamma_payload = b"curv" + b"\x00" * 4
+    gamma_payload += (1).to_bytes(4, "big")  # count 1 => gamma value follows
+    gamma_payload += int(round(2.2 * 256)).to_bytes(2, "big")  # u8Fixed8 2.2
 
     # All three channels share the same curve
     add_tag(b"rTRC", gamma_payload)
@@ -243,30 +255,189 @@ def _s15f16(value: float) -> bytes:
     return fixed.to_bytes(4, "big")
 
 
-def build_output_intent(assembler) -> PdfRef:
-    """Create an sRGB output intent for PDF/A color management."""
-    icc_data = _build_minimal_srgb_icc()
+def _build_minimal_cmyk_icc() -> bytes:
+    """Build a minimal CMYK output (prtr) ICC v2 profile.
+
+    Constructs the header plus the required tags for an output-class
+    profile: desc, wtpt, cprt, and lut8 A2B0/B2A0 tables. The lookup
+    tables use identity ramps and a 2-point CLUT derived from the naive
+    CMYK<->RGB conversion — enough for output intent validation, not
+    for colorimetric accuracy.
+    """
+    header = bytearray(128)
+    header[4:8] = b"appl"
+    header[8:12] = b"\x02\x10\x00\x00"
+    header[12:16] = b"prtr"
+    header[16:20] = b"CMYK"
+    header[20:24] = b"XYZ "
+    header[24:26] = (2024).to_bytes(2, "big")
+    header[26:28] = (1).to_bytes(2, "big")
+    header[28:30] = (1).to_bytes(2, "big")
+    header[36:40] = b"acsp"
+    header[40:44] = b"APPL"
+    header[64:68] = (0).to_bytes(4, "big")
+    header[68:72] = _s15f16(0.9642)
+    header[72:76] = _s15f16(1.0)
+    header[76:80] = _s15f16(0.8249)
+    header[80:84] = b"none"
+
+    tag_count = 10
+    tag_entries: list[tuple[bytes, int, int]] = []
+    tag_payloads: list[bytes] = []
+    data_offset = 128 + 4 + tag_count * 12
+
+    def add_tag(sig: bytes, payload: bytes) -> tuple[int, int]:
+        nonlocal data_offset
+        while len(payload) % 4 != 0:
+            payload += b"\x00"
+        entry = (sig, data_offset, len(payload))
+        tag_entries.append(entry)
+        tag_payloads.append(payload)
+        data_offset += len(payload)
+        return entry[1], entry[2]
+
+    def add_alias(sig: bytes, offset: int, size: int) -> None:
+        tag_entries.append((sig, offset, size))
+
+    desc_text = b"Generic CMYK (CGATS TR 001 compatible)"
+    desc_payload = b"desc" + b"\x00" * 4
+    desc_payload += (len(desc_text) + 1).to_bytes(4, "big")
+    desc_payload += desc_text + b"\x00"
+    desc_payload += b"\x00" * 4
+    desc_payload += b"\x00" * 4
+    desc_payload += b"\x00" * 2
+    desc_payload += b"\x00"  # ScriptCode count (no localized description)
+    desc_payload += b"\x00" * 67
+    add_tag(b"desc", desc_payload)
+
+    xyz_payload = b"XYZ " + b"\x00" * 4
+    xyz_payload += _s15f16(0.9642) + _s15f16(1.0) + _s15f16(0.8249)
+    add_tag(b"wtpt", xyz_payload)
+
+    identity_matrix = (
+        _s15f16(1.0)
+        + _s15f16(0.0)
+        + _s15f16(0.0)
+        + _s15f16(0.0)
+        + _s15f16(1.0)
+        + _s15f16(0.0)
+        + _s15f16(0.0)
+        + _s15f16(0.0)
+        + _s15f16(1.0)
+    )
+    ramp = bytes(range(256))
+
+    def clut_a2b() -> bytes:
+        out = bytearray()
+        for c in (0, 1):
+            for m in (0, 1):
+                for y_ in (0, 1):
+                    for k in (0, 1):
+                        r = (1 - c) * (1 - k)
+                        g = (1 - m) * (1 - k)
+                        b = (1 - y_) * (1 - k)
+                        x_val = 0.4124 * r + 0.3576 * g + 0.1805 * b
+                        y_val = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                        z_val = 0.0193 * r + 0.1192 * g + 0.9505 * b
+                        for v in (x_val, y_val, z_val):
+                            out.append(min(255, int(round(v * 255))))
+        return bytes(out)
+
+    a2b0 = b"mft1" + b"\x00" * 4
+    a2b0 += bytes([4, 3, 2, 0])
+    a2b0 += identity_matrix
+    a2b0 += ramp * 4
+    a2b0 += clut_a2b()
+    a2b0 += ramp * 3
+    a2b_offset, a2b_size = add_tag(b"A2B0", a2b0)
+    # ICC v2 output-class profiles require all three rendering-intent
+    # LUTs; the colorimetric and saturation intents share the data.
+    add_alias(b"A2B1", a2b_offset, a2b_size)
+    add_alias(b"A2B2", a2b_offset, a2b_size)
+
+    def clut_b2a() -> bytes:
+        out = bytearray()
+        for x_ in (0, 1):
+            for y_ in (0, 1):
+                for z_ in (0, 1):
+                    k = 1 - max(x_, y_, z_)
+                    out.extend(
+                        [(1 - x_) * 255, (1 - y_) * 255, (1 - z_) * 255, k * 255]
+                    )
+        return bytes(out)
+
+    b2a0 = b"mft1" + b"\x00" * 4
+    b2a0 += bytes([3, 4, 2, 0])
+    b2a0 += identity_matrix
+    b2a0 += ramp * 3
+    b2a0 += clut_b2a()
+    b2a0 += ramp * 4
+    b2a_offset, b2a_size = add_tag(b"B2A0", b2a0)
+    add_alias(b"B2A1", b2a_offset, b2a_size)
+    add_alias(b"B2A2", b2a_offset, b2a_size)
+
+    # gamt — required gamut tag: 3-in/1-out LUT, everything in gamut (0)
+    gamut = b"mft1" + b"\x00" * 4
+    gamut += bytes([3, 1, 2, 0])
+    gamut += identity_matrix
+    gamut += ramp * 3
+    gamut += b"\x00" * 8
+    gamut += ramp
+    add_tag(b"gamt", gamut)
+
+    cprt_text = b"No copyright, use freely"
+    cprt_payload = b"text" + b"\x00" * 4 + cprt_text + b"\x00"
+    add_tag(b"cprt", cprt_payload)
+
+    tag_table = tag_count.to_bytes(4, "big") + b"".join(
+        sig + offset.to_bytes(4, "big") + size.to_bytes(4, "big")
+        for sig, offset, size in tag_entries
+    )
+    body = b"".join(tag_payloads)
+    profile = bytes(header) + tag_table + body
+    return len(profile).to_bytes(4, "big") + profile[4:]
+
+
+def build_output_intent(assembler, color_mode: str = "rgb") -> PdfRef:
+    """Create an output intent for PDF/A color management.
+
+    RGB documents get the sRGB IEC61966-2.1 intent (N=3); CMYK documents
+    get an N=4 intent whose OutputConditionIdentifier names the standard
+    CGATS TR 001 (SWOP) printing condition. PDF/A-2 permits omitting
+    DestOutputProfile when the identifier names a registered standard
+    condition, but a minimal profile is embedded anyway so readers that
+    expect one can still color-manage the file.
+    """
+    if color_mode == "cmyk":
+        icc_data = _build_minimal_cmyk_icc()
+        components = 4
+        condition = "CGATS TR 001"
+    else:
+        icc_data = _build_minimal_srgb_icc()
+        components = 3
+        condition = "sRGB IEC61966-2.1"
 
     icc_stream = PdfStream(data=icc_data, compress=True)
-    icc_stream.dictionary["N"] = 3  # number of color components
+    icc_stream.dictionary["N"] = components
     icc_ref = assembler.add(icc_stream)
 
     intent = PdfDict()
     intent["Type"] = PdfName("OutputIntent")
     intent["S"] = PdfName("GTS_PDFA1")
-    intent["OutputConditionIdentifier"] = "sRGB IEC61966-2.1"
+    intent["OutputConditionIdentifier"] = condition
     intent["RegistryName"] = "http://www.color.org"
-    intent["Info"] = "sRGB IEC61966-2.1"
+    intent["Info"] = condition
     intent["DestOutputProfile"] = icc_ref
 
     return assembler.add(intent)
 
 
-def pdfa_catalog_entries(assembler, document) -> dict:
-    """Return entries to add to the PDF catalog for PDF/A-2b compliance.
+def build_xmp_stream(assembler, document, pdfa: bool = True) -> PdfRef:
+    """Add an XMP metadata stream for *document* and return its reference.
 
-    The caller should merge the returned dict into the catalog PdfDict
-    before finalizing the document.
+    Usable for non-PDF/A documents too (``pdfa=False`` drops the pdfaid
+    declaration but keeps the PDF/UA identifier for tagged output). The
+    caller sets the returned reference as the catalog's /Metadata entry.
     """
     xmp_bytes = build_xmp_metadata(
         title=document.title,
@@ -276,14 +447,24 @@ def pdfa_catalog_entries(assembler, document) -> dict:
         creator=document.creator,
         producer=document.producer,
         language=document.language,
+        pdfa=pdfa,
+        tagged=getattr(document, "tagged", True),
     )
 
     xmp_stream = PdfStream(data=xmp_bytes, compress=False)
     xmp_stream.dictionary["Type"] = PdfName("Metadata")
     xmp_stream.dictionary["Subtype"] = PdfName("XML")
-    metadata_ref = assembler.add(xmp_stream)
+    return assembler.add(xmp_stream)
 
-    intent_ref = build_output_intent(assembler)
+
+def pdfa_catalog_entries(assembler, document) -> dict:
+    """Return entries to add to the PDF catalog for PDF/A-2b compliance.
+
+    The caller should merge the returned dict into the catalog PdfDict
+    before finalizing the document.
+    """
+    metadata_ref = build_xmp_stream(assembler, document, pdfa=True)
+    intent_ref = build_output_intent(assembler, getattr(document, "color_mode", "rgb"))
 
     return {
         "Metadata": metadata_ref,

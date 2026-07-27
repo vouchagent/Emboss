@@ -24,6 +24,7 @@ __all__ = [
     "NumberedList",
     "Table",
     "TableCell",
+    "BlockQuote",
     "Image",
     "Chart",
     "Footnote",
@@ -58,6 +59,7 @@ class TextRun:
     font_family: str | None = None
     color: str | None = None
     link: str | None = None
+    strikethrough: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.text, str):
@@ -125,32 +127,46 @@ class Paragraph:
         return "".join(run.text for run in self.runs)
 
 
+def _list_item_entry(item, nested_factory) -> tuple:
+    """Classify one list item as (runs, None) text or (None, list) nesting."""
+    if isinstance(item, (BulletList, NumberedList)):
+        return None, item
+    if isinstance(item, (list, tuple)) and not any(
+        isinstance(entry, TextRun) for entry in item
+    ):
+        return None, nested_factory(item)
+    return _as_runs(item), None
+
+
+def _alpha_label(value: int) -> str:
+    """Spreadsheet-style letters for nested numbered markers: 1 -> a."""
+    label = ""
+    while value > 0:
+        value, rem = divmod(value - 1, 26)
+        label = chr(ord("a") + rem) + label
+    return label
+
+
 @dataclass
 class BulletList:
     """A list, tagged /L with /LI children."""
 
     items: Sequence = field(default_factory=list)
     bullet: str = "\u2022"
+    checked: Sequence | None = None
     style: Style | None = None
 
     @property
     def flat_items(self) -> list:
         """Return (runs_or_None, sub_list_or_None) for each item."""
-        result = []
-        for item in self.items:
-            if isinstance(item, (BulletList, NumberedList)):
-                result.append((None, item))
-            else:
-                result.append((_as_runs(item), None))
-        return result
+        return [
+            _list_item_entry(item, lambda sub: BulletList(items=sub, bullet="-"))
+            for item in self.items
+        ]
 
     @property
     def item_runs(self) -> list:
-        return [
-            _as_runs(item)
-            for item in self.items
-            if not isinstance(item, (BulletList, NumberedList))
-        ]
+        return [runs for runs, sub in self.flat_items if runs is not None]
 
     @property
     def structure_tag(self) -> str:
@@ -163,29 +179,28 @@ class NumberedList:
 
     items: Sequence = field(default_factory=list)
     start: int = 1
+    marker_style: Literal["decimal", "alpha"] = "decimal"
     style: Style | None = None
 
     @property
     def flat_items(self) -> list:
         """Return (runs_or_None, sub_list_or_None) for each item."""
-        result = []
-        for item in self.items:
-            if isinstance(item, (BulletList, NumberedList)):
-                result.append((None, item))
-            else:
-                result.append((_as_runs(item), None))
-        return result
+        return [
+            _list_item_entry(
+                item, lambda sub: NumberedList(items=sub, marker_style="alpha")
+            )
+            for item in self.items
+        ]
 
     @property
     def item_runs(self) -> list:
-        return [
-            _as_runs(item)
-            for item in self.items
-            if not isinstance(item, (BulletList, NumberedList))
-        ]
+        return [runs for runs, sub in self.flat_items if runs is not None]
 
     def marker(self, index: int) -> str:
-        return f"{self.start + index}."
+        value = self.start + index
+        if self.marker_style == "alpha" and value >= 1:
+            return _alpha_label(value) + "."
+        return f"{value}."
 
     @property
     def structure_tag(self) -> str:
@@ -211,10 +226,12 @@ class TableCell:
                     r.text,
                     bold=True,
                     italic=r.italic,
+                    small_caps=r.small_caps,
                     font_size=r.font_size,
                     font_family=r.font_family,
                     color=r.color,
                     link=r.link,
+                    strikethrough=r.strikethrough,
                 )
                 for r in runs
             ]
@@ -260,6 +277,27 @@ class Table:
     @property
     def structure_tag(self) -> str:
         return "Table"
+
+
+@dataclass
+class BlockQuote:
+    """A quoted passage set off from body text, tagged /BlockQuote."""
+
+    content: Union[str, TextRun, Sequence] = ""
+    attribution: str | None = None
+    style: Style | None = None
+    runs: list = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self.runs = _as_runs(self.content)
+
+    @property
+    def plain_text(self) -> str:
+        return "".join(run.text for run in self.runs)
+
+    @property
+    def structure_tag(self) -> str:
+        return "BlockQuote"
 
 
 @dataclass
@@ -448,6 +486,7 @@ BlockElement = Union[
     BulletList,
     NumberedList,
     Table,
+    BlockQuote,
     Image,
     Chart,
     Footnote,

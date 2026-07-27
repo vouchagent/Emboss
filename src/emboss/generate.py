@@ -80,7 +80,7 @@ def spec_prompt(
     EmbossSpec JSON.
 
     Args:
-        style: default style preset to suggest (legal/finance/academic/corporate/minimal)
+        style: default style preset to suggest (legal/finance/academic/corporate/minimal/journal/brief)
         features: optional list of features to emphasize (e.g. ["tables", "math", "code"])
     """
     feature_hints = ""
@@ -495,7 +495,7 @@ def generate(
 
     Args:
         prompt: What document to create (e.g. "Write a quarterly financial report")
-        style: Style preset (legal/finance/academic/corporate/minimal)
+        style: Style preset (legal/finance/academic/corporate/minimal/journal/brief)
         output: Optional file path to save the PDF
         provider: LLM provider ("anthropic" or "openai")
         model: Model name (defaults to claude-sonnet-5 or gpt-4o)

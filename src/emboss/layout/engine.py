@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from ..spec import (
     BibliographyBlock,
+    BlockQuote,
     BulletList,
     Callout,
     Chart,
@@ -145,6 +146,9 @@ class LayoutEngine:
     FLOAT_MIN_TEXT_SPACE = 0.15
     FLOAT_MAX_DRIFT = 2
 
+    NESTED_LIST_INDENT = 14.0
+    BLOCKQUOTE_INDENT = 14.0
+
     def __init__(
         self, fonts, sheet, hyphenator=None, breaker=None, optimize_layout=True
     ):
@@ -206,6 +210,8 @@ class LayoutEngine:
             return self._measure_footnote(element, width)
         if isinstance(element, Callout):
             return self._measure_callout(element, width)
+        if isinstance(element, BlockQuote):
+            return self._measure_blockquote(element, width)
         if isinstance(element, Image):
             return self._measure_image(element, width)
         if isinstance(element, Chart):
@@ -359,7 +365,7 @@ class LayoutEngine:
         items, total = [], 0.0
         for runs, sub in element.flat_items:
             if sub is not None:
-                nested = self.measure(sub, usable)
+                nested = self.measure(sub, width - self.NESTED_LIST_INDENT)
                 items.append(nested)
                 total += nested.height + nested.space_before + nested.space_after
             else:
@@ -397,7 +403,7 @@ class LayoutEngine:
         text_idx = 0
         for runs, sub in element.flat_items:
             if sub is not None:
-                nested = self.measure(sub, usable)
+                nested = self.measure(sub, width - self.NESTED_LIST_INDENT)
                 items.append(nested)
                 total += nested.height + nested.space_before + nested.space_after
             else:
@@ -440,6 +446,34 @@ class LayoutEngine:
             can_split=False,
             space_before=4.0,
             space_after=2.0,
+        )
+
+    def _measure_blockquote(self, element, width: float) -> MeasuredBlock:
+        from ..spec import TextRun
+
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        quote_style = style.with_(italic=True)
+        usable = width - 2 * self.BLOCKQUOTE_INDENT
+        lines = self._layout_runs(element.runs, quote_style, usable)
+        for run in element.runs:
+            self._metrics(quote_style, run).note_usage(run.text)
+        if element.attribution:
+            attr_style = quote_style.with_(
+                font_size=self._size(quote_style) * 0.85, align="right"
+            )
+            attr_runs = [TextRun("— " + element.attribution)]
+            attr_lines = self._layout_runs(attr_runs, attr_style, usable)
+            for run in attr_runs:
+                self._metrics(attr_style, run).note_usage(run.text)
+            lines = lines + attr_lines
+        return MeasuredBlock(
+            element=element,
+            height=sum(line.height for line in lines),
+            style=quote_style,
+            lines=lines,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
         )
 
     def _measure_callout(self, element, width: float) -> MeasuredBlock:

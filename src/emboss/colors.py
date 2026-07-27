@@ -29,7 +29,12 @@ __all__ = [
     "CmykColor",
     "SpotColor",
     "rgb_to_cmyk",
+    "cmyk_to_rgb",
+    "hex_to_cmyk",
     "parse_cmyk",
+    "parse_spot",
+    "spot_resource_name",
+    "build_spot_color_resource",
 ]
 
 PALETTES: dict[str, dict[str, str]] = {
@@ -198,16 +203,24 @@ _HEX_RE = re.compile(r"^[0-9a-fA-F]{6}$")
 _NAMED_RE = re.compile(r"^([a-z]+)-(\d{2,3})$")
 
 
-def resolve_color(value: str) -> str:
-    """Resolve a named color to a hex string.
+def resolve_color(value: str) -> str | CmykColor | SpotColor:
+    """Resolve a named color to a hex string, CmykColor, or SpotColor.
 
     Accepts:
       - A 6-digit hex string (pass-through): ``"2563eb"``
       - A named shade: ``"blue-600"`` -> ``"2563eb"``
       - A semantic name: ``"primary"`` -> ``"2563eb"``
-
-    Returns the 6-digit hex color without ``#``.
+      - A CMYK spec: ``"cmyk(0,100,100,0)"`` -> ``CmykColor``
+      - A spot spec: ``"spot(PANTONE 485 C,0,100,95,0)"`` -> ``SpotColor``
     """
+    if value.startswith("cmyk("):
+        cmyk = parse_cmyk(value)
+        if cmyk is not None:
+            return cmyk
+    if value.startswith("spot("):
+        spot = parse_spot(value)
+        if spot is not None:
+            return spot
     if _HEX_RE.match(value):
         return value.lower()
 
@@ -313,6 +326,11 @@ def rgb_to_cmyk(r: float, g: float, b: float) -> CmykColor:
     return CmykColor(c, m, y_val, k)
 
 
+def cmyk_to_rgb(c: float, m: float, y: float, k: float) -> tuple[float, float, float]:
+    """Convert CMYK components (0.0-1.0) to an RGB triple (0.0-1.0)."""
+    return ((1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k))
+
+
 def hex_to_cmyk(hex_color: str) -> CmykColor:
     """Convert a 6-digit hex RGB color to CMYK."""
     text = hex_color.lstrip("#")
@@ -349,9 +367,37 @@ def parse_cmyk(value: str) -> CmykColor | None:
     return CmykColor(*components)
 
 
+_SPOT_RE = re.compile(
+    r"^spot\(\s*([^,()]+?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,"
+    r"\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)$"
+)
+
+
+def parse_spot(value: str) -> SpotColor | None:
+    """Parse a ``spot(Name,c,m,y,k)`` string into a SpotColor.
+
+    Component values may be 0-100 (percentage) or 0.0-1.0 (fraction),
+    same auto-detection as :func:`parse_cmyk`. Returns None if the
+    string is not a spot color specification.
+    """
+    match = _SPOT_RE.match(value.strip())
+    if not match:
+        return None
+    components = [float(match.group(i)) for i in range(2, 6)]
+    if any(v > 1.0 for v in components):
+        components = [v / 100.0 for v in components]
+    return SpotColor(match.group(1), *components)
+
+
+def spot_resource_name(name: str) -> str:
+    """Derive the deterministic ColorSpace resource name for a spot color."""
+    safe = re.sub(r"[^A-Za-z0-9]", "", name)
+    return f"CS{safe}" if safe else "CS0"
+
+
 def build_spot_color_resource(
     assembler, name: str, c: float, m: float, y: float, k: float
-) -> str:
+) -> tuple:
     """Register a spot color as a PDF Separation color space.
 
     Creates a ``/ColorSpace`` entry with a ``/Separation`` array that
@@ -386,7 +432,4 @@ def build_spot_color_resource(
     )
     cs_ref = assembler.add(cs_array)
 
-    # Return a sanitized resource name derived from the spot color name.
-    safe = re.sub(r"[^A-Za-z0-9]", "", name)
-    resource_name = f"CS{safe}" if safe else "CS0"
-    return resource_name, cs_ref
+    return spot_resource_name(name), cs_ref

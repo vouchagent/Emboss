@@ -20,6 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
+from .ligatures import available_ligatures, ligate
+
 __all__ = [
     "Box",
     "Glue",
@@ -553,6 +555,9 @@ def build_items(
         metrics = metrics_for(run)
         size = size_for(run)
         space_width = metrics.text_width(" ", size)
+        # Ligatures only for embedded fonts that carry the glyphs; the
+        # base-14 path must stay byte-identical.
+        ligatures = available_ligatures(metrics)
 
         # Justified text needs elastic spaces; ragged text keeps them fixed
         # so word spacing stays even and the rag falls where it falls.
@@ -562,6 +567,19 @@ def build_items(
         else:
             stretch = 0.0
             shrink = 0.0
+
+        def word_box(text: str) -> Box:
+            """Box for a word fragment, ligated when the font allows it."""
+            word = ligate(text, ligatures) if ligatures else text
+            width = metrics.text_width(word, size)
+            if tracking:
+                width += len(word) * tracking
+            return Box(
+                width=width,
+                text=word,
+                run_index=run_index,
+                char_widths=_char_widths(word, metrics, size, tracking),
+            )
 
         tokens = run.text.split(" ")
         for token_index, token in enumerate(tokens):
@@ -582,36 +600,17 @@ def build_items(
             else:
                 points = []
 
-            token_width = metrics.text_width(token, size)
-            if tracking:
-                token_width += len(token) * tracking
-
             if not points:
-                items.append(
-                    Box(
-                        width=token_width,
-                        text=token,
-                        run_index=run_index,
-                        char_widths=_char_widths(token, metrics, size, tracking),
-                    )
-                )
+                items.append(word_box(token))
                 continue
 
+            # Hyphenation points are found on the original letters; each
+            # fragment is ligated independently afterwards, so a break
+            # falling inside a would-be ligature simply stays unligated.
             hyphen_width = metrics.text_width("-", size)
             previous = 0
             for point in points:
-                fragment = token[previous:point]
-                frag_width = metrics.text_width(fragment, size)
-                if tracking:
-                    frag_width += len(fragment) * tracking
-                items.append(
-                    Box(
-                        width=frag_width,
-                        text=fragment,
-                        run_index=run_index,
-                        char_widths=_char_widths(fragment, metrics, size, tracking),
-                    )
-                )
+                items.append(word_box(token[previous:point]))
                 items.append(
                     Penalty(
                         penalty=50.0,
@@ -621,18 +620,7 @@ def build_items(
                     )
                 )
                 previous = point
-            tail = token[previous:]
-            tail_width = metrics.text_width(tail, size)
-            if tracking:
-                tail_width += len(tail) * tracking
-            items.append(
-                Box(
-                    width=tail_width,
-                    text=tail,
-                    run_index=run_index,
-                    char_widths=_char_widths(tail, metrics, size, tracking),
-                )
-            )
+            items.append(word_box(token[previous:]))
 
     # Terminate the paragraph: infinite glue absorbs the slack on the last
     # line, then a forced break ends it.

@@ -16,6 +16,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..colors import (
+    CmykColor,
+    SpotColor,
+    cmyk_to_rgb,
+    hex_to_cmyk,
+    parse_cmyk,
+    parse_spot,
+    spot_resource_name,
+)
 from .objects import fmt_number
 
 __all__ = ["ContentStream", "hex_color"]
@@ -105,10 +114,14 @@ class ContentStream:
     _ops: list = field(default_factory=list)
     _mcid: int = 0
     _font_stack: list = field(default_factory=list)
+    color_mode: str = "rgb"
+    used_spots: dict = field(default_factory=dict)
 
-    def __init__(self) -> None:
+    def __init__(self, color_mode: str = "rgb") -> None:
         self._ops = []
         self._mcid = 0
+        self.color_mode = color_mode
+        self.used_spots = {}
 
     # -- raw emission --
 
@@ -126,13 +139,51 @@ class ContentStream:
     def restore(self) -> None:
         self.raw(b"Q")
 
-    def set_fill(self, color: str) -> None:
-        r, g, b = hex_color(color)
-        self.raw(b" ".join([self._num(r), self._num(g), self._num(b), b"rg"]))
+    def _resolved(self, color: str | CmykColor | SpotColor):
+        """Normalize a color input to ('rgb'|'cmyk'|'spot', payload) for this mode."""
+        if isinstance(color, str):
+            if color.startswith("cmyk("):
+                parsed = parse_cmyk(color)
+                if parsed is not None:
+                    color = parsed
+            elif color.startswith("spot("):
+                parsed_spot = parse_spot(color)
+                if parsed_spot is not None:
+                    color = parsed_spot
+        if isinstance(color, SpotColor):
+            return "spot", color
+        if isinstance(color, CmykColor):
+            if self.color_mode == "cmyk":
+                return "cmyk", color.components
+            return "rgb", cmyk_to_rgb(*color.components)
+        if self.color_mode == "cmyk":
+            return "cmyk", hex_to_cmyk(color).components
+        return "rgb", hex_color(color)
 
-    def set_stroke(self, color: str) -> None:
-        r, g, b = hex_color(color)
-        self.raw(b" ".join([self._num(r), self._num(g), self._num(b), b"RG"]))
+    def _register_spot(self, spot: SpotColor) -> str:
+        """Record a spot color use and return its ColorSpace resource name."""
+        self.used_spots.setdefault(spot.name, spot)
+        return spot_resource_name(spot.name)
+
+    def set_fill(self, color: str | CmykColor | SpotColor) -> None:
+        kind, payload = self._resolved(color)
+        if kind == "spot":
+            self.set_fill_spot(self._register_spot(payload))
+        elif kind == "cmyk":
+            self.set_fill_cmyk(*payload)
+        else:
+            r, g, b = payload
+            self.raw(b" ".join([self._num(r), self._num(g), self._num(b), b"rg"]))
+
+    def set_stroke(self, color: str | CmykColor | SpotColor) -> None:
+        kind, payload = self._resolved(color)
+        if kind == "spot":
+            self.set_stroke_spot(self._register_spot(payload))
+        elif kind == "cmyk":
+            self.set_stroke_cmyk(*payload)
+        else:
+            r, g, b = payload
+            self.raw(b" ".join([self._num(r), self._num(g), self._num(b), b"RG"]))
 
     def set_line_width(self, width: float) -> None:
         self.raw(self._num(width) + b" w")
@@ -184,7 +235,7 @@ class ContentStream:
         size: float,
         x: float,
         y: float,
-        color: str,
+        color: str | CmykColor | SpotColor,
         kern_pairs=None,
         gid_map=None,
         h_scale: float = 100.0,
@@ -244,8 +295,8 @@ class ContentStream:
         y: float,
         width: float,
         height: float,
-        fill: str | None = None,
-        stroke: str | None = None,
+        fill: str | CmykColor | SpotColor | None = None,
+        stroke: str | CmykColor | SpotColor | None = None,
         line_width: float = 0.5,
     ) -> None:
         if fill:
@@ -277,7 +328,7 @@ class ContentStream:
         y1: float,
         x2: float,
         y2: float,
-        color: str = "000000",
+        color: str | CmykColor | SpotColor = "000000",
         width: float = 0.5,
     ) -> None:
         self.set_stroke(color)
@@ -293,7 +344,7 @@ class ContentStream:
         size: float,
         x: float,
         y: float,
-        color: str,
+        color: str | CmykColor | SpotColor,
         degrees: float,
         gid_map=None,
     ) -> None:

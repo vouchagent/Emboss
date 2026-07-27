@@ -10,6 +10,8 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+from .colors import rgb_to_cmyk
+
 __all__ = ["SvgImage", "parse_svg", "render_svg"]
 
 _NS = "{http://www.w3.org/2000/svg}"
@@ -143,6 +145,8 @@ def render_svg(
     ox = svg.view_box[0] if svg.view_box else 0.0
     oy = svg.view_box[1] if svg.view_box else 0.0
 
+    color_mode = getattr(stream, "color_mode", "rgb")
+
     stream.save()
 
     for el in svg.elements:
@@ -166,14 +170,14 @@ def render_svg(
             cx = (float(attrs.get("cx", "0")) - ox) * sx + x
             cy = y - (float(attrs.get("cy", "0")) - oy) * sy
             r = float(attrs.get("r", "0")) * min(sx, sy)
-            _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w)
+            _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w, color_mode)
 
         elif el.tag == "ellipse":
             cx = (float(attrs.get("cx", "0")) - ox) * sx + x
             cy = y - (float(attrs.get("cy", "0")) - oy) * sy
             erx = float(attrs.get("rx", "0")) * sx
             ery = float(attrs.get("ry", "0")) * sy
-            _draw_ellipse(stream, cx, cy, erx, ery, fill, stroke, stroke_w)
+            _draw_ellipse(stream, cx, cy, erx, ery, fill, stroke, stroke_w, color_mode)
 
         elif el.tag == "line":
             x1 = (float(attrs.get("x1", "0")) - ox) * sx + x
@@ -186,7 +190,9 @@ def render_svg(
         elif el.tag == "path":
             d = attrs.get("d", "")
             if d:
-                _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w)
+                _draw_path(
+                    stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w, color_mode
+                )
 
         elif el.tag == "polygon" or el.tag == "polyline":
             points_str = attrs.get("points", "")
@@ -199,6 +205,7 @@ def render_svg(
                         fill if el.tag == "polygon" else None,
                         stroke,
                         stroke_w,
+                        color_mode,
                     )
 
     stream.restore()
@@ -214,7 +221,7 @@ def _parse_points(s: str, x, y, ox, oy, sx, sy):
     return points
 
 
-def _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w):
+def _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w, color_mode="rgb"):
     k = 0.5522847498
     ops = []
     ops.append(f"{cx + r:.4f} {cy:.4f} m")
@@ -230,10 +237,10 @@ def _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w):
     ops.append(
         f"{cx + r * k:.4f} {cy - r:.4f} {cx + r:.4f} {cy - r * k:.4f} {cx + r:.4f} {cy:.4f} c"
     )
-    _fill_stroke(stream, ops, fill, stroke, stroke_w)
+    _fill_stroke(stream, ops, fill, stroke, stroke_w, color_mode)
 
 
-def _draw_ellipse(stream, cx, cy, rx, ry, fill, stroke, stroke_w):
+def _draw_ellipse(stream, cx, cy, rx, ry, fill, stroke, stroke_w, color_mode="rgb"):
     kx = 0.5522847498 * rx
     ky = 0.5522847498 * ry
     ops = []
@@ -250,25 +257,30 @@ def _draw_ellipse(stream, cx, cy, rx, ry, fill, stroke, stroke_w):
     ops.append(
         f"{cx + kx:.4f} {cy - ry:.4f} {cx + rx:.4f} {cy - ky:.4f} {cx + rx:.4f} {cy:.4f} c"
     )
-    _fill_stroke(stream, ops, fill, stroke, stroke_w)
+    _fill_stroke(stream, ops, fill, stroke, stroke_w, color_mode)
 
 
-def _fill_stroke(stream, ops, fill, stroke, stroke_w):
+def _color_op(hex_val, color_mode, stroke):
+    """Build a color operator line for a hex color in the given mode."""
+    r, g, b = (
+        int(hex_val[0:2], 16) / 255,
+        int(hex_val[2:4], 16) / 255,
+        int(hex_val[4:6], 16) / 255,
+    )
+    if color_mode == "cmyk":
+        cmyk = rgb_to_cmyk(r, g, b)
+        op = "K" if stroke else "k"
+        return f"{cmyk.c:.4f} {cmyk.m:.4f} {cmyk.y:.4f} {cmyk.k:.4f} {op}"
+    op = "RG" if stroke else "rg"
+    return f"{r:.4f} {g:.4f} {b:.4f} {op}"
+
+
+def _fill_stroke(stream, ops, fill, stroke, stroke_w, color_mode="rgb"):
     raw_lines = []
     if fill:
-        r, g, b = (
-            int(fill[0:2], 16) / 255,
-            int(fill[2:4], 16) / 255,
-            int(fill[4:6], 16) / 255,
-        )
-        raw_lines.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
+        raw_lines.append(_color_op(fill, color_mode, stroke=False))
     if stroke:
-        r, g, b = (
-            int(stroke[0:2], 16) / 255,
-            int(stroke[2:4], 16) / 255,
-            int(stroke[4:6], 16) / 255,
-        )
-        raw_lines.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
+        raw_lines.append(_color_op(stroke, color_mode, stroke=True))
         raw_lines.append(f"{stroke_w:.4f} w")
     raw_lines.extend(ops)
     if fill and stroke:
@@ -280,7 +292,7 @@ def _fill_stroke(stream, ops, fill, stroke, stroke_w):
     stream.raw("\n".join(raw_lines).encode("ascii"))
 
 
-def _draw_polygon(stream, points, fill, stroke, stroke_w):
+def _draw_polygon(stream, points, fill, stroke, stroke_w, color_mode="rgb"):
     if not points:
         return
     ops = [f"{points[0][0]:.4f} {points[0][1]:.4f} m"]
@@ -288,10 +300,12 @@ def _draw_polygon(stream, points, fill, stroke, stroke_w):
         ops.append(f"{px:.4f} {py:.4f} l")
     if fill:
         ops.append("h")
-    _fill_stroke(stream, ops, fill, stroke, stroke_w)
+    _fill_stroke(stream, ops, fill, stroke, stroke_w, color_mode)
 
 
-def _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w):
+def _draw_path(
+    stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w, color_mode="rgb"
+):
     tokens = re.findall(
         r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?", d
     )
@@ -376,4 +390,4 @@ def _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w):
                 i += 1
 
     if ops:
-        _fill_stroke(stream, ops, fill, stroke, stroke_w)
+        _fill_stroke(stream, ops, fill, stroke, stroke_w, color_mode)

@@ -58,7 +58,12 @@ def _subset_font(metrics) -> tuple:
     from fontTools.ttLib import TTFont
 
     codepoints = metrics.used_codepoints or {0x20}
-    font = TTFont(str(metrics.font_path), lazy=False, fontNumber=0)
+    font = TTFont(
+        str(metrics.font_path),
+        lazy=False,
+        fontNumber=0,
+        recalcTimestamp=False,
+    )
 
     options = subset.Options()
     options.set(

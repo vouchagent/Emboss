@@ -7,6 +7,16 @@ any schema wrangling.
     from emboss import Document
     doc = Document.from_markdown("# Hello\\nWorld", style="corporate")
     doc.save("output.pdf")
+
+Inline support: bold, italic, bold-italic, code spans, backslash escapes,
+links (inline, reference, and bare autolinks), strikethrough, inline math
+(rendered italic), and inline images (reduced to their alt text). Block
+support: headings (ATX and setext), paragraphs, nested bullet/numbered
+lists, task lists, tables (cells parsed inline), fenced code, math blocks,
+blockquotes, callouts, footnotes, images, rules, and page breaks.
+
+Not supported (by design, see the project plan): multi-paragraph list
+items and raw HTML passthrough; both are left as literal text.
 """
 
 from __future__ import annotations
@@ -14,9 +24,11 @@ from __future__ import annotations
 import re
 
 from .spec import (
+    BlockQuote,
     BulletList,
     Callout,
     CodeBlock,
+    Footnote,
     Heading,
     HorizontalRule,
     Image,
@@ -27,8 +39,14 @@ from .spec import (
     Table,
     TextRun,
 )
+from .styles import Style
 
-__all__ = ["parse_markdown"]
+__all__ = ["parse_markdown", "BLOCKQUOTE_NATIVE"]
+
+# When False, plain blockquotes map to indented italic paragraphs (which
+# render today); when True they emit the dedicated BlockQuote element,
+# which requires the writer-side rendering hook.
+BLOCKQUOTE_NATIVE = False
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)(?:\s+#*)?$")
 _BULLET_RE = re.compile(r"^(\s*)[-*+]\s+(.+)$")
@@ -42,55 +60,197 @@ _CALLOUT_RE = re.compile(
 )
 _BLOCKQUOTE_RE = re.compile(r"^>\s?(.*)")
 _PAGE_BREAK_RE = re.compile(r"^\\newpage\s*$|^---pagebreak---\s*$", re.IGNORECASE)
-
-_INLINE_BOLD_ITALIC = re.compile(r"\*\*\*(.+?)\*\*\*|___(.+?)___")
-_INLINE_BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
-_INLINE_ITALIC = re.compile(r"\*(.+?)\*|_(.+?)_")
-_INLINE_CODE = re.compile(r"`([^`]+)`")
+_SETEXT_H1_RE = re.compile(r"^=+\s*$")
+_SETEXT_H2_RE = re.compile(r"^-+\s*$")
+_TASK_RE = re.compile(r"^\[( |x|X)\]\s+(.+)$")
+_LINK_DEF_RE = re.compile(r"^\s{0,3}\[([^\]^][^\]]*)\]:\s*(\S+)(?:\s+.*)?$")
+_FOOTNOTE_DEF_RE = re.compile(r"^\s{0,3}\[\^([^\]\s]+)\]:\s*(.+)$")
+_FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
+_AUTOLINK_RE = re.compile(r"<(https?://[^\s<>]+)>")
 _INLINE_MATH = re.compile(r"\$([^$]+)\$")
 _INLINE_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
+_ESCAPABLE = "\\*_`$[]~<>!"
+_BULLET_MARKERS = ("•", "-", "·")
+_QUOTE_INDENT = 18.0
 
-def _parse_inline(text: str) -> list[TextRun]:
-    """Parse inline Markdown formatting into TextRun objects."""
+
+def _make_run(text: str, base: dict, **extra) -> TextRun:
+    """Build a TextRun applying the inherited inline formatting overlay."""
+    return TextRun(text=text, **{**base, **extra})
+
+
+def _is_plain_run(run: TextRun) -> bool:
+    """True when the run carries no formatting beyond its text."""
+    return not (
+        run.bold
+        or run.italic
+        or run.small_caps
+        or run.strikethrough
+        or run.font_family is not None
+        or run.color is not None
+        or run.link is not None
+    )
+
+
+def _match_bracket(text: str, start: int) -> int:
+    """Return the index of the ] matching the [ at `start`, or -1."""
+    depth = 0
+    j = start
+    while j < len(text):
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return j
+        j += 1
+    return -1
+
+
+def _emphasis(text: str, i: int, runs: list, flush, refs: dict, base: dict) -> int:
+    """Consume an emphasis span at `i`; return the new position or -1."""
+    delim = text[i]
+    for count, attrs in ((3, {"bold": True, "italic": True}), (2, {"bold": True})):
+        token = delim * count
+        if text.startswith(token, i):
+            end = text.find(token, i + count)
+            if end > i + count:
+                flush()
+                runs.extend(
+                    _parse_inline(text[i + count : end], refs, {**base, **attrs})
+                )
+                return end + count
+    end = text.find(delim, i + 1)
+    if end > i + 1:
+        flush()
+        runs.extend(_parse_inline(text[i + 1 : end], refs, {**base, "italic": True}))
+        return end + 1
+    return -1
+
+
+def _link_at(text: str, i: int, refs: dict) -> tuple | None:
+    """Match a link starting at `i`; return (label, url, end) or None."""
+    close = _match_bracket(text, i)
+    if close == -1:
+        return None
+    label = text[i + 1 : close]
+    after = close + 1
+    if after < len(text) and text[after] == "(":
+        end_paren = text.find(")", after)
+        if end_paren != -1:
+            target = text[after + 1 : end_paren].strip()
+            url = target.split()[0] if target.split() else ""
+            return label, url, end_paren + 1
+    if after < len(text) and text[after] == "[":
+        end_ref = text.find("]", after)
+        if end_ref != -1:
+            ref = text[after + 1 : end_ref].strip() or label
+            ref_url = refs.get(ref.lower())
+            if ref_url:
+                return label, ref_url, end_ref + 1
+    return None
+
+
+def _parse_inline(
+    text: str, refs: dict | None = None, base: dict | None = None
+) -> list[TextRun]:
+    """Tokenize inline Markdown into TextRun objects in a single pass."""
+    refs = refs or {}
+    base = base or {}
     runs: list[TextRun] = []
-    pos = 0
+    buf: list[str] = []
 
-    patterns = [
-        (
-            _INLINE_BOLD_ITALIC,
-            lambda m: TextRun(text=m.group(1) or m.group(2), bold=True, italic=True),
-        ),
-        (_INLINE_BOLD, lambda m: TextRun(text=m.group(1) or m.group(2), bold=True)),
-        (_INLINE_ITALIC, lambda m: TextRun(text=m.group(1) or m.group(2), italic=True)),
-        (_INLINE_CODE, lambda m: TextRun(text=m.group(1), font_family="Courier")),
-    ]
+    def flush() -> None:
+        if buf:
+            runs.append(_make_run("".join(buf), base))
+            buf.clear()
 
-    while pos < len(text):
-        best_match = None
-        best_start = len(text)
-        best_handler = None
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and text[i + 1] in _ESCAPABLE:
+            buf.append(text[i + 1])
+            i += 2
+            continue
+        if ch == "`":
+            end = text.find("`", i + 1)
+            if end != -1:
+                flush()
+                runs.append(_make_run(text[i + 1 : end], base, font_family="Courier"))
+                i = end + 1
+                continue
+        if text.startswith("~~", i):
+            end = text.find("~~", i + 2)
+            if end > i + 2:
+                flush()
+                runs.extend(
+                    _parse_inline(
+                        text[i + 2 : end], refs, {**base, "strikethrough": True}
+                    )
+                )
+                i = end + 2
+                continue
+        if ch in "*_":
+            advanced = _emphasis(text, i, runs, flush, refs, base)
+            if advanced != -1:
+                i = advanced
+                continue
+        if text.startswith("![", i):
+            m = _INLINE_IMAGE.match(text, i)
+            if m:
+                flush()
+                if m.group(1):
+                    runs.append(_make_run(m.group(1), base))
+                i = m.end()
+                continue
+        if ch == "[":
+            m = _FOOTNOTE_REF_RE.match(text, i)
+            if m:
+                flush()
+                runs.append(_make_run(f"[{m.group(1)}]", base))
+                i = m.end()
+                continue
+            link = _link_at(text, i, refs)
+            if link is not None:
+                label, url, end = link
+                flush()
+                runs.extend(_parse_inline(label, refs, {**base, "link": url}))
+                i = end
+                continue
+        if ch == "<":
+            m = _AUTOLINK_RE.match(text, i)
+            if m:
+                flush()
+                runs.append(_make_run(m.group(1), base, link=m.group(1)))
+                i = m.end()
+                continue
+        if ch == "$":
+            end = text.find("$", i + 1)
+            if end != -1:
+                inner = text[i + 1 : end]
+                if inner and inner == inner.strip():
+                    flush()
+                    runs.append(_make_run(inner, base, italic=True))
+                    i = end + 1
+                    continue
+        buf.append(ch)
+        i += 1
 
-        for pattern, handler in patterns:
-            m = pattern.search(text, pos)
-            if m and m.start() < best_start:
-                best_match = m
-                best_start = m.start()
-                best_handler = handler
+    flush()
+    return runs if runs else [_make_run(text, base)]
 
-        if best_match is None:
-            remainder = text[pos:]
-            if remainder:
-                runs.append(TextRun(text=remainder))
-            break
 
-        if best_start > pos:
-            runs.append(TextRun(text=text[pos:best_start]))
-
-        runs.append(best_handler(best_match))
-        pos = best_match.end()
-
-    return runs if runs else [TextRun(text=text)]
+def _inline_or_str(text: str, refs: dict):
+    """Parse inline Markdown, collapsing unformatted results to plain str."""
+    runs = _parse_inline(text, refs)
+    if len(runs) == 1 and _is_plain_run(runs[0]):
+        return runs[0].text
+    return runs
 
 
 def _parse_table_row(line: str) -> list[str]:
@@ -118,64 +278,131 @@ def _parse_table_alignment(sep_line: str) -> list[str]:
     return aligns
 
 
-def _collect_list_items(
-    lines: list[str], start: int, pattern: re.Pattern, base_indent: int = 0
-) -> tuple[list, int]:
-    """Collect list items, handling nesting."""
-    items: list = []
+def _is_block_start(line: str) -> bool:
+    """True when `line` begins a non-paragraph block construct."""
+    stripped = line.strip()
+    return bool(
+        _HEADING_RE.match(line)
+        or _HR_RE.match(stripped)
+        or stripped.startswith("```")
+        or stripped.startswith("|")
+        or stripped.startswith(">")
+        or _BULLET_RE.match(line)
+        or _NUMBERED_RE.match(line)
+        or _IMAGE_RE.match(stripped)
+        or _MATH_BLOCK_RE.match(stripped)
+        or _PAGE_BREAK_RE.match(stripped)
+    )
+
+
+def _collect_list_lines(lines: list[str], start: int) -> tuple[list, int]:
+    """Gather consecutive list lines as (indent, kind, text) entries."""
+    entries: list = []
     i = start
-
     while i < len(lines):
-        m = pattern.match(lines[i])
-        if not m:
-            bm = (
-                _BULLET_RE.match(lines[i])
-                if pattern == _NUMBERED_RE
-                else _NUMBERED_RE.match(lines[i])
-            )
-            if bm and len(bm.group(1)) > base_indent:
-                sub_pattern = _NUMBERED_RE if pattern == _BULLET_RE else _BULLET_RE
-                sub_items, i = _collect_list_items(
-                    lines, i, sub_pattern, len(bm.group(1))
-                )
-                if items:
-                    items[-1] = (
-                        [items[-1]] + sub_items
-                        if isinstance(items[-1], str)
-                        else items[-1] + sub_items
-                    )
-                continue
+        bm = _BULLET_RE.match(lines[i])
+        nm = None if bm else _NUMBERED_RE.match(lines[i])
+        if bm:
+            entries.append((len(bm.group(1)), "bullet", bm.group(2).strip()))
+        elif nm:
+            entries.append((len(nm.group(1)), "numbered", nm.group(2).strip()))
+        else:
             break
+        i += 1
+    return entries, i
 
-        indent = len(m.group(1))
-        if indent > base_indent and items:
-            sub_items, i = _collect_list_items(lines, i, pattern, indent)
-            last = items[-1]
-            if isinstance(last, str):
-                items[-1] = [last] + sub_items
-            else:
-                items[-1] = last + sub_items
-            continue
 
+def _build_list(entries: list, pos: int, depth: int, refs: dict) -> tuple:
+    """Build one (possibly nested) list from entries; return (element, pos)."""
+    base_indent, kind, _ = entries[pos]
+    items: list = []
+    checked: list = []
+    has_task = False
+    i = pos
+    while i < len(entries):
+        indent, entry_kind, text = entries[i]
         if indent < base_indent:
             break
-
-        items.append(m.group(2).strip())
+        if indent > base_indent:
+            sub, i = _build_list(entries, i, depth + 1, refs)
+            items.append(sub)
+            checked.append(None)
+            continue
+        if entry_kind != kind:
+            break
+        item_checked = None
+        if kind == "bullet":
+            tm = _TASK_RE.match(text)
+            if tm:
+                item_checked = tm.group(1).lower() == "x"
+                text = ("[x] " if item_checked else "[ ] ") + tm.group(2)
+                has_task = True
+        items.append(_inline_or_str(text, refs))
+        checked.append(item_checked)
         i += 1
 
-    return items, i
+    element: BulletList | NumberedList
+    if kind == "bullet":
+        element = BulletList(
+            items=items,
+            bullet=_BULLET_MARKERS[min(depth, len(_BULLET_MARKERS) - 1)],
+            checked=checked if has_task else None,
+        )
+    else:
+        element = NumberedList(
+            items=items, marker_style="alpha" if depth else "decimal"
+        )
+    return element, i
+
+
+def _extract_definitions(text: str) -> tuple[list[str], dict, dict]:
+    """Pre-scan: pull link/footnote definitions out of the block flow."""
+    refs: dict[str, str] = {}
+    footnotes: dict[str, str] = {}
+    lines: list[str] = []
+    in_code = False
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            lines.append(line)
+            continue
+        if not in_code:
+            fm = _FOOTNOTE_DEF_RE.match(line)
+            if fm:
+                footnotes[fm.group(1)] = fm.group(2).strip()
+                continue
+            lm = _LINK_DEF_RE.match(line)
+            if lm:
+                refs[lm.group(1).strip().lower()] = lm.group(2)
+                continue
+        lines.append(line)
+    return lines, refs, footnotes
 
 
 def parse_markdown(text: str) -> list:
     """Parse a Markdown string into a list of Emboss block elements.
 
-    Supports: headings, paragraphs, bullet lists, numbered lists, tables,
-    code blocks (fenced), math blocks ($$...$$), images, horizontal rules,
-    callout/admonition blocks (> [!NOTE] syntax), and page breaks.
+    Supports: ATX and setext headings, paragraphs, nested bullet/numbered
+    lists, task lists, tables, fenced code blocks, math blocks ($$...$$),
+    blockquotes, callouts (> [!NOTE]), footnotes ([^1]), images, links,
+    horizontal rules, and page breaks. Multi-paragraph list items and raw
+    HTML passthrough are not supported and stay literal text.
     """
-    lines = text.split("\n")
+    lines, refs, footnote_defs = _extract_definitions(text)
     elements: list = []
+    emitted_footnotes: set[str] = set()
     i = 0
+
+    def emit_footnotes(source_text: str) -> None:
+        for label in _FOOTNOTE_REF_RE.findall(source_text):
+            if label in footnote_defs and label not in emitted_footnotes:
+                emitted_footnotes.add(label)
+                elements.append(
+                    Footnote(
+                        content=_inline_or_str(footnote_defs[label], refs),
+                        marker=label,
+                    )
+                )
 
     while i < len(lines):
         line = lines[i]
@@ -250,6 +477,35 @@ def parse_markdown(text: str) -> list:
             )
             continue
 
+        if line.lstrip().startswith(">"):
+            quote_lines = []
+            while i < len(lines):
+                stripped = lines[i].strip()
+                qm = _BLOCKQUOTE_RE.match(stripped)
+                if qm:
+                    quote_lines.append(qm.group(1).strip())
+                    i += 1
+                    continue
+                if stripped and quote_lines and not _is_block_start(lines[i]):
+                    quote_lines.append(stripped)
+                    i += 1
+                    continue
+                break
+            quote_text = " ".join(part for part in quote_lines if part)
+            if BLOCKQUOTE_NATIVE:
+                elements.append(BlockQuote(content=_parse_inline(quote_text, refs)))
+            else:
+                elements.append(
+                    Paragraph(
+                        content=_parse_inline(quote_text, refs, {"italic": True}),
+                        style=Style(
+                            indent_left=_QUOTE_INDENT, indent_right=_QUOTE_INDENT
+                        ),
+                    )
+                )
+            emit_footnotes(quote_text)
+            continue
+
         im = _IMAGE_RE.match(line.strip())
         if im:
             alt_text = im.group(1)
@@ -281,67 +537,66 @@ def parse_markdown(text: str) -> list:
                     align = aligns[ci] if ci < len(aligns) else "left"
                     table_row.append(
                         TableCell(
-                            content=cell, align=align if align != "left" else None
+                            content=_inline_or_str(cell, refs),
+                            align=align if align != "left" else None,
                         )
                     )
                 table_rows.append(table_row)
             header_cells = []
-            for ci, h in enumerate(headers):
+            for ci, header in enumerate(headers):
                 align = aligns[ci] if ci < len(aligns) else "left"
                 header_cells.append(
-                    TableCell(content=h, align=align if align != "left" else None)
+                    TableCell(
+                        content=_inline_or_str(header, refs),
+                        align=align if align != "left" else None,
+                    )
                 )
             elements.append(Table(headers=header_cells, rows=table_rows))
             continue
 
-        bm = _BULLET_RE.match(line)
-        if bm:
-            items, i = _collect_list_items(lines, i, _BULLET_RE)
-            elements.append(BulletList(items=items))
-            continue
-
-        nm = _NUMBERED_RE.match(line)
-        if nm:
-            items, i = _collect_list_items(lines, i, _NUMBERED_RE)
-            elements.append(NumberedList(items=items))
+        if _BULLET_RE.match(line) or _NUMBERED_RE.match(line):
+            entries, i = _collect_list_lines(lines, i)
+            pos = 0
+            while pos < len(entries):
+                element, pos = _build_list(entries, pos, 0, refs)
+                elements.append(element)
             continue
 
         para_lines = [line]
         i += 1
+        setext_level = 0
         while i < len(lines) and lines[i].strip():
             next_line = lines[i]
-            if (
-                _HEADING_RE.match(next_line)
-                or _HR_RE.match(next_line.strip())
-                or next_line.strip().startswith("```")
-                or next_line.strip().startswith("|")
-                or _BULLET_RE.match(next_line)
-                or _NUMBERED_RE.match(next_line)
-                or _IMAGE_RE.match(next_line.strip())
-                or _MATH_BLOCK_RE.match(next_line.strip())
-                or _CALLOUT_RE.match(next_line.strip())
-                or _PAGE_BREAK_RE.match(next_line.strip())
-            ):
+            stripped = next_line.strip()
+            if _SETEXT_H1_RE.match(stripped):
+                setext_level = 1
+                i += 1
+                break
+            if _SETEXT_H2_RE.match(stripped):
+                setext_level = 2
+                i += 1
+                break
+            if _is_block_start(next_line):
                 break
             para_lines.append(next_line)
             i += 1
 
         para_text = " ".join(ln.strip() for ln in para_lines)
 
+        if setext_level:
+            elements.append(Heading(text=para_text, level=setext_level))
+            continue
+
         inline_math = _INLINE_MATH.search(para_text)
         if inline_math and para_text.strip() == f"${inline_math.group(1)}$":
             elements.append(MathBlock(source=inline_math.group(1)))
             continue
 
-        runs = _parse_inline(para_text)
-        if (
-            len(runs) == 1
-            and not runs[0].bold
-            and not runs[0].italic
-            and runs[0].font_family is None
-        ):
+        runs = _parse_inline(para_text, refs)
+        if len(runs) == 1 and _is_plain_run(runs[0]):
             elements.append(Paragraph(content=runs[0].text))
         else:
             elements.append(Paragraph(content=runs))
+        emit_footnotes(para_text)
 
     return elements

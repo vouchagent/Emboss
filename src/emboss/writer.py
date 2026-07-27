@@ -10,9 +10,12 @@ hash-verifiable for filings and diffable in CI.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 
 from .constraints import ConstraintValidator
+from .crossref import CrossReferenceIndex
+from .numbering import NumberingContext
 from .layout.engine import LayoutEngine, PlacedBlock
 from .pdf.assembler import PDFAssembler
 from .pdf.fonts import build_font_resource
@@ -75,6 +78,10 @@ class Renderer:
         self._link_records: list = []
         # anchor name -> (page_ref, y); populated by cross-referencing later
         self._anchor_map: dict = {}
+        # id(element) -> anchor key, filled by the resolve pass
+        self._element_keys: dict = {}
+        # spot color name -> SpotColor, in first-use order across pages
+        self._used_spots: dict = {}
 
     def run(self) -> RenderResult:
         validation = self.validator.validate(self.source).raise_if_failed()
@@ -85,6 +92,7 @@ class Renderer:
         engine = LayoutEngine(self.fonts, sheet, hyphenator=hyphenator)
 
         content = list(document.content)
+        content = self._resolve_references(document, content)
         content = self._prepend_title_block(document, sheet, content)
 
         width = document.page.content_width
@@ -122,6 +130,90 @@ class Renderer:
             prefix.append(Paragraph(document.author, style=author_style))
         return prefix + content
 
+    # -- cross-reference resolution --
+
+    _REF_PATTERN = re.compile(r"@([\w](?:[\w:.-]*[\w])?)")
+
+    def _resolve_references(self, document, content: list) -> list:
+        """Number captions, resolve @key tokens, and collect anchor keys."""
+        auto_number = bool(getattr(document, "auto_number", True))
+        number_sections = bool(getattr(document, "number_sections", False))
+
+        section_numbers: dict = {}
+        if number_sections:
+            context = NumberingContext()
+            for idx, element in enumerate(content):
+                if isinstance(element, Heading):
+                    section_numbers[idx] = context.next_heading(element.level)
+
+        index = CrossReferenceIndex(document, section_numbers=section_numbers or None)
+        entries = {entry.element_index: entry for entry in index.all_entries()}
+        if not entries and not section_numbers:
+            return content
+
+        # `content` elements belong to the validator's deep copy, so
+        # rewriting them in place never mutates caller-owned objects.
+        for idx, element in enumerate(content):
+            entry = entries.get(idx)
+            if isinstance(element, Heading):
+                number = section_numbers.get(idx)
+                if number:
+                    element.text = f"{number} {element.text}"
+                if entry is not None:
+                    self._element_keys[id(element)] = entry.anchor
+            elif entry is not None:
+                if isinstance(element, Chart):
+                    if auto_number and element.title:
+                        if element.alt_text is None:
+                            element.alt_text = (
+                                f"{element.chart_type} chart: {element.title}"
+                            )
+                        element.title = f"{entry.label}: {element.title}"
+                elif auto_number and getattr(element, "caption", None):
+                    element.caption = f"{entry.label}: {element.caption}"
+                self._element_keys[id(element)] = entry.anchor
+            elif isinstance(element, Paragraph):
+                resolved = self._resolve_runs(element.runs, index)
+                if resolved is not None:
+                    element.runs = resolved
+        return content
+
+    def _resolve_runs(self, runs: list, index) -> list | None:
+        """Rewrite @key tokens into linked label runs, or None if unchanged."""
+        changed = False
+        out: list = []
+        for run in runs:
+            if run.link or "@" not in run.text:
+                out.append(run)
+                continue
+            pieces: list = []
+            cursor = 0
+            for match in self._REF_PATTERN.finditer(run.text):
+                entry = index.get(match.group(1))
+                if entry is None:
+                    continue
+                if match.start() > cursor:
+                    pieces.append((run.text[cursor : match.start()], None))
+                pieces.append((entry.label, entry.anchor))
+                cursor = match.end()
+            if not pieces:
+                out.append(run)
+                continue
+            changed = True
+            if cursor < len(run.text):
+                pieces.append((run.text[cursor:], None))
+            for text, anchor in pieces:
+                link = f"#{anchor}" if anchor else None
+                out.append(replace(run, text=text, link=link))
+        return out if changed else None
+
+    def _record_anchors(self, page, page_ref) -> None:
+        """Map registered element keys to this page for GoTo destinations."""
+        for placed in page.blocks:
+            key = self._element_keys.get(id(placed.block.element))
+            if key is not None and key not in self._anchor_map:
+                self._anchor_map[key] = (page_ref, round(placed.y, 2))
+
     # -- assembly --
 
     def _assemble(self, assembler, document, sheet, pages) -> bytes:
@@ -136,6 +228,8 @@ class Renderer:
         content_refs = []
 
         for index, page in enumerate(pages):
+            if self._element_keys:
+                self._record_anchors(page, page_refs[index])
             stream, page_root = self._render_page(
                 document, sheet, page, index, len(pages), font_resources
             )
@@ -167,6 +261,17 @@ class Renderer:
             resources["XObject"] = xobject_dict
             proc_set.append(PdfName("ImageC"))
         resources["ProcSet"] = PdfArray(proc_set)
+        if self._used_spots:
+            from .colors import build_spot_color_resource
+
+            cs_dict = PdfDict()
+            for spot_name in sorted(self._used_spots):
+                spot = self._used_spots[spot_name]
+                res_name, cs_ref = build_spot_color_resource(
+                    assembler, spot.name, spot.c, spot.m, spot.y, spot.k
+                )
+                cs_dict[res_name] = cs_ref
+            resources["ColorSpace"] = cs_dict
         if document.legal and document.legal.watermark:
             resources["ExtGState"] = self._watermark_gstate(assembler, document.legal)
         resources_ref = assembler.add(resources)
@@ -324,7 +429,7 @@ class Renderer:
     def _render_page(
         self, document, sheet, page, page_index, total, font_registry
     ) -> tuple:
-        stream = ContentStream()
+        stream = ContentStream(color_mode=document.color_mode)
         root = StructureElement(tag="Document")
         legal = document.legal
 
@@ -422,6 +527,8 @@ class Renderer:
         self._draw_running_content(
             stream, document, sheet, page, page_index, total, font_registry
         )
+        for spot_name, spot in stream.used_spots.items():
+            self._used_spots.setdefault(spot_name, spot)
         return stream.to_bytes(), root
 
     def _resolve_font(self, style, run, registry) -> tuple:
@@ -803,6 +910,31 @@ class Renderer:
             width=sheet.table_rule_width,
         )
         stream.end_marked()
+
+        caption = block.element.caption
+        is_last_segment = bool(
+            row_indices and row_indices[-1] == len(layout.row_heights) - 1
+        )
+        if caption and is_last_segment:
+            metrics, size, key = self._resolve_font(block.style, None, registry)
+            cap_size = size * 0.85
+            cap_width = metrics.text_width(caption, cap_size)
+            cap_x = placed.x + (table_width - cap_width) / 2
+            cap_el = StructureElement(tag="Caption")
+            table_el.children.append(cap_el)
+            cap_mcid = stream.next_mcid()
+            cap_el.add_mcid(page_index, cap_mcid)
+            stream.begin_marked("Caption", cap_mcid)
+            stream.text_line(
+                caption,
+                key,
+                cap_size,
+                cap_x,
+                y - cap_size - 4.0,
+                block.style.require("color"),
+                gid_map=metrics.gid_map,
+            )
+            stream.end_marked()
 
     def _draw_cell_lines(self, stream, lines, x, y, style, registry, available) -> None:
         cursor = y

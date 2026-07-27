@@ -7,3 +7,28 @@ Licensed under the Apache License, Version 2.0.
 
 If you use PrecisionPDF in your project, please retain this NOTICE file
 and give credit to the original author in your documentation or about page.
+
+--------------------------------------------------------------------------
+Bundled fonts
+
+This product bundles unmodified font software in src/emboss/fonts/,
+licensed under the SIL Open Font License, Version 1.1 (OFL-1.1). The full
+license text is included alongside the font files.
+
+Source Serif 4 (SourceSerif4-*.ttf)
+Copyright 2014 - 2023 Adobe (http://www.adobe.com/), with Reserved Font
+Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the
+United States and/or other countries.
+License: src/emboss/fonts/LICENSE-SourceSerif4.txt
+
+Source Sans 3 (SourceSans3-*.ttf)
+Copyright 2010-2024 Adobe (http://www.adobe.com/), with Reserved Font
+Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the
+United States and/or other countries.
+License: src/emboss/fonts/LICENSE-SourceSans3.txt
+
+Source Code Pro (SourceCodePro-*.ttf)
+Copyright 2023 Adobe (http://www.adobe.com/), with Reserved Font Name
+'Source'. All Rights Reserved. Source is a trademark of Adobe in the
+United States and/or other countries.
+License: src/emboss/fonts/LICENSE-SourceCodePro.txt

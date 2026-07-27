@@ -141,6 +141,7 @@ def _sheet(
     scale: tuple,
     color: str = "1a1a1a",
     heading_color: str = "111111",
+    h1_color: str | None = None,
     **extra,
 ) -> StyleSheet:
     """Build a stylesheet from a type scale.
@@ -164,6 +165,8 @@ def _sheet(
             keep_with_next=True,
             hyphenate=False,
         )
+    if h1_color is not None:
+        headings["h1"] = replace(headings["h1"], color=h1_color)
 
     return StyleSheet(
         name=name,
@@ -222,7 +225,8 @@ def _sheet(
 
 
 PRESETS: dict = {
-    # Contracts, pleadings, briefs: serif, justified, generous leading.
+    # Contracts, pleadings, briefs: conservative serif, justified,
+    # generous leading; deep navy headings over warm gray rules.
     "legal": _sheet(
         name="legal",
         body_font="Times",
@@ -231,10 +235,14 @@ PRESETS: dict = {
         align="justify",
         line_height=1.5,
         scale=(1.35, 1.18, 1.05, 1.0, 1.0, 1.0),
-        table_rule_color="d4d0c8",
-        table_header_rule_color="2b2b2b",
+        heading_color="1a2744",
+        table_rule_color="d6d0c4",
+        table_header_rule_color="4a4237",
+        table_stripe_color="f7f5f0",
+        rule_color="d6d0c4",
     ),
-    # Reports and filings: sans, left-aligned, tight tabular feel.
+    # Reports and filings: sans, tight tabular feel; dark slate
+    # headings with a restrained blue accent on table header rules.
     "finance": _sheet(
         name="finance",
         body_font="Helvetica",
@@ -243,12 +251,14 @@ PRESETS: dict = {
         align="left",
         line_height=1.4,
         scale=(1.6, 1.32, 1.14, 1.0, 1.0, 1.0),
-        heading_color="0f172a",
-        table_rule_color="cbd5e1",
-        table_header_rule_color="0f172a",
-        table_stripe_color="f8fafc",
+        heading_color="26303b",
+        table_rule_color="c9d2da",
+        table_header_rule_color="1f4e79",
+        table_stripe_color="f4f6f8",
+        rule_color="c9d2da",
     ),
-    # Papers and dissertations: serif body, sans headings, justified.
+    # Papers and dissertations: serif body, sans headings, justified;
+    # burgundy h1 against otherwise near-black headings.
     "academic": _sheet(
         name="academic",
         body_font="Times",
@@ -257,29 +267,79 @@ PRESETS: dict = {
         align="justify",
         line_height=1.48,
         scale=(1.6, 1.35, 1.15, 1.0, 1.0, 1.0),
+        heading_color="1f1f1f",
+        h1_color="6b1f2a",
+        table_rule_color="d5d0c9",
+        table_header_rule_color="3d3a36",
+        table_stripe_color="f4f2ef",
+        rule_color="d5d0c9",
     ),
-    # Memos, policies, manuals: sans, readable, roomy.
+    # Memos, policies, manuals: sans, roomy leading; deep sea-blue
+    # headings with a teal accent on rules.
     "corporate": _sheet(
         name="corporate",
         body_font="Helvetica",
         heading_font="Helvetica",
         body_size=10.5,
         align="left",
-        line_height=1.45,
+        line_height=1.5,
         scale=(1.55, 1.3, 1.12, 1.0, 1.0, 1.0),
-        heading_color="1c1917",
+        heading_color="0f3d5c",
+        table_rule_color="cfdbd6",
+        table_header_rule_color="1f8a70",
+        table_stripe_color="eef6f2",
+        rule_color="1f8a70",
     ),
-    # Data-heavy exports: compact, minimal ornament.
+    # Data-heavy exports: monochrome by design; hairline rules,
+    # smallest sizes, most whitespace.
     "minimal": _sheet(
         name="minimal",
         body_font="Helvetica",
         heading_font="Helvetica",
         body_size=9.5,
         align="left",
-        line_height=1.35,
+        line_height=1.55,
         scale=(1.4, 1.2, 1.08, 1.0, 1.0, 1.0),
-        table_rule_width=0.4,
-        table_stripe_color="fafaf9",
+        heading_color="1a1a1a",
+        table_rule_width=0.3,
+        table_header_rule_width=0.6,
+        table_rule_color="e5e5e5",
+        table_header_rule_color="1a1a1a",
+        table_stripe_color="fafafa",
+        rule_color="e5e5e5",
+    ),
+    # Journals and periodicals: serif throughout, justified, compact
+    # measure; muted forest accent on headings and header rules.
+    "journal": _sheet(
+        name="journal",
+        body_font="Times",
+        heading_font="Times",
+        body_size=10.5,
+        align="justify",
+        line_height=1.46,
+        scale=(1.5, 1.28, 1.12, 1.0, 1.0, 1.0),
+        heading_color="2d4a3a",
+        table_rule_color="d8ddd9",
+        table_header_rule_color="2d4a3a",
+        table_stripe_color="f3f6f4",
+        rule_color="d8ddd9",
+    ),
+    # Executive briefs: sans, oversized h1 in a strong brick accent,
+    # warm-tinted zebra stripes for scannable tables.
+    "brief": _sheet(
+        name="brief",
+        body_font="Helvetica",
+        heading_font="Helvetica",
+        body_size=10.5,
+        align="left",
+        line_height=1.42,
+        scale=(1.9, 1.4, 1.16, 1.0, 1.0, 1.0),
+        heading_color="1f2933",
+        h1_color="b7452c",
+        table_rule_color="d8d3d0",
+        table_header_rule_color="b7452c",
+        table_stripe_color="faf0ec",
+        rule_color="b7452c",
     ),
 }
 

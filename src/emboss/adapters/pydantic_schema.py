@@ -964,12 +964,14 @@ class DocumentSpec(BaseModel):
         "en-US", description="BCP-47 language tag, e.g. 'en-US', 'de-DE'."
     )
 
-    style: Literal["legal", "finance", "academic", "corporate", "minimal"] = Field(
+    style: Literal[
+        "legal", "finance", "academic", "corporate", "minimal", "journal", "brief"
+    ] = Field(
         "corporate",
         description=(
             "Visual preset: 'legal' (serif, justified, generous leading), "
             "'finance' (sans, tight, tabular), 'academic' (serif, justified, classic), "
-            "'corporate' (sans, readable, roomy), 'minimal' (compact, data-heavy)."
+            "'corporate' (sans, readable, roomy), 'minimal' (compact, data-heavy), 'journal' (serif, justified, forest accent), 'brief' (executive, bold accents)."
         ),
     )
 

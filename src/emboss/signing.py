@@ -46,12 +46,34 @@ def build_signature_appearance(
     sig: SignatureField,
     font_key: str,
     font_size: float,
+    color_mode: str = "rgb",
 ) -> None:
     """Draw the visual signature field appearance on a page stream.
 
     Renders a bordered rectangle with a light background and text
-    showing the signer details.
+    showing the signer details. ``color_mode`` defaults to the stream's
+    own mode; pass ``"cmyk"`` explicitly to force DeviceCMYK operators.
     """
+    mode = _effective_mode(stream, color_mode)
+    previous = getattr(stream, "color_mode", None)
+    override = previous is not None and previous != mode
+    if override:
+        stream.color_mode = mode
+    try:
+        _draw_appearance(stream, sig, font_key, font_size, mode)
+    finally:
+        if override:
+            stream.color_mode = previous
+
+
+def _draw_appearance(
+    stream,
+    sig: SignatureField,
+    font_key: str,
+    font_size: float,
+    mode: str,
+) -> None:
+    """Emit the signature appearance rectangle and text for one field."""
     stream.begin_artifact("Signature")
 
     # Background
@@ -72,7 +94,7 @@ def build_signature_appearance(
 
     stream.raw(b"BT")
     stream.raw(f"/{font_key} {label_size:.2f} Tf".encode("ascii"))
-    stream.raw(b"0.4 0.4 0.4 rg")
+    stream.raw(_gray_fill_op(0.4, mode))
     stream.raw(f"{text_x:.4f} {text_y:.4f} Td".encode("ascii"))
     stream.raw(_escape_text("Digitally Signed") + b" Tj")
     stream.raw(b"ET")
@@ -82,7 +104,7 @@ def build_signature_appearance(
         text_y -= label_size + 3.0
         stream.raw(b"BT")
         stream.raw(f"/{font_key} {font_size:.2f} Tf".encode("ascii"))
-        stream.raw(b"0.1 0.1 0.1 rg")
+        stream.raw(_gray_fill_op(0.1, mode))
         stream.raw(f"{text_x:.4f} {text_y:.4f} Td".encode("ascii"))
         stream.raw(_escape_text(sig.signer_name) + b" Tj")
         stream.raw(b"ET")
@@ -92,7 +114,7 @@ def build_signature_appearance(
         text_y -= label_size + 2.0
         stream.raw(b"BT")
         stream.raw(f"/{font_key} {label_size:.2f} Tf".encode("ascii"))
-        stream.raw(b"0.35 0.35 0.35 rg")
+        stream.raw(_gray_fill_op(0.35, mode))
         stream.raw(f"{text_x:.4f} {text_y:.4f} Td".encode("ascii"))
         stream.raw(_escape_text(f"Reason: {sig.reason}") + b" Tj")
         stream.raw(b"ET")
@@ -102,12 +124,26 @@ def build_signature_appearance(
         text_y -= label_size + 2.0
         stream.raw(b"BT")
         stream.raw(f"/{font_key} {label_size:.2f} Tf".encode("ascii"))
-        stream.raw(b"0.35 0.35 0.35 rg")
+        stream.raw(_gray_fill_op(0.35, mode))
         stream.raw(f"{text_x:.4f} {text_y:.4f} Td".encode("ascii"))
         stream.raw(_escape_text(f"Location: {sig.location}") + b" Tj")
         stream.raw(b"ET")
 
     stream.end_marked()
+
+
+def _effective_mode(stream, color_mode: str) -> str:
+    """Resolve the color mode: explicit override wins, else the stream's."""
+    if color_mode != "rgb":
+        return color_mode
+    return getattr(stream, "color_mode", "rgb") or "rgb"
+
+
+def _gray_fill_op(level: float, mode: str) -> bytes:
+    """Encode a gray fill-color operator for the given mode (rg or k)."""
+    if mode == "cmyk":
+        return f"0 0 0 {1.0 - level:g} k".encode("ascii")
+    return f"{level:g} {level:g} {level:g} rg".encode("ascii")
 
 
 def build_sig_field_dict(
