@@ -14,15 +14,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..spec import (
-    BibliographyBlock, BulletList, Callout, Chart, CodeBlock, Footnote,
-    Heading, HorizontalRule, Image, MathBlock, NumberedList, PageBreak,
-    Paragraph, SvgBlock, Table,
+    BibliographyBlock,
+    BulletList,
+    Callout,
+    Chart,
+    CodeBlock,
+    Footnote,
+    Heading,
+    HorizontalRule,
+    Image,
+    MathBlock,
+    NumberedList,
+    PageBreak,
+    Paragraph,
+    SvgBlock,
+    Table,
 )
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
 
 __all__ = [
-    "LaidOutLine", "MeasuredBlock", "PlacedBlock", "Page",
-    "LayoutEngine", "TableLayout",
+    "LaidOutLine",
+    "MeasuredBlock",
+    "PlacedBlock",
+    "Page",
+    "LayoutEngine",
+    "TableLayout",
 ]
 
 
@@ -30,7 +46,7 @@ __all__ = [
 class LaidOutLine:
     """One line of text with its resolved geometry."""
 
-    fragments: list          # (text, run, x_offset) triples
+    fragments: list  # (text, run, x_offset) triples
     width: float
     height: float
     ascent: float
@@ -46,8 +62,8 @@ class TableLayout:
     column_widths: list
     header_height: float
     row_heights: list
-    header_lines: list        # per column: list[LaidOutLine]
-    row_lines: list           # per row, per column: list[LaidOutLine]
+    header_lines: list  # per column: list[LaidOutLine]
+    row_lines: list  # per row, per column: list[LaidOutLine]
 
 
 @dataclass
@@ -64,6 +80,7 @@ class MeasuredBlock:
     space_after: float = 0.0
     table: TableLayout | None = None
     list_items: list = field(default_factory=list)
+    line_groups: list | None = None
 
     def height_of_lines(self, count: int) -> float:
         return sum(line.height for line in self.lines[:count])
@@ -83,7 +100,7 @@ class PlacedBlock:
 
     block: MeasuredBlock
     x: float
-    y: float                  # top edge, PDF coordinates
+    y: float  # top edge, PDF coordinates
     height: float
     lines: list = field(default_factory=list)
     is_continuation: bool = False
@@ -128,8 +145,9 @@ class LayoutEngine:
     FLOAT_MIN_TEXT_SPACE = 0.15
     FLOAT_MAX_DRIFT = 2
 
-    def __init__(self, fonts, sheet, hyphenator=None, breaker=None,
-                 optimize_layout=True):
+    def __init__(
+        self, fonts, sheet, hyphenator=None, breaker=None, optimize_layout=True
+    ):
         self.fonts = fonts
         self.sheet = sheet
         self.hyphenator = hyphenator
@@ -139,8 +157,9 @@ class LayoutEngine:
     # -- font resolution --
 
     def _metrics(self, style, run=None):
-        family = (run.font_family if run and run.font_family
-                  else style.require("font_family"))
+        family = (
+            run.font_family if run and run.font_family else style.require("font_family")
+        )
         bold = run.bold if run and run.bold else style.require("bold")
         italic = run.italic if run and run.italic else style.require("italic")
         return self.fonts.resolve(family, bold=bold, italic=italic)
@@ -155,14 +174,17 @@ class LayoutEngine:
     def measure(self, element, width: float) -> MeasuredBlock:
         if isinstance(element, Heading):
             return self._measure_text(
-                element, element.runs,
-                self.sheet.resolved(self.sheet.for_heading(element.level),
-                                    element.style),
+                element,
+                element.runs,
+                self.sheet.resolved(
+                    self.sheet.for_heading(element.level), element.style
+                ),
                 width,
             )
         if isinstance(element, Paragraph):
             return self._measure_text(
-                element, element.runs,
+                element,
+                element.runs,
                 self.sheet.resolved(self.sheet.body, element.style),
                 width,
             )
@@ -198,13 +220,20 @@ class LayoutEngine:
             return self._measure_svg(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
-                element=element, height=0.0,
+                element=element,
+                height=0.0,
                 style=self.sheet.resolved(self.sheet.body),
             )
         raise TypeError(f"cannot measure {type(element).__name__}")
 
-    def _layout_runs(self, runs, style, width: float,
-                     first_indent: float = 0.0) -> list:
+    def _layout_runs(
+        self,
+        runs,
+        style,
+        width: float,
+        first_indent: float = 0.0,
+        hanging_indent: float = 0.0,
+    ) -> list:
         """Break runs into positioned lines within `width`."""
         align = style.require("align")
         justified = align == "justify"
@@ -220,15 +249,17 @@ class LayoutEngine:
         )
 
         def width_for(line_number: int) -> float:
-            return width - (first_indent if line_number == 0 else 0.0)
+            if line_number == 0:
+                return width - first_indent
+            return width - hanging_indent
 
         raw_lines = self.breaker.break_paragraph(items, width_for)
 
         base_metrics = self._metrics(style)
         base_size = self._size(style)
         multiplier = style.require("line_height")
-        line_height = base_metrics.line_height(base_size, multiplier)
-        ascent = base_metrics.ascent(base_size)
+        base_line_height = base_metrics.line_height(base_size, multiplier)
+        base_ascent = base_metrics.ascent(base_size)
 
         laid_out = []
         for index, line in enumerate(raw_lines):
@@ -267,9 +298,20 @@ class LayoutEngine:
                     offset = available - content_width
             if index == 0 and first_indent:
                 offset += first_indent
+            if index > 0 and hanging_indent:
+                offset += hanging_indent
 
             if offset:
                 fragments = [(t, r, x + offset) for t, r, x in fragments]
+
+            line_height, ascent = base_line_height, base_ascent
+            for _text, run, _x in fragments:
+                run_metrics = self._metrics(style, run)
+                run_size = self._size(style, run)
+                line_height = max(
+                    line_height, run_metrics.line_height(run_size, multiplier)
+                )
+                ascent = max(ascent, run_metrics.ascent(run_size))
 
             laid_out.append(
                 LaidOutLine(
@@ -345,7 +387,9 @@ class LayoutEngine:
         indent = style.require("indent_left")
         metrics = self._metrics(style)
         size = self._size(style)
-        last_marker = element.marker(len(element.item_runs) - 1) if element.item_runs else "1."
+        last_marker = (
+            element.marker(len(element.item_runs) - 1) if element.item_runs else "1."
+        )
         marker_width = metrics.text_width(last_marker + " ", size)
         usable = width - indent - marker_width
 
@@ -390,7 +434,7 @@ class LayoutEngine:
             self._metrics(fn_style, run).note_usage(run.text)
         return MeasuredBlock(
             element=element,
-            height=sum(l.height for l in lines) + 2.0,
+            height=sum(line.height for line in lines) + 2.0,
             style=fn_style,
             lines=lines,
             can_split=False,
@@ -407,16 +451,19 @@ class LayoutEngine:
         if element.title:
             title_style = style.with_(bold=True)
             title_lines = self._layout_runs(
-                [__import__('emboss.spec', fromlist=['TextRun']).TextRun(
-                    element.title, bold=True
-                )],
-                title_style, usable,
+                [
+                    __import__("emboss.spec", fromlist=["TextRun"]).TextRun(
+                        element.title, bold=True
+                    )
+                ],
+                title_style,
+                usable,
             )
-            total += sum(l.height for l in title_lines)
+            total += sum(line.height for line in title_lines)
         content_lines = self._layout_runs(element.runs, style, usable)
         for run in element.runs:
             self._metrics(style, run).note_usage(run.text)
-        total += sum(l.height for l in content_lines)
+        total += sum(line.height for line in content_lines)
         all_lines = title_lines + content_lines
         return MeasuredBlock(
             element=element,
@@ -430,6 +477,7 @@ class LayoutEngine:
 
     def _measure_image(self, element, width: float) -> MeasuredBlock:
         from ..images import load_image
+
         style = self.sheet.resolved(self.sheet.body, element.style)
         img = load_image(element.source)
         display_w = element.width or min(img.width, width)
@@ -439,7 +487,6 @@ class LayoutEngine:
         display_h = element.height or img.height * scale
         total = display_h
         if element.caption:
-            metrics = self._metrics(style)
             cap_size = self._size(style) * 0.85
             total += cap_size + 4.0
         return MeasuredBlock(
@@ -466,6 +513,7 @@ class LayoutEngine:
 
     def _measure_math(self, element, width: float) -> MeasuredBlock:
         from ..math_render import parse_math, MathLayoutEngine
+
         style = self.sheet.resolved(self.sheet.body, element.style)
         size = self._size(style)
         if element.display:
@@ -512,50 +560,61 @@ class LayoutEngine:
             space_after=8.0,
         )
 
+    BIBLIOGRAPHY_HANGING_INDENT = 18.0
+
     def _measure_bibliography(self, element, width: float) -> MeasuredBlock:
         from ..bibliography import format_bibliography
         from ..spec import TextRun
 
         style = self.sheet.resolved(self.sheet.body, element.style)
-        metrics = self._metrics(style)
-        size = self._size(style)
-        line_h = metrics.line_height(size, style.require("line_height"))
 
-        total = 0.0
+        all_lines: list = []
+        groups: list = []
+
         if element.title:
             heading_style = self.sheet.resolved(
                 self.sheet.for_heading(element.heading_level), element.style
             )
-            heading_size = self._size(heading_style)
-            heading_metrics = self._metrics(heading_style)
-            total += heading_metrics.line_height(
-                heading_size, heading_style.require("line_height")
-            )
-            total += heading_style.require("space_after")
+            title_runs = [TextRun(element.title)]
+            title_lines = self._layout_runs(title_runs, heading_style, width)
+            for run in title_runs:
+                self._metrics(heading_style, run).note_usage(run.text)
+            if title_lines:
+                title_lines[-1].height += heading_style.require("space_after")
+                all_lines.extend(title_lines)
+                groups.append(("title", len(title_lines)))
 
         entries = format_bibliography(element.citations, element.bib_style)
-        all_lines = []
+        spacing = style.require("space_after") * 0.5
         for entry in entries:
             runs = [TextRun(entry)]
-            lines = self._layout_runs(runs, style, width)
+            lines = self._layout_runs(
+                runs,
+                style,
+                width,
+                hanging_indent=self.BIBLIOGRAPHY_HANGING_INDENT,
+            )
             for run in runs:
-                metrics.note_usage(run.text)
-            all_lines.extend(lines)
-            total += sum(l.height for l in lines)
-            total += style.require("space_after") * 0.5
+                self._metrics(style, run).note_usage(run.text)
+            if lines:
+                lines[-1].height += spacing
+                all_lines.extend(lines)
+                groups.append(("entry", len(lines)))
 
         return MeasuredBlock(
             element=element,
-            height=total,
+            height=sum(line.height for line in all_lines),
             style=style,
             lines=all_lines,
-            can_split=len(all_lines) > 4,
+            line_groups=groups,
+            can_split=len(groups) > 1,
             space_before=12.0,
             space_after=8.0,
         )
 
     def _measure_svg(self, element, width: float) -> MeasuredBlock:
         from ..svg import parse_svg
+
         style = self.sheet.resolved(self.sheet.body, element.style)
         svg = parse_svg(element.source)
         display_w = element.width or min(svg.width, width)
@@ -565,7 +624,6 @@ class LayoutEngine:
         display_h = element.height or svg.aspect_height * scale
         total = display_h
         if element.caption:
-            metrics = self._metrics(style)
             cap_size = self._size(style) * 0.85
             total += cap_size + 4.0
         return MeasuredBlock(
@@ -603,9 +661,7 @@ class LayoutEngine:
                 for run in cell.runs:
                     self._metrics(cell_style, run).note_usage(run.text)
                 header_lines.append(lines)
-                header_height = max(
-                    header_height, sum(l.height for l in lines)
-                )
+                header_height = max(header_height, sum(line.height for line in lines))
             header_height += 2 * pad_y
 
         row_lines, row_heights = [], []
@@ -623,7 +679,7 @@ class LayoutEngine:
                 for run in cell.runs:
                     self._metrics(cell_style, run).note_usage(run.text)
                 cells.append(lines)
-                height = max(height, sum(l.height for l in lines))
+                height = max(height, sum(line.height for line in lines))
             row_lines.append(cells)
             row_heights.append(height + 2 * pad_y)
 
@@ -646,8 +702,9 @@ class LayoutEngine:
             table=layout,
         )
 
-    def _solve_columns(self, element, style, header_style,
-                       width: float, pad_x: float) -> list:
+    def _solve_columns(
+        self, element, style, header_style, width: float, pad_x: float
+    ) -> list:
         """Compute column widths from actual content metrics.
 
         Minimum width is the widest single word (so text never overflows);
@@ -696,7 +753,8 @@ class LayoutEngine:
             spread = total_preferred - total_minimum
             return [
                 minimums[i] + slack * ((preferred[i] - minimums[i]) / spread)
-                if spread > 0 else minimums[i] + slack / columns
+                if spread > 0
+                else minimums[i] + slack / columns
                 for i in range(columns)
             ]
 
@@ -750,17 +808,22 @@ class LayoutEngine:
         def _new_page():
             nonlocal current, col_idx, col_cursors
             pages.append(current)
-            current = Page(number=len(pages) + 1,
-                           cursor=page_spec.content_top, spec=page_spec)
+            current = Page(
+                number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
+            )
             col_cursors = [page_spec.content_top] * cols
             col_idx = 0
 
         def _place(block, x, y):
             return PlacedBlock(
-                block=block, x=x, y=y,
-                height=block.height, lines=block.lines,
+                block=block,
+                x=x,
+                y=y,
+                height=block.height,
+                lines=block.lines,
                 table_rows=list(range(len(block.table.row_heights)))
-                if block.table else None,
+                if block.table
+                else None,
             )
 
         for block in blocks:
@@ -776,8 +839,7 @@ class LayoutEngine:
                     _new_page()
                     lowest = page_spec.content_top
                 y = lowest - gap_before
-                current.blocks.append(_place(
-                    block, page_spec.margin_left, y))
+                current.blocks.append(_place(block, page_spec.margin_left, y))
                 new_cursor = y - block.height - block.space_after
                 col_cursors = [new_cursor] * cols
                 col_idx = 0
@@ -788,21 +850,22 @@ class LayoutEngine:
 
             if block.height <= available:
                 col_cursors[col_idx] -= gap_before
-                current.blocks.append(_place(
-                    block, col_left(col_idx), col_cursors[col_idx]))
+                current.blocks.append(
+                    _place(block, col_left(col_idx), col_cursors[col_idx])
+                )
                 col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
             col_idx += 1
             if col_idx < cols:
-                current.blocks.append(_place(
-                    block, col_left(col_idx), col_cursors[col_idx]))
+                current.blocks.append(
+                    _place(block, col_left(col_idx), col_cursors[col_idx])
+                )
                 col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
             _new_page()
-            current.blocks.append(_place(
-                block, col_left(0), col_cursors[0]))
+            current.blocks.append(_place(block, col_left(0), col_cursors[0]))
             col_cursors[0] -= block.height + block.space_after
 
         if current.blocks or not pages:
@@ -829,18 +892,24 @@ class LayoutEngine:
             for entry in bottom_floats:
                 blk = entry.block
                 y += blk.height
-                current.blocks.append(PlacedBlock(
-                    block=blk, x=left, y=y,
-                    height=blk.height, lines=blk.lines,
-                ))
+                current.blocks.append(
+                    PlacedBlock(
+                        block=blk,
+                        x=left,
+                        y=y,
+                        height=blk.height,
+                        lines=blk.lines,
+                    )
+                )
                 y += blk.space_before
 
         def _start_new_page() -> None:
             nonlocal current, bottom_floats, bottom_reserved
             _place_bottom_floats()
             pages.append(current)
-            current = Page(number=len(pages) + 1,
-                           cursor=page_spec.content_top, spec=page_spec)
+            current = Page(
+                number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
+            )
             bottom_floats = []
             bottom_reserved = 0.0
             _flush_top_floats()
@@ -854,10 +923,15 @@ class LayoutEngine:
                 needed = blk.height + gap_f
                 if needed <= _eff_remaining():
                     current.cursor -= gap_f
-                    current.blocks.append(PlacedBlock(
-                        block=blk, x=left, y=current.cursor,
-                        height=blk.height, lines=blk.lines,
-                    ))
+                    current.blocks.append(
+                        PlacedBlock(
+                            block=blk,
+                            x=left,
+                            y=current.cursor,
+                            height=blk.height,
+                            lines=blk.lines,
+                        )
+                    )
                     current.cursor -= blk.height + blk.space_after
                 else:
                     remaining.append(entry)
@@ -875,10 +949,15 @@ class LayoutEngine:
                         _start_new_page()
                         gap_f = blk.space_before if current.blocks else 0.0
                     current.cursor -= gap_f
-                    current.blocks.append(PlacedBlock(
-                        block=blk, x=left, y=current.cursor,
-                        height=blk.height, lines=blk.lines,
-                    ))
+                    current.blocks.append(
+                        PlacedBlock(
+                            block=blk,
+                            x=left,
+                            y=current.cursor,
+                            height=blk.height,
+                            lines=blk.lines,
+                        )
+                    )
                     current.cursor -= blk.height + blk.space_after
                 else:
                     remaining.append(entry)
@@ -900,10 +979,13 @@ class LayoutEngine:
             if float_type:
                 current_page_num = len(pages) + 1
                 if float_type == "top":
-                    float_queue.append(_FloatEntry(
-                        block=block, float_type="top",
-                        origin_page=current_page_num,
-                    ))
+                    float_queue.append(
+                        _FloatEntry(
+                            block=block,
+                            float_type="top",
+                            origin_page=current_page_num,
+                        )
+                    )
                     index += 1
                     continue
                 elif float_type == "bottom":
@@ -911,24 +993,33 @@ class LayoutEngine:
                     min_text = self.FLOAT_MIN_TEXT_SPACE * content_height
                     if needed + min_text <= _eff_remaining():
                         bottom_reserved += needed
-                        bottom_floats.append(_FloatEntry(
-                            block=block, float_type="bottom",
-                            origin_page=current_page_num,
-                        ))
+                        bottom_floats.append(
+                            _FloatEntry(
+                                block=block,
+                                float_type="bottom",
+                                origin_page=current_page_num,
+                            )
+                        )
                     else:
-                        float_queue.append(_FloatEntry(
-                            block=block, float_type="top",
-                            origin_page=current_page_num,
-                        ))
+                        float_queue.append(
+                            _FloatEntry(
+                                block=block,
+                                float_type="top",
+                                origin_page=current_page_num,
+                            )
+                        )
                     index += 1
                     continue
                 elif float_type == "auto":
                     frac = _eff_remaining() / content_height if content_height else 0
                     if frac < self.FLOAT_AUTO_THRESHOLD:
-                        float_queue.append(_FloatEntry(
-                            block=block, float_type="top",
-                            origin_page=current_page_num,
-                        ))
+                        float_queue.append(
+                            _FloatEntry(
+                                block=block,
+                                float_type="top",
+                                origin_page=current_page_num,
+                            )
+                        )
                         index += 1
                         continue
 
@@ -941,9 +1032,7 @@ class LayoutEngine:
             # Heading that would be stranded at the foot of a page.
             if block.keep_with_next and index + 1 < len(blocks):
                 nxt = blocks[index + 1]
-                needed = block.height + min(
-                    nxt.height, self.KEEP_WITH_NEXT_LOOKAHEAD
-                )
+                needed = block.height + min(nxt.height, self.KEEP_WITH_NEXT_LOOKAHEAD)
                 if needed > available and current.blocks:
                     _start_new_page()
                     gap = 0.0
@@ -953,10 +1042,14 @@ class LayoutEngine:
                 current.cursor -= gap
                 current.blocks.append(
                     PlacedBlock(
-                        block=block, x=left, y=current.cursor,
-                        height=block.height, lines=block.lines,
+                        block=block,
+                        x=left,
+                        y=current.cursor,
+                        height=block.height,
+                        lines=block.lines,
                         table_rows=list(range(len(block.table.row_heights)))
-                        if block.table else None,
+                        if block.table
+                        else None,
                     )
                 )
                 current.cursor -= block.height + block.space_after
@@ -977,8 +1070,7 @@ class LayoutEngine:
                 fitting = block.lines_fitting(available - gap)
                 remaining = len(block.lines) - fitting
 
-                if (fitting < self.MIN_ORPHAN_LINES
-                        or remaining < self.MIN_WIDOW_LINES):
+                if fitting < self.MIN_ORPHAN_LINES or remaining < self.MIN_WIDOW_LINES:
                     if fitting >= self.MIN_ORPHAN_LINES and remaining > 0:
                         fitting = max(
                             self.MIN_ORPHAN_LINES,
@@ -989,9 +1081,17 @@ class LayoutEngine:
                     else:
                         fitting = 0
 
+                if block.line_groups:
+                    fitting = _snap_to_groups(block.line_groups, fitting)
+
                 if fitting == 0:
                     if not current.blocks:
                         fitting = max(1, block.lines_fitting(available))
+                        if block.line_groups:
+                            fitting = (
+                                _snap_to_groups(block.line_groups, fitting)
+                                or block.line_groups[0][1]
+                            )
                     else:
                         _start_new_page()
                         continue
@@ -1000,20 +1100,27 @@ class LayoutEngine:
                 current.cursor -= gap
                 current.blocks.append(
                     PlacedBlock(
-                        block=block, x=left, y=current.cursor,
-                        height=sum(l.height for l in head), lines=head,
+                        block=block,
+                        x=left,
+                        y=current.cursor,
+                        height=sum(line.height for line in head),
+                        lines=head,
                     )
                 )
                 _start_new_page()
 
+                tail_groups = None
+                if block.line_groups:
+                    tail_groups = _remaining_groups(block.line_groups, fitting)
                 tail = MeasuredBlock(
                     element=block.element,
-                    height=sum(l.height for l in block.lines[fitting:]),
+                    height=sum(line.height for line in block.lines[fitting:]),
                     style=block.style,
                     lines=block.lines[fitting:],
                     can_split=True,
                     space_before=0.0,
                     space_after=block.space_after,
+                    line_groups=tail_groups,
                 )
                 blocks[index] = tail
                 continue
@@ -1024,10 +1131,14 @@ class LayoutEngine:
 
             current.blocks.append(
                 PlacedBlock(
-                    block=block, x=left, y=current.cursor,
-                    height=block.height, lines=block.lines,
+                    block=block,
+                    x=left,
+                    y=current.cursor,
+                    height=block.height,
+                    lines=block.lines,
                     table_rows=list(range(len(block.table.row_heights)))
-                    if block.table else None,
+                    if block.table
+                    else None,
                 )
             )
             current.cursor -= block.height + block.space_after
@@ -1041,16 +1152,22 @@ class LayoutEngine:
             if blk.height + gap_f > _eff_remaining():
                 _place_bottom_floats()
                 pages.append(current)
-                current = Page(number=len(pages) + 1,
-                               cursor=page_spec.content_top, spec=page_spec)
+                current = Page(
+                    number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
+                )
                 bottom_floats = []
                 bottom_reserved = 0.0
                 gap_f = blk.space_before if current.blocks else 0.0
             current.cursor -= gap_f
-            current.blocks.append(PlacedBlock(
-                block=blk, x=left, y=current.cursor,
-                height=blk.height, lines=blk.lines,
-            ))
+            current.blocks.append(
+                PlacedBlock(
+                    block=blk,
+                    x=left,
+                    y=current.cursor,
+                    height=blk.height,
+                    lines=blk.lines,
+                )
+            )
             current.cursor -= blk.height + blk.space_after
 
         if bottom_floats:
@@ -1082,8 +1199,9 @@ class LayoutEngine:
         # retry the whole table there.
         if len(rows) < self.MIN_TABLE_ROWS_PER_PAGE and current.blocks:
             pages.append(current)
-            fresh = Page(number=len(pages) + 1, cursor=page_spec.content_top,
-                         spec=page_spec)
+            fresh = Page(
+                number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
+            )
             return fresh, None, False
 
         if not rows:
@@ -1093,9 +1211,12 @@ class LayoutEngine:
         current.cursor -= gap
         current.blocks.append(
             PlacedBlock(
-                block=block, x=page_spec.margin_left, y=current.cursor,
+                block=block,
+                x=page_spec.margin_left,
+                y=current.cursor,
                 height=layout.header_height + used,
-                table_rows=rows, include_table_header=True,
+                table_rows=rows,
+                include_table_header=True,
             )
         )
         current.cursor -= layout.header_height + used
@@ -1106,8 +1227,7 @@ class LayoutEngine:
             return current, None, True
 
         pages.append(current)
-        page = Page(number=len(pages) + 1, cursor=page_spec.content_top,
-                    spec=page_spec)
+        page = Page(number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec)
 
         tail_layout = TableLayout(
             column_widths=layout.column_widths,
@@ -1157,42 +1277,51 @@ class LayoutEngine:
 
                 first_next = next_page.blocks[0]
 
-                if (empty_frac > 0.30
-                        and isinstance(first_next.block.element,
-                                       _FLOATABLE_TYPES)):
+                if empty_frac > 0.30 and isinstance(
+                    first_next.block.element, _FLOATABLE_TYPES
+                ):
                     fig_needed = first_next.height + first_next.block.space_before
                     if fig_needed <= remaining:
                         y = page_bottom_edge - first_next.block.space_before
                         next_page.blocks.pop(0)
-                        page.blocks.append(PlacedBlock(
-                            block=first_next.block, x=left, y=y,
-                            height=first_next.height,
-                            lines=first_next.lines,
-                        ))
-                        page.cursor = y - first_next.height - first_next.block.space_after
+                        page.blocks.append(
+                            PlacedBlock(
+                                block=first_next.block,
+                                x=left,
+                                y=y,
+                                height=first_next.height,
+                                lines=first_next.lines,
+                            )
+                        )
+                        page.cursor = (
+                            y - first_next.height - first_next.block.space_after
+                        )
                         self._reflow_page(next_page, page_spec)
                         changed = True
                         if not next_page.blocks:
                             pages.pop(i + 1)
                         continue
 
-                if (first_next.lines
-                        and len(first_next.lines) == 1
-                        and page.blocks):
+                if first_next.lines and len(first_next.lines) == 1 and page.blocks:
                     last_this = page.blocks[-1]
-                    if (last_this.block.element is first_next.block.element
-                            and last_this.lines):
+                    if (
+                        last_this.block.element is first_next.block.element
+                        and last_this.lines
+                    ):
                         widow_line = first_next.lines[0]
                         if widow_line.height <= remaining:
                             new_lines = list(last_this.lines) + [widow_line]
-                            new_height = sum(l.height for l in new_lines)
+                            new_height = sum(line.height for line in new_lines)
                             page.blocks[-1] = PlacedBlock(
-                                block=last_this.block, x=last_this.x,
-                                y=last_this.y, height=new_height,
+                                block=last_this.block,
+                                x=last_this.x,
+                                y=last_this.y,
+                                height=new_height,
                                 lines=new_lines,
                             )
-                            page.cursor = (last_this.y - new_height
-                                           - last_this.block.space_after)
+                            page.cursor = (
+                                last_this.y - new_height - last_this.block.space_after
+                            )
                             next_page.blocks.pop(0)
                             self._reflow_page(next_page, page_spec)
                             changed = True
@@ -1200,15 +1329,15 @@ class LayoutEngine:
                                 pages.pop(i + 1)
                             continue
 
-                if (last_pb.lines
-                        and len(last_pb.lines) == 1
-                        and next_page.blocks):
+                if last_pb.lines and len(last_pb.lines) == 1 and next_page.blocks:
                     first_next_blk = next_page.blocks[0]
-                    if (first_next_blk.block.element is last_pb.block.element
-                            and first_next_blk.lines):
+                    if (
+                        first_next_blk.block.element is last_pb.block.element
+                        and first_next_blk.lines
+                    ):
                         orphan_line = last_pb.lines[0]
                         new_next_lines = [orphan_line] + list(first_next_blk.lines)
-                        new_next_height = sum(l.height for l in new_next_lines)
+                        new_next_height = sum(line.height for line in new_next_lines)
                         next_page.blocks[0] = PlacedBlock(
                             block=first_next_blk.block,
                             x=first_next_blk.x,
@@ -1219,8 +1348,7 @@ class LayoutEngine:
                         page.blocks.pop()
                         if page.blocks:
                             prev = page.blocks[-1]
-                            page.cursor = (prev.y - prev.height
-                                           - prev.block.space_after)
+                            page.cursor = prev.y - prev.height - prev.block.space_after
                         else:
                             page.cursor = page_spec.content_top
                         self._reflow_page(next_page, page_spec)
@@ -1244,14 +1372,42 @@ class LayoutEngine:
             gap = pb.block.space_before if idx > 0 else 0.0
             cursor -= gap
             page.blocks[idx] = PlacedBlock(
-                block=pb.block, x=pb.x, y=cursor,
-                height=pb.height, lines=pb.lines,
+                block=pb.block,
+                x=pb.x,
+                y=cursor,
+                height=pb.height,
+                lines=pb.lines,
                 is_continuation=pb.is_continuation,
                 table_rows=pb.table_rows,
                 include_table_header=pb.include_table_header,
             )
             cursor -= pb.height + pb.block.space_after
         page.cursor = cursor
+
+
+def _snap_to_groups(groups: list, fitting: int) -> int:
+    """Largest cumulative group boundary at or below `fitting`."""
+    boundary, cumulative = 0, 0
+    for _kind, count in groups:
+        if cumulative + count > fitting:
+            break
+        cumulative += count
+        boundary = cumulative
+    return boundary
+
+
+def _remaining_groups(groups: list, consumed: int) -> list:
+    """Group list left after `consumed` leading lines are placed."""
+    remaining = []
+    for kind, count in groups:
+        if consumed >= count:
+            consumed -= count
+        elif consumed:
+            remaining.append((kind, count - consumed))
+            consumed = 0
+        else:
+            remaining.append((kind, count))
+    return remaining
 
 
 def _cell_align(align: str | None, header_align: str | None = None) -> str:

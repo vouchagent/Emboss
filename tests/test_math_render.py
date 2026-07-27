@@ -1,13 +1,10 @@
 """Tests for mathematical notation rendering."""
 
-import pytest
-
 from emboss import Document
 from emboss.math_render import (
     MathExpression,
     MathLayoutEngine,
     parse_math,
-    render_math,
     GREEK_LETTERS,
     MATH_SYMBOLS,
     GroupNode,
@@ -100,10 +97,31 @@ class TestParseMath:
 
 class TestGreekLetters:
     def test_all_lowercase(self):
-        lower = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta",
-                 "eta", "theta", "iota", "kappa", "lambda", "mu",
-                 "nu", "xi", "pi", "rho", "sigma", "tau",
-                 "upsilon", "phi", "chi", "psi", "omega"]
+        lower = [
+            "alpha",
+            "beta",
+            "gamma",
+            "delta",
+            "epsilon",
+            "zeta",
+            "eta",
+            "theta",
+            "iota",
+            "kappa",
+            "lambda",
+            "mu",
+            "nu",
+            "xi",
+            "pi",
+            "rho",
+            "sigma",
+            "tau",
+            "upsilon",
+            "phi",
+            "chi",
+            "psi",
+            "omega",
+        ]
         for name in lower:
             assert name in GREEK_LETTERS
             assert len(GREEK_LETTERS[name]) == 1
@@ -227,6 +245,7 @@ class TestMathRendering:
             doc = Document(title="Deterministic Math")
             doc.math("\\frac{1}{2}")
             return doc.render()
+
         assert make() == make()
 
     def test_verification_passes(self):

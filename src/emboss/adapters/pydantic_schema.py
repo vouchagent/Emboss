@@ -24,7 +24,10 @@ Usage with Claude structured output:
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal, Union
+from typing import TYPE_CHECKING, Annotated, Literal, Union
+
+if TYPE_CHECKING:
+    from ..intelligence import ContentAnalysis
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -78,9 +81,7 @@ __all__ = [
 
 _analyzer = ContentAnalyzer()
 
-_DECIMAL_RE = re.compile(
-    r"^[($\-\s]*\d[\d,]*\.?\d*[%)\s]*$"
-)
+_DECIMAL_RE = re.compile(r"^[($\-\s]*\d[\d,]*\.?\d*[%)\s]*$")
 
 
 class StyleOverride(BaseModel):
@@ -89,7 +90,8 @@ class StyleOverride(BaseModel):
     model_config = {"json_schema_extra": {"title": "Style Override"}}
 
     font_family: str | None = Field(
-        None, description="Font family name: 'Helvetica', 'Times', 'Courier', or a registered custom font."
+        None,
+        description="Font family name: 'Helvetica', 'Times', 'Courier', or a registered custom font.",
     )
     font_size: float | None = Field(
         None, ge=4, le=96, description="Font size in points (4-96)."
@@ -105,11 +107,20 @@ class StyleOverride(BaseModel):
         None, description="Text alignment."
     )
     line_height: float | None = Field(
-        None, ge=0.8, le=3.0, description="Line height multiplier (1.0 = single-spaced)."
+        None,
+        ge=0.8,
+        le=3.0,
+        description="Line height multiplier (1.0 = single-spaced).",
     )
-    space_before: float | None = Field(None, ge=0, description="Space before element in points.")
-    space_after: float | None = Field(None, ge=0, description="Space after element in points.")
-    indent_first: float | None = Field(None, ge=0, description="First-line indent in points.")
+    space_before: float | None = Field(
+        None, ge=0, description="Space before element in points."
+    )
+    space_after: float | None = Field(
+        None, ge=0, description="Space after element in points."
+    )
+    indent_first: float | None = Field(
+        None, ge=0, description="First-line indent in points."
+    )
 
     def to_style(self) -> Style | None:
         values = self.model_dump(exclude_none=True)
@@ -309,7 +320,9 @@ class TableSpec(BaseModel):
     )
     caption: str | None = Field(None, description="Table caption text.")
     stripe: bool = Field(False, description="Alternate row background shading.")
-    repeat_header: bool = Field(True, description="Repeat header row when table spans multiple pages.")
+    repeat_header: bool = Field(
+        True, description="Repeat header row when table spans multiple pages."
+    )
     style: StyleOverride | None = None
 
     @model_validator(mode="after")
@@ -453,7 +466,9 @@ class ImageSpec(BaseModel):
     width: float | None = Field(None, ge=1, description="Display width in points.")
     height: float | None = Field(None, ge=1, description="Display height in points.")
     caption: str | None = Field(None, description="Image caption.")
-    align: Literal["left", "center", "right"] = Field("center", description="Horizontal alignment.")
+    align: Literal["left", "center", "right"] = Field(
+        "center", description="Horizontal alignment."
+    )
 
     def to_element(self) -> Image:
         return Image(
@@ -512,7 +527,11 @@ class FootnoteSpec(BaseModel):
         "json_schema_extra": {
             "title": "Footnote",
             "examples": [
-                {"type": "footnote", "text": "Source: Annual Report 2024", "marker": "1"},
+                {
+                    "type": "footnote",
+                    "text": "Source: Annual Report 2024",
+                    "marker": "1",
+                },
             ],
         }
     }
@@ -545,7 +564,8 @@ class CalloutSpec(BaseModel):
     type: Literal["callout"] = "callout"
     text: str = Field(..., description="Callout body text.")
     variant: Literal["info", "warning", "success", "danger", "note"] = Field(
-        "note", description="Visual variant: info (blue), warning (amber), success (green), danger (red), note (gray)."
+        "note",
+        description="Visual variant: info (blue), warning (amber), success (green), danger (red), note (gray).",
     )
     title: str | None = Field(None, description="Optional callout title.")
 
@@ -575,12 +595,21 @@ class CodeBlockSpec(BaseModel):
 
     type: Literal["code_block"] = "code_block"
     code: str = Field(..., description="The source code to display.")
-    language: str = Field("text", description="Programming language for syntax highlighting.")
+    language: str = Field(
+        "text", description="Programming language for syntax highlighting."
+    )
     line_numbers: bool = Field(True, description="Show line numbers in the gutter.")
-    theme: str = Field("dark_modern", description="Color theme: dark_modern, light_clean, or night_owl.")
+    theme: str = Field(
+        "dark_modern",
+        description="Color theme: dark_modern, light_clean, or night_owl.",
+    )
     start_line: int = Field(1, ge=1, description="Starting line number.")
-    highlight_lines: list[int] = Field(default_factory=list, description="Line numbers to highlight.")
-    caption: str | None = Field(None, description="Optional caption below the code block.")
+    highlight_lines: list[int] = Field(
+        default_factory=list, description="Line numbers to highlight."
+    )
+    caption: str | None = Field(
+        None, description="Optional caption below the code block."
+    )
 
     def to_element(self) -> CodeBlock:
         return CodeBlock(
@@ -606,8 +635,12 @@ class MathBlockSpec(BaseModel):
 
     type: Literal["math"] = "math"
     source: str = Field(..., description="LaTeX-subset math expression.")
-    display: bool = Field(True, description="Display mode (centered, larger) vs inline.")
-    caption: str | None = Field(None, description="Optional caption below the equation.")
+    display: bool = Field(
+        True, description="Display mode (centered, larger) vs inline."
+    )
+    caption: str | None = Field(
+        None, description="Optional caption below the equation."
+    )
 
     def to_element(self) -> MathBlock:
         return MathBlock(source=self.source, display=self.display, caption=self.caption)
@@ -630,10 +663,17 @@ class CitationSpec(BaseModel):
 
     def to_citation(self) -> Citation:
         return Citation(
-            key=self.key, authors=self.authors, title=self.title,
-            year=self.year, journal=self.journal, volume=self.volume,
-            pages=self.pages, publisher=self.publisher, doi=self.doi,
-            url=self.url, entry_type=self.entry_type,
+            key=self.key,
+            authors=self.authors,
+            title=self.title,
+            year=self.year,
+            journal=self.journal,
+            volume=self.volume,
+            pages=self.pages,
+            publisher=self.publisher,
+            doi=self.doi,
+            url=self.url,
+            entry_type=self.entry_type,
         )
 
 
@@ -643,23 +683,35 @@ class BibliographySpec(BaseModel):
     model_config = {
         "json_schema_extra": {
             "title": "Bibliography",
-            "examples": [{
-                "type": "bibliography",
-                "citations": [{"key": "ref1", "authors": ["A. Author"], "title": "A Paper", "year": 2024}],
-            }],
+            "examples": [
+                {
+                    "type": "bibliography",
+                    "citations": [
+                        {
+                            "key": "ref1",
+                            "authors": ["A. Author"],
+                            "title": "A Paper",
+                            "year": 2024,
+                        }
+                    ],
+                }
+            ],
         }
     }
 
     type: Literal["bibliography"] = "bibliography"
     citations: list[CitationSpec] = Field(default_factory=list)
-    bib_style: str = Field("ieee", description="Citation style: ieee, apa, or numbered.")
+    bib_style: str = Field(
+        "ieee", description="Citation style: ieee, apa, or numbered."
+    )
     title: str | None = Field("References", description="Section heading.")
     heading_level: int = Field(2, ge=1, le=6)
 
     def to_element(self) -> BibliographyBlock:
         return BibliographyBlock(
             citations=[c.to_citation() for c in self.citations],
-            bib_style=self.bib_style, title=self.title,
+            bib_style=self.bib_style,
+            title=self.title,
             heading_level=self.heading_level,
         )
 
@@ -711,7 +763,9 @@ class SvgBlockSpec(BaseModel):
 class HeaderFooterSpec(BaseModel):
     """Structured header or footer with left/center/right slots."""
 
-    left: str | None = Field(None, description="Left-aligned text. Use {page} and {pages} placeholders.")
+    left: str | None = Field(
+        None, description="Left-aligned text. Use {page} and {pages} placeholders."
+    )
     center: str | None = Field(None, description="Center-aligned text.")
     right: str | None = Field(None, description="Right-aligned text.")
     font_size: float | None = Field(None, ge=4, le=24)
@@ -769,12 +823,24 @@ class PageConfig(BaseModel):
     preset: Literal["letter", "a4", "legal"] | None = Field(
         "letter", description="Page size preset."
     )
-    width: float | None = Field(None, ge=72, description="Page width in points (overrides preset).")
-    height: float | None = Field(None, ge=72, description="Page height in points (overrides preset).")
+    width: float | None = Field(
+        None, ge=72, description="Page width in points (overrides preset)."
+    )
+    height: float | None = Field(
+        None, ge=72, description="Page height in points (overrides preset)."
+    )
     margin_top: float | None = Field(None, ge=0, description="Top margin in points.")
-    margin_right: float | None = Field(None, ge=0, description="Right margin in points.")
-    margin_bottom: float | None = Field(None, ge=0, description="Bottom margin in points.")
+    margin_right: float | None = Field(
+        None, ge=0, description="Right margin in points."
+    )
+    margin_bottom: float | None = Field(
+        None, ge=0, description="Bottom margin in points."
+    )
     margin_left: float | None = Field(None, ge=0, description="Left margin in points.")
+    columns: int = Field(1, ge=1, le=4, description="Number of text columns (1-4).")
+    column_gap: float | None = Field(
+        None, ge=0, description="Gap between columns in points."
+    )
 
     def to_page_spec(self) -> PageSpec:
         overrides = {}
@@ -782,6 +848,10 @@ class PageConfig(BaseModel):
             val = getattr(self, name)
             if val is not None:
                 overrides[name] = val
+        if self.columns != 1:
+            overrides["columns"] = self.columns
+        if self.column_gap is not None:
+            overrides["column_gap"] = self.column_gap
 
         if self.width and self.height:
             return PageSpec(width=self.width, height=self.height, **overrides)
@@ -807,10 +877,18 @@ class LegalConfig(BaseModel):
         }
     }
 
-    watermark: str | None = Field(None, description="Diagonal watermark text across every page.")
+    watermark: str | None = Field(
+        None, description="Diagonal watermark text across every page."
+    )
     watermark_opacity: float = Field(0.12, ge=0.01, le=1.0)
-    line_numbering: bool = Field(False, description="Continuous line numbering in the left margin (for court pleadings).")
-    bates_prefix: str | None = Field(None, description="Bates number prefix, e.g. 'ACME-'. Numbers auto-increment per page.")
+    line_numbering: bool = Field(
+        False,
+        description="Continuous line numbering in the left margin (for court pleadings).",
+    )
+    bates_prefix: str | None = Field(
+        None,
+        description="Bates number prefix, e.g. 'ACME-'. Numbers auto-increment per page.",
+    )
     bates_start: int = Field(1, ge=0)
     bates_digits: int = Field(6, ge=1, le=12)
     bates_position: Literal["bottom-right", "bottom-left", "top-right"] = "bottom-right"
@@ -879,8 +957,12 @@ class DocumentSpec(BaseModel):
     )
     author: str = Field("", description="Document author.")
     subject: str = Field("", description="Document subject or summary.")
-    keywords: str = Field("", description="Comma-separated keywords for document metadata.")
-    language: str = Field("en-US", description="BCP-47 language tag, e.g. 'en-US', 'de-DE'.")
+    keywords: str = Field(
+        "", description="Comma-separated keywords for document metadata."
+    )
+    language: str = Field(
+        "en-US", description="BCP-47 language tag, e.g. 'en-US', 'de-DE'."
+    )
 
     style: Literal["legal", "finance", "academic", "corporate", "minimal"] = Field(
         "corporate",
@@ -898,15 +980,27 @@ class DocumentSpec(BaseModel):
         description="Document content as an ordered list of blocks: headings, paragraphs, tables, bullet lists, page breaks, and horizontal rules.",
     )
 
-    header_text: str | None = Field(None, description="Simple running header text on every page.")
-    footer_text: str | None = Field(None, description="Simple running footer text on every page.")
-    header: HeaderFooterSpec | None = Field(None, description="Structured header with left/center/right slots.")
-    footer: HeaderFooterSpec | None = Field(None, description="Structured footer with left/center/right slots.")
+    header_text: str | None = Field(
+        None, description="Simple running header text on every page."
+    )
+    footer_text: str | None = Field(
+        None, description="Simple running footer text on every page."
+    )
+    header: HeaderFooterSpec | None = Field(
+        None, description="Structured header with left/center/right slots."
+    )
+    footer: HeaderFooterSpec | None = Field(
+        None, description="Structured footer with left/center/right slots."
+    )
     page_numbers: bool = Field(True, description="Show page numbers in the footer.")
     tagged: bool = Field(True, description="Generate PDF/UA accessibility tags.")
+    toc: bool = Field(
+        False, description="Insert an automatically generated table of contents."
+    )
 
     legal: LegalConfig | None = Field(
-        None, description="Legal/financial features: watermarks, Bates numbering, line numbering."
+        None,
+        description="Legal/financial features: watermarks, Bates numbering, line numbering.",
     )
     smart: bool = Field(
         True,
@@ -952,6 +1046,7 @@ class DocumentSpec(BaseModel):
             footer=self.footer.to_header_footer() if self.footer else None,
             page_numbers=self.page_numbers,
             tagged=self.tagged,
+            toc=self.toc,
             legal=self.legal.to_legal_features() if self.legal else None,
         )
         for block in self.content:
@@ -968,7 +1063,6 @@ class DocumentSpec(BaseModel):
 
     def analyze(self) -> "ContentAnalysis":
         """Run content intelligence analysis and return the report."""
-        from ..intelligence import ContentAnalysis
         return _analyzer.analyze_spec(self.model_dump())
 
     @classmethod

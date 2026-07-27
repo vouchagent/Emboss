@@ -28,17 +28,37 @@ def hex_color(value: str) -> tuple:
         text = "".join(c * 2 for c in text)
     if len(text) != 6:
         raise ValueError(f"invalid hex color: {value!r}")
-    return tuple(int(text[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return tuple(int(text[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
 
 _UNICODE_TO_WINANSI: dict[int, int] = {
-    0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84,
-    0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88,
-    0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C,
-    0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93,
-    0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,
-    0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B,
-    0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F,
+    0x20AC: 0x80,
+    0x201A: 0x82,
+    0x0192: 0x83,
+    0x201E: 0x84,
+    0x2026: 0x85,
+    0x2020: 0x86,
+    0x2021: 0x87,
+    0x02C6: 0x88,
+    0x2030: 0x89,
+    0x0160: 0x8A,
+    0x2039: 0x8B,
+    0x0152: 0x8C,
+    0x017D: 0x8E,
+    0x2018: 0x91,
+    0x2019: 0x92,
+    0x201C: 0x93,
+    0x201D: 0x94,
+    0x2022: 0x95,
+    0x2013: 0x96,
+    0x2014: 0x97,
+    0x02DC: 0x98,
+    0x2122: 0x99,
+    0x0161: 0x9A,
+    0x203A: 0x9B,
+    0x0153: 0x9C,
+    0x017E: 0x9E,
+    0x0178: 0x9F,
 }
 
 
@@ -122,15 +142,15 @@ class ContentStream:
 
     def set_fill_cmyk(self, c: float, m: float, y: float, k: float) -> None:
         """Set fill color in CMYK color space (DeviceCMYK)."""
-        self.raw(b" ".join([
-            self._num(c), self._num(m), self._num(y), self._num(k), b"k"
-        ]))
+        self.raw(
+            b" ".join([self._num(c), self._num(m), self._num(y), self._num(k), b"k"])
+        )
 
     def set_stroke_cmyk(self, c: float, m: float, y: float, k: float) -> None:
         """Set stroke color in CMYK color space (DeviceCMYK)."""
-        self.raw(b" ".join([
-            self._num(c), self._num(m), self._num(y), self._num(k), b"K"
-        ]))
+        self.raw(
+            b" ".join([self._num(c), self._num(m), self._num(y), self._num(k), b"K"])
+        )
 
     def set_fill_spot(self, cs_name: str, tint: float = 1.0) -> None:
         """Set fill color using a named Separation (spot) color space."""
@@ -148,8 +168,9 @@ class ContentStream:
         self.raw(f"/{tag} <</MCID {mcid}>> BDC".encode("ascii"))
 
     def begin_artifact(self, subtype: str = "Layout") -> None:
-        self.raw(f"/Artifact <</Type /Pagination /Subtype /{subtype}>> BDC"
-                 .encode("ascii"))
+        self.raw(
+            f"/Artifact <</Type /Pagination /Subtype /{subtype}>> BDC".encode("ascii")
+        )
 
     def end_marked(self) -> None:
         self.raw(b"EMC")
@@ -217,18 +238,32 @@ class ContentStream:
 
     # -- shapes --
 
-    def rect(self, x: float, y: float, width: float, height: float,
-             fill: str | None = None, stroke: str | None = None,
-             line_width: float = 0.5) -> None:
+    def rect(
+        self,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        fill: str | None = None,
+        stroke: str | None = None,
+        line_width: float = 0.5,
+    ) -> None:
         if fill:
             self.set_fill(fill)
         if stroke:
             self.set_stroke(stroke)
             self.set_line_width(line_width)
-        self.raw(b" ".join([
-            self._num(x), self._num(y), self._num(width), self._num(height),
-            b"re",
-        ]))
+        self.raw(
+            b" ".join(
+                [
+                    self._num(x),
+                    self._num(y),
+                    self._num(width),
+                    self._num(height),
+                    b"re",
+                ]
+            )
+        )
         if fill and stroke:
             self.raw(b"B")
         elif fill:
@@ -236,17 +271,32 @@ class ContentStream:
         else:
             self.raw(b"S")
 
-    def line(self, x1: float, y1: float, x2: float, y2: float,
-             color: str = "000000", width: float = 0.5) -> None:
+    def line(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        color: str = "000000",
+        width: float = 0.5,
+    ) -> None:
         self.set_stroke(color)
         self.set_line_width(width)
         self.raw(b" ".join([self._num(x1), self._num(y1), b"m"]))
         self.raw(b" ".join([self._num(x2), self._num(y2), b"l"]))
         self.raw(b"S")
 
-    def rotated_text(self, text: str, font_key: str, size: float,
-                     x: float, y: float, color: str, degrees: float,
-                     gid_map=None) -> None:
+    def rotated_text(
+        self,
+        text: str,
+        font_key: str,
+        size: float,
+        x: float,
+        y: float,
+        color: str,
+        degrees: float,
+        gid_map=None,
+    ) -> None:
         """Draw text rotated about (x, y) — used for diagonal watermarks."""
         import math
 
@@ -255,10 +305,19 @@ class ContentStream:
         self.raw(b"BT")
         self.set_fill(color)
         self.raw(f"/{font_key} ".encode("ascii") + self._num(size) + b" Tf")
-        self.raw(b" ".join([
-            self._num(cos), self._num(sin), self._num(-sin), self._num(cos),
-            self._num(x), self._num(y), b"Tm",
-        ]))
+        self.raw(
+            b" ".join(
+                [
+                    self._num(cos),
+                    self._num(sin),
+                    self._num(-sin),
+                    self._num(cos),
+                    self._num(x),
+                    self._num(y),
+                    b"Tm",
+                ]
+            )
+        )
         self.raw(_encode_text(text, gid_map) + b" Tj")
         self.raw(b"ET")
 

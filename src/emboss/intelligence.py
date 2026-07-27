@@ -49,6 +49,7 @@ __all__ = [
 # Smart Typography
 # ---------------------------------------------------------------------------
 
+
 class SmartTypography:
     """Transforms raw text into typographically correct output.
 
@@ -62,11 +63,21 @@ class SmartTypography:
     """
 
     _FRACTIONS = {
-        "1/4": "¼", "1/2": "½", "3/4": "¾",
-        "1/3": "⅓", "2/3": "⅔",
-        "1/5": "⅕", "2/5": "⅖", "3/5": "⅗", "4/5": "⅘",
-        "1/6": "⅙", "5/6": "⅚",
-        "1/8": "⅛", "3/8": "⅜", "5/8": "⅝", "7/8": "⅞",
+        "1/4": "¼",
+        "1/2": "½",
+        "3/4": "¾",
+        "1/3": "⅓",
+        "2/3": "⅔",
+        "1/5": "⅕",
+        "2/5": "⅖",
+        "3/5": "⅗",
+        "4/5": "⅘",
+        "1/6": "⅙",
+        "5/6": "⅚",
+        "1/8": "⅛",
+        "3/8": "⅜",
+        "5/8": "⅝",
+        "7/8": "⅞",
     }
 
     _UNITS_RE = re.compile(
@@ -122,7 +133,7 @@ class SmartTypography:
 
     def _smart_dashes(self, text: str) -> str:
         text = text.replace("---", "—")  # em dash
-        text = text.replace("--", "–")   # en dash
+        text = text.replace("--", "–")  # en dash
         text = re.sub(r"(\d)\s*-\s*(\d)", r"\1–\2", text)
         return text
 
@@ -153,13 +164,9 @@ _SUMMARY_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-_CURRENCY_RE = re.compile(
-    r"^[\s]*[$€£¥₹₽₩]?\s*[\-\(]?\s*\d[\d,]*\.?\d*\s*[\)]?\s*$"
-)
+_CURRENCY_RE = re.compile(r"^[\s]*[$€£¥₹₽₩]?\s*[\-\(]?\s*\d[\d,]*\.?\d*\s*[\)]?\s*$")
 
-_PERCENTAGE_RE = re.compile(
-    r"^[\s]*[\-\+]?\s*\d[\d,]*\.?\d*\s*%\s*$"
-)
+_PERCENTAGE_RE = re.compile(r"^[\s]*[\-\+]?\s*\d[\d,]*\.?\d*\s*%\s*$")
 
 _DATE_RE = re.compile(
     r"^\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}$|"
@@ -203,15 +210,18 @@ class TableIntelligence:
     - Detects header-less tables and suggests headers from content
     """
 
-    def analyze(self, headers: Sequence[str],
-                rows: Sequence[Sequence[str]]) -> TableAnalysis:
+    def analyze(
+        self, headers: Sequence[str], rows: Sequence[Sequence[str]]
+    ) -> TableAnalysis:
         if not rows:
             return TableAnalysis(
-                columns=[], summary_rows=[], row_count=0,
+                columns=[],
+                summary_rows=[],
+                row_count=0,
             )
 
-        col_count = len(headers) if headers else (
-            max(len(r) for r in rows) if rows else 0
+        col_count = (
+            len(headers) if headers else (max(len(r) for r in rows) if rows else 0)
         )
 
         columns = []
@@ -230,9 +240,7 @@ class TableIntelligence:
             if self._is_summary_row(row):
                 summary_rows.append(row_idx)
 
-        has_total = any(
-            row_idx == len(rows) - 1 for row_idx in summary_rows
-        )
+        has_total = any(row_idx == len(rows) - 1 for row_idx in summary_rows)
 
         return TableAnalysis(
             columns=columns,
@@ -242,19 +250,24 @@ class TableIntelligence:
             row_count=len(rows),
         )
 
-    def _classify_column(self, index: int, header: str,
-                         values: list[str]) -> ColumnProfile:
+    def _classify_column(
+        self, index: int, header: str, values: list[str]
+    ) -> ColumnProfile:
         if not values:
             return ColumnProfile(
-                index=index, header=header,
-                content_type="text", recommended_align="left",
+                index=index,
+                header=header,
+                content_type="text",
+                recommended_align="left",
             )
 
         non_empty = [v for v in values if v]
         if not non_empty:
             return ColumnProfile(
-                index=index, header=header,
-                content_type="text", recommended_align="left",
+                index=index,
+                header=header,
+                content_type="text",
+                recommended_align="left",
             )
 
         currency_count = sum(1 for v in non_empty if _CURRENCY_RE.match(v))
@@ -265,34 +278,44 @@ class TableIntelligence:
 
         if currency_count >= threshold and currency_count >= 2:
             return ColumnProfile(
-                index=index, header=header,
-                content_type="currency", recommended_align="decimal",
+                index=index,
+                header=header,
+                content_type="currency",
+                recommended_align="decimal",
                 is_numeric=True,
             )
         if pct_count >= threshold and pct_count >= 2:
             return ColumnProfile(
-                index=index, header=header,
-                content_type="percentage", recommended_align="right",
+                index=index,
+                header=header,
+                content_type="percentage",
+                recommended_align="right",
                 is_numeric=True,
             )
         if date_count >= threshold and date_count >= 2:
             return ColumnProfile(
-                index=index, header=header,
-                content_type="date", recommended_align="left",
+                index=index,
+                header=header,
+                content_type="date",
+                recommended_align="left",
             )
 
         number_re = re.compile(r"^[\-\+]?\s*\d[\d,]*\.?\d*$")
         num_count = sum(1 for v in non_empty if number_re.match(v.strip()))
         if num_count >= threshold and num_count >= 2:
             return ColumnProfile(
-                index=index, header=header,
-                content_type="number", recommended_align="right",
+                index=index,
+                header=header,
+                content_type="number",
+                recommended_align="right",
                 is_numeric=True,
             )
 
         return ColumnProfile(
-            index=index, header=header,
-            content_type="text", recommended_align="left",
+            index=index,
+            header=header,
+            content_type="text",
+            recommended_align="left",
         )
 
     def _is_summary_row(self, row: Sequence) -> bool:
@@ -306,12 +329,15 @@ class TableIntelligence:
 # Document Type Detection
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DocumentProfile:
     """Detected document characteristics."""
 
-    detected_type: str  # "legal", "financial", "academic", "business", "technical", "general"
-    confidence: float   # 0.0 to 1.0
+    detected_type: (
+        str  # "legal", "financial", "academic", "business", "technical", "general"
+    )
+    confidence: float  # 0.0 to 1.0
     signals: list[str]
     recommended_style: str
 
@@ -326,48 +352,159 @@ class DocumentTypeDetector:
     """
 
     _LEGAL_TERMS = {
-        "whereas", "herein", "hereinafter", "pursuant", "notwithstanding",
-        "indemnify", "indemnification", "arbitration", "jurisdiction",
-        "plaintiff", "defendant", "stipulate", "covenant", "affidavit",
-        "deposition", "subpoena", "memorandum", "witnesseth", "recitals",
-        "exhibit", "schedule", "amendment", "termination", "breach",
-        "liable", "liability", "warranty", "warranties", "negligence",
-        "damages", "injunction", "confidential", "non-disclosure",
-        "force majeure", "governing law", "severability", "waiver",
+        "whereas",
+        "herein",
+        "hereinafter",
+        "pursuant",
+        "notwithstanding",
+        "indemnify",
+        "indemnification",
+        "arbitration",
+        "jurisdiction",
+        "plaintiff",
+        "defendant",
+        "stipulate",
+        "covenant",
+        "affidavit",
+        "deposition",
+        "subpoena",
+        "memorandum",
+        "witnesseth",
+        "recitals",
+        "exhibit",
+        "schedule",
+        "amendment",
+        "termination",
+        "breach",
+        "liable",
+        "liability",
+        "warranty",
+        "warranties",
+        "negligence",
+        "damages",
+        "injunction",
+        "confidential",
+        "non-disclosure",
+        "force majeure",
+        "governing law",
+        "severability",
+        "waiver",
     }
 
     _FINANCIAL_TERMS = {
-        "revenue", "ebitda", "margin", "quarter", "fiscal", "dividend",
-        "earnings", "eps", "p/e", "roi", "irr", "npv", "cash flow",
-        "balance sheet", "income statement", "depreciation", "amortization",
-        "capex", "opex", "yield", "portfolio", "equity", "debt",
-        "assets", "liabilities", "shareholders", "valuation", "forecast",
-        "budget", "variance", "accrual", "receivable", "payable",
-        "gross margin", "operating margin", "net income", "guidance",
+        "revenue",
+        "ebitda",
+        "margin",
+        "quarter",
+        "fiscal",
+        "dividend",
+        "earnings",
+        "eps",
+        "p/e",
+        "roi",
+        "irr",
+        "npv",
+        "cash flow",
+        "balance sheet",
+        "income statement",
+        "depreciation",
+        "amortization",
+        "capex",
+        "opex",
+        "yield",
+        "portfolio",
+        "equity",
+        "debt",
+        "assets",
+        "liabilities",
+        "shareholders",
+        "valuation",
+        "forecast",
+        "budget",
+        "variance",
+        "accrual",
+        "receivable",
+        "payable",
+        "gross margin",
+        "operating margin",
+        "net income",
+        "guidance",
     }
 
     _ACADEMIC_TERMS = {
-        "abstract", "methodology", "hypothesis", "findings", "literature",
-        "citation", "bibliography", "references", "peer-reviewed",
-        "empirical", "qualitative", "quantitative", "regression",
-        "correlation", "statistical", "significance", "p-value",
-        "sample size", "population", "longitudinal", "cross-sectional",
-        "theoretical", "framework", "paradigm", "dissertation", "thesis",
-        "appendix", "acknowledgments", "doi", "journal", "proceedings",
+        "abstract",
+        "methodology",
+        "hypothesis",
+        "findings",
+        "literature",
+        "citation",
+        "bibliography",
+        "references",
+        "peer-reviewed",
+        "empirical",
+        "qualitative",
+        "quantitative",
+        "regression",
+        "correlation",
+        "statistical",
+        "significance",
+        "p-value",
+        "sample size",
+        "population",
+        "longitudinal",
+        "cross-sectional",
+        "theoretical",
+        "framework",
+        "paradigm",
+        "dissertation",
+        "thesis",
+        "appendix",
+        "acknowledgments",
+        "doi",
+        "journal",
+        "proceedings",
     }
 
     _TECHNICAL_TERMS = {
-        "api", "endpoint", "authentication", "deployment", "infrastructure",
-        "architecture", "microservice", "container", "kubernetes", "docker",
-        "pipeline", "ci/cd", "repository", "latency", "throughput",
-        "scalability", "redundancy", "failover", "monitoring", "logging",
-        "configuration", "migration", "schema", "database", "query",
-        "algorithm", "implementation", "specification", "protocol",
-        "interface", "module", "dependency", "version", "release",
+        "api",
+        "endpoint",
+        "authentication",
+        "deployment",
+        "infrastructure",
+        "architecture",
+        "microservice",
+        "container",
+        "kubernetes",
+        "docker",
+        "pipeline",
+        "ci/cd",
+        "repository",
+        "latency",
+        "throughput",
+        "scalability",
+        "redundancy",
+        "failover",
+        "monitoring",
+        "logging",
+        "configuration",
+        "migration",
+        "schema",
+        "database",
+        "query",
+        "algorithm",
+        "implementation",
+        "specification",
+        "protocol",
+        "interface",
+        "module",
+        "dependency",
+        "version",
+        "release",
     }
 
-    def detect(self, title: str, headings: list[str],
-               paragraphs: list[str], table_count: int) -> DocumentProfile:
+    def detect(
+        self, title: str, headings: list[str], paragraphs: list[str], table_count: int
+    ) -> DocumentProfile:
         all_text = " ".join([title] + headings + paragraphs).lower()
         words = set(re.findall(r"\b\w+\b", all_text))
 
@@ -382,16 +519,21 @@ class DocumentTypeDetector:
             scores["financial"] += 0.15
 
         legal_patterns = [
-            r"\bsection\s+\d+", r"\barticle\s+\d+", r"\bclause\s+\d+",
-            r"\bparty\s+[a-z]", r"\bexhibit\s+[a-z]",
+            r"\bsection\s+\d+",
+            r"\barticle\s+\d+",
+            r"\bclause\s+\d+",
+            r"\bparty\s+[a-z]",
+            r"\bexhibit\s+[a-z]",
         ]
         for pat in legal_patterns:
             if re.search(pat, all_text, re.IGNORECASE):
                 scores["legal"] += 0.08
 
         academic_patterns = [
-            r"\b(?:fig|figure|table)\s*\.?\s*\d+", r"\bet\s+al\b",
-            r"\b\d{4}\)", r"\[\d+\]",
+            r"\b(?:fig|figure|table)\s*\.?\s*\d+",
+            r"\bet\s+al\b",
+            r"\b\d{4}\)",
+            r"\[\d+\]",
         ]
         for pat in academic_patterns:
             if re.search(pat, all_text, re.IGNORECASE):
@@ -424,8 +566,7 @@ class DocumentTypeDetector:
             recommended_style=style_map[best],
         )
 
-    def _score_domain(self, words: set, text: str,
-                      terms: set) -> float:
+    def _score_domain(self, words: set, text: str, terms: set) -> float:
         matches = 0
         for term in terms:
             if " " in term:
@@ -437,8 +578,7 @@ class DocumentTypeDetector:
             return 0.0
         return min(1.0, matches * 0.12)
 
-    def _explain_signals(self, words: set, text: str,
-                         domain: str) -> list[str]:
+    def _explain_signals(self, words: set, text: str, domain: str) -> list[str]:
         terms = {
             "legal": self._LEGAL_TERMS,
             "financial": self._FINANCIAL_TERMS,
@@ -461,12 +601,13 @@ class DocumentTypeDetector:
 # Typographic Quality Scorer
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class QualityReport:
     """Typographic quality analysis of rendered output."""
 
-    score: float          # 0-100
-    grade: str            # A+ through F
+    score: float  # 0-100
+    grade: str  # A+ through F
     metrics: dict = field(default_factory=dict)
     suggestions: list[str] = field(default_factory=list)
 
@@ -508,9 +649,7 @@ class QualityScorer:
         deductions += 25 - spacing_score
         suggestions.extend(spacing_suggestions)
 
-        page_score, page_suggestions = self._score_page_balance(
-            pages, page_spec
-        )
+        page_score, page_suggestions = self._score_page_balance(pages, page_spec)
         metrics["page_balance"] = f"{page_score:.0f}/25"
         deductions += 25 - page_score
         suggestions.extend(page_suggestions)
@@ -632,6 +771,7 @@ class QualityScorer:
                 continue
             last_block = page.blocks[-1]
             from .spec import Heading
+
             if isinstance(last_block.block.element, Heading):
                 remaining = last_block.y - last_block.height - page.spec.content_bottom
                 if remaining < 30:
@@ -671,6 +811,7 @@ class QualityScorer:
 # Content Analyzer — unified entry point
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ContentAnalysis:
     """Complete intelligence analysis of a document."""
@@ -686,16 +827,16 @@ class ContentAnalysis:
         if self.document_profile:
             dp = self.document_profile
             lines.append(
-                f"Document type: {dp.detected_type} "
-                f"(confidence: {dp.confidence:.0%})"
+                f"Document type: {dp.detected_type} (confidence: {dp.confidence:.0%})"
             )
             lines.append(f"Recommended style: {dp.recommended_style}")
             if dp.signals:
                 lines.append(f"Signals: {', '.join(dp.signals[:5])}")
 
         for i, ta in enumerate(self.table_analyses):
-            lines.append(f"Table {i+1}: {ta.row_count} rows, "
-                         f"{len(ta.columns)} columns")
+            lines.append(
+                f"Table {i + 1}: {ta.row_count} rows, {len(ta.columns)} columns"
+            )
             for col in ta.columns:
                 if col.content_type != "text":
                     lines.append(
@@ -703,9 +844,7 @@ class ContentAnalysis:
                         f"→ align {col.recommended_align}"
                     )
             if ta.summary_rows:
-                lines.append(
-                    f"  Summary rows: {ta.summary_rows}"
-                )
+                lines.append(f"  Summary rows: {ta.summary_rows}")
 
         if self.typography_applied:
             lines.append("Smart typography: applied")
@@ -732,8 +871,7 @@ class ContentAnalyzer:
         content = spec_data.get("content", [])
 
         headings = [
-            b["text"] for b in content
-            if b.get("type") == "heading" and "text" in b
+            b["text"] for b in content if b.get("type") == "heading" and "text" in b
         ]
         paragraphs = [
             b.get("text", "")
@@ -742,9 +880,7 @@ class ContentAnalyzer:
         ]
         tables = [b for b in content if b.get("type") == "table"]
 
-        profile = self.detector.detect(
-            title, headings, paragraphs, len(tables)
-        )
+        profile = self.detector.detect(title, headings, paragraphs, len(tables))
 
         table_analyses = []
         for table in tables:
@@ -763,9 +899,7 @@ class ContentAnalyzer:
                     else:
                         cells.append(str(cell))
                 rows.append(cells)
-            table_analyses.append(
-                self.table_intel.analyze(headers, rows)
-            )
+            table_analyses.append(self.table_intel.analyze(headers, rows))
 
         return ContentAnalysis(
             document_profile=profile,
@@ -773,10 +907,14 @@ class ContentAnalyzer:
             auto_style_recommendation=profile.recommended_style,
         )
 
-    def enhance_spec(self, spec_data: dict, *,
-                     auto_style: bool = True,
-                     smart_typography: bool = True,
-                     smart_tables: bool = True) -> dict:
+    def enhance_spec(
+        self,
+        spec_data: dict,
+        *,
+        auto_style: bool = True,
+        smart_typography: bool = True,
+        smart_tables: bool = True,
+    ) -> dict:
         """Apply intelligence transforms to a spec dict in-place.
 
         Returns the same dict, modified with intelligent defaults.
@@ -784,8 +922,10 @@ class ContentAnalyzer:
         analysis = self.analyze_spec(spec_data)
 
         if auto_style and "style" not in spec_data:
-            if (analysis.document_profile
-                    and analysis.document_profile.confidence >= 0.3):
+            if (
+                analysis.document_profile
+                and analysis.document_profile.confidence >= 0.3
+            ):
                 spec_data["style"] = analysis.document_profile.recommended_style
 
         content = spec_data.get("content", [])
@@ -813,8 +953,9 @@ class ContentAnalyzer:
 
         return spec_data
 
-    def _apply_table_intelligence(self, table_block: dict,
-                                  analysis: TableAnalysis) -> None:
+    def _apply_table_intelligence(
+        self, table_block: dict, analysis: TableAnalysis
+    ) -> None:
         rows = table_block.get("rows", [])
 
         for col in analysis.columns:

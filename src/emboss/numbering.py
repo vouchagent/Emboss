@@ -13,9 +13,14 @@ from dataclasses import dataclass, field
 class NumberingContext:
     """Auto-incrementing counters for document elements."""
 
-    _counters: dict = field(default_factory=lambda: {
-        "figure": 0, "table": 0, "equation": 0, "listing": 0,
-    })
+    _counters: dict = field(
+        default_factory=lambda: {
+            "figure": 0,
+            "table": 0,
+            "equation": 0,
+            "listing": 0,
+        }
+    )
     _heading: list = field(default_factory=lambda: [0] * 6)
     _labels: dict = field(default_factory=dict)
 

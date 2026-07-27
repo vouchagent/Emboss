@@ -45,7 +45,10 @@ def apply_redactions(
         stream.begin_artifact("Redaction")
 
         stream.rect(
-            mark.x, mark.y, mark.width, mark.height,
+            mark.x,
+            mark.y,
+            mark.width,
+            mark.height,
             fill=mark.color,
         )
 
@@ -56,24 +59,16 @@ def apply_redactions(
 
             stream.raw(b"BT")
             r, g, b = _hex_color(text_color)
-            stream.raw(
-                f"{r:.4f} {g:.4f} {b:.4f} rg".encode("ascii")
-            )
-            stream.raw(
-                f"/{font_key} {font_size:.2f} Tf".encode("ascii")
-            )
+            stream.raw(f"{r:.4f} {g:.4f} {b:.4f} rg".encode("ascii"))
+            stream.raw(f"/{font_key} {font_size:.2f} Tf".encode("ascii"))
 
             # Approximate text width for centering
             char_width = font_size * 0.5
             text_width = len(mark.replacement_text) * char_width
             centered_x = text_x - text_width / 2.0
 
-            stream.raw(
-                f"{centered_x:.4f} {text_y:.4f} Td".encode("ascii")
-            )
-            stream.raw(
-                _escape_text(mark.replacement_text) + b" Tj"
-            )
+            stream.raw(f"{centered_x:.4f} {text_y:.4f} Td".encode("ascii"))
+            stream.raw(_escape_text(mark.replacement_text) + b" Tj")
             stream.raw(b"ET")
 
         stream.end_marked()

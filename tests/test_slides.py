@@ -1,12 +1,12 @@
 """Tests for slide/presentation layout support."""
 
-import pytest
-
-from emboss import Document
 from emboss.slides import (
-    SLIDE_16_9, SLIDE_4_3, SlideConfig, slide_document, _build_slide_sheet,
+    SLIDE_16_9,
+    SLIDE_4_3,
+    SlideConfig,
+    slide_document,
+    _build_slide_sheet,
 )
-from emboss.styles import Style
 
 
 class TestSlideConfig:

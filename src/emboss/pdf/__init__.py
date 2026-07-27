@@ -6,7 +6,15 @@ from .streams import ContentStream
 from .tags import StructureElement, StructureTreeBuilder
 
 __all__ = [
-    "PDFAssembler", "AssemblyError", "PdfDict", "PdfArray", "PdfName",
-    "PdfRef", "PdfStream", "PdfString", "ContentStream",
-    "StructureElement", "StructureTreeBuilder",
+    "PDFAssembler",
+    "AssemblyError",
+    "PdfDict",
+    "PdfArray",
+    "PdfName",
+    "PdfRef",
+    "PdfStream",
+    "PdfString",
+    "ContentStream",
+    "StructureElement",
+    "StructureTreeBuilder",
 ]

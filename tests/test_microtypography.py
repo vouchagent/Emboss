@@ -17,8 +17,13 @@ from emboss.typography.protrusion import (
     right_protrusion,
 )
 from emboss.typography.line_breaking import (
-    Box, Glue, Line, LineBreaker, Penalty, detect_rivers,
-    INFINITE_PENALTY, build_items,
+    Box,
+    Glue,
+    Line,
+    LineBreaker,
+    Penalty,
+    detect_rivers,
+    INFINITE_PENALTY,
 )
 from emboss.pdf.streams import ContentStream
 
@@ -26,6 +31,7 @@ from emboss.pdf.streams import ContentStream
 # =====================================================================
 # Feature 1: Optical margin alignment (hanging punctuation)
 # =====================================================================
+
 
 class TestOpticalMarginAlignment:
     """The protrusion table must contain punctuation with correct factors."""
@@ -106,8 +112,10 @@ class TestOpticalMarginAlignment:
         from emboss.styles import Style
         from emboss.writer import render_document
 
-        text = ('"Hello world this is a paragraph of justified '
-                'text that should be long enough to wrap."')
+        text = (
+            '"Hello world this is a paragraph of justified '
+            'text that should be long enough to wrap."'
+        )
         doc = Document(title="Test")
         doc.add(Paragraph(text, style=Style(align="justify")))
         pdf_bytes = render_document(doc)
@@ -118,26 +126,33 @@ class TestOpticalMarginAlignment:
 # Feature 2: Character protrusion tables (letter protrusion)
 # =====================================================================
 
+
 class TestCharacterProtrusion:
     """Letters like A, V, W, T should protrude slightly."""
 
-    @pytest.mark.parametrize("char,expected", [
-        ("A", (0.05, 0.05)),
-        ("V", (0.05, 0.05)),
-        ("W", (0.05, 0.05)),
-        ("T", (0.05, 0.05)),
-        ("F", (0.0, 0.05)),
-        ("Y", (0.05, 0.05)),
-        ("J", (0.0, 0.03)),
-    ])
+    @pytest.mark.parametrize(
+        "char,expected",
+        [
+            ("A", (0.05, 0.05)),
+            ("V", (0.05, 0.05)),
+            ("W", (0.05, 0.05)),
+            ("T", (0.05, 0.05)),
+            ("F", (0.0, 0.05)),
+            ("Y", (0.05, 0.05)),
+            ("J", (0.0, 0.03)),
+        ],
+    )
     def test_uppercase_protrusion(self, char, expected):
         assert PROTRUSION_TABLE[char] == expected
 
-    @pytest.mark.parametrize("char,expected", [
-        ("v", (0.03, 0.03)),
-        ("w", (0.03, 0.03)),
-        ("y", (0.03, 0.03)),
-    ])
+    @pytest.mark.parametrize(
+        "char,expected",
+        [
+            ("v", (0.03, 0.03)),
+            ("w", (0.03, 0.03)),
+            ("y", (0.03, 0.03)),
+        ],
+    )
     def test_lowercase_protrusion(self, char, expected):
         assert PROTRUSION_TABLE[char] == expected
 
@@ -160,9 +175,14 @@ class TestCharacterProtrusion:
         ]
         sums = breaker._running_sums(items)
         from emboss.typography.line_breaking import _Node
+
         node = _Node(
-            position=0, line=0, fitness=1,
-            total_width=0.0, total_stretch=0.0, total_shrink=0.0,
+            position=0,
+            line=0,
+            fitness=1,
+            total_width=0.0,
+            total_stretch=0.0,
+            total_shrink=0.0,
             demerits=0.0,
         )
         # Without protrusion, the width is 110 and the target is 110.
@@ -178,6 +198,7 @@ class TestCharacterProtrusion:
 # =====================================================================
 # Feature 3: Font expansion (hz-program)
 # =====================================================================
+
 
 class TestFontExpansion:
     """The Tz operator should appear in the content stream for non-100
@@ -195,7 +216,13 @@ class TestFontExpansion:
         '100 Tz' after."""
         stream = ContentStream()
         stream.text_line(
-            "Hello", "F1", 12.0, 72.0, 700.0, "000000", h_scale=101.5,
+            "Hello",
+            "F1",
+            12.0,
+            72.0,
+            700.0,
+            "000000",
+            h_scale=101.5,
         )
         output = stream.to_bytes()
         assert b"Tz" in output
@@ -208,7 +235,13 @@ class TestFontExpansion:
         """h_scale=98.5 should emit '98.5 Tz'."""
         stream = ContentStream()
         stream.text_line(
-            "Test", "F1", 10.0, 50.0, 600.0, "000000", h_scale=98.5,
+            "Test",
+            "F1",
+            10.0,
+            50.0,
+            600.0,
+            "000000",
+            h_scale=98.5,
         )
         output = stream.to_bytes()
         assert b"98.5 Tz" in output
@@ -218,7 +251,13 @@ class TestFontExpansion:
         """Tz must appear after Tf and before Td/TJ/Tj."""
         stream = ContentStream()
         stream.text_line(
-            "Hi", "F1", 12.0, 72.0, 700.0, "000000", h_scale=102.0,
+            "Hi",
+            "F1",
+            12.0,
+            72.0,
+            700.0,
+            "000000",
+            h_scale=102.0,
         )
         output = stream.to_bytes()
         lines = output.split(b"\n")
@@ -251,8 +290,14 @@ class TestFontExpansion:
         """Tz should be emitted even when kern pairs are present."""
         stream = ContentStream()
         stream.text_line(
-            "AV", "F1", 12.0, 72.0, 700.0, "000000",
-            kern_pairs=[(1, -50)], h_scale=99.0,
+            "AV",
+            "F1",
+            12.0,
+            72.0,
+            700.0,
+            "000000",
+            kern_pairs=[(1, -50)],
+            h_scale=99.0,
         )
         output = stream.to_bytes()
         assert b"99 Tz" in output
@@ -263,13 +308,13 @@ class TestFontExpansion:
 # Feature 4: River detection
 # =====================================================================
 
+
 class TestRiverDetection:
     """detect_rivers() should identify vertically aligned spaces."""
 
     def _make_line(self, items, ratio=0.0):
         width = sum(it.width for it in items if isinstance(it, (Box, Glue)))
-        return Line(items=items, start=0, end=len(items),
-                    ratio=ratio, width=width)
+        return Line(items=items, start=0, end=len(items), ratio=ratio, width=width)
 
     def test_no_rivers_in_two_lines(self):
         """Rivers require at least 3 lines."""
@@ -351,6 +396,7 @@ class TestRiverDetection:
 # Integration: end-to-end rendering with micro-typography
 # =====================================================================
 
+
 class TestEndToEndMicrotypography:
     """Full render should succeed with micro-typography features active."""
 
@@ -360,14 +406,16 @@ class TestEndToEndMicrotypography:
         from emboss.writer import render_document
 
         doc = Document(title="Test")
-        doc.add(Paragraph(
-            "The quick brown fox jumps over the lazy dog. "
-            "A very long paragraph with multiple sentences that "
-            "should wrap across several lines when justified, "
-            "testing optical margin alignment, character protrusion, "
-            "and font expansion features together.",
-            style=Style(align="justify"),
-        ))
+        doc.add(
+            Paragraph(
+                "The quick brown fox jumps over the lazy dog. "
+                "A very long paragraph with multiple sentences that "
+                "should wrap across several lines when justified, "
+                "testing optical margin alignment, character protrusion, "
+                "and font expansion features together.",
+                style=Style(align="justify"),
+            )
+        )
         result = render_document(doc, return_result=True)
         assert result.page_count >= 1
         assert len(result.data) > 0
@@ -378,12 +426,14 @@ class TestEndToEndMicrotypography:
         from emboss.writer import render_document
 
         doc = Document(title="Test")
-        doc.add(Paragraph(
-            '"Quoted text at the start of a paragraph should '
-            'have its opening quote hang into the margin for '
-            'optical alignment."',
-            style=Style(align="left"),
-        ))
+        doc.add(
+            Paragraph(
+                '"Quoted text at the start of a paragraph should '
+                "have its opening quote hang into the margin for "
+                'optical alignment."',
+                style=Style(align="left"),
+            )
+        )
         result = render_document(doc, return_result=True)
         assert result.page_count >= 1
 
@@ -394,9 +444,11 @@ class TestEndToEndMicrotypography:
         from emboss.writer import render_document
 
         doc = Document(title="Test")
-        doc.add(Paragraph(
-            '"Centered text" should not hang punctuation.',
-            style=Style(align="center"),
-        ))
+        doc.add(
+            Paragraph(
+                '"Centered text" should not hang punctuation.',
+                style=Style(align="center"),
+            )
+        )
         result = render_document(doc, return_result=True)
         assert result.page_count >= 1

@@ -91,7 +91,7 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
             if element.title:
                 parts.append(f"**{element.title}**")
                 parts.append("")
-            headers = [str(l) for l in element.labels]
+            headers = [str(lab) for lab in element.labels]
             values = [str(v) for v in element.values]
             parts.append("| " + " | ".join(headers) + " |")
             parts.append("| " + " | ".join("---" for _ in headers) + " |")
@@ -131,6 +131,7 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
 
         elif isinstance(element, BibliographyBlock):
             from ..bibliography import format_bibliography
+
             if element.title:
                 prefix = "#" * element.heading_level
                 parts.append(f"{prefix} {element.title}")

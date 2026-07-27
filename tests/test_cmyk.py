@@ -15,7 +15,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from emboss.colors import (  # noqa: E402
-    CmykColor, SpotColor, rgb_to_cmyk, hex_to_cmyk, parse_cmyk,
+    CmykColor,
+    SpotColor,
+    rgb_to_cmyk,
+    hex_to_cmyk,
+    parse_cmyk,
     build_spot_color_resource,
 )
 from emboss.pdf.streams import ContentStream  # noqa: E402
@@ -25,6 +29,7 @@ from emboss import Document  # noqa: E402
 # ---------------------------------------------------------------------------
 # CmykColor dataclass
 # ---------------------------------------------------------------------------
+
 
 class TestCmykColor:
     def test_create_valid(self):
@@ -63,6 +68,7 @@ class TestCmykColor:
 # SpotColor dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestSpotColor:
     def test_create(self):
         s = SpotColor("PANTONE 485 C", 0.0, 1.0, 0.95, 0.0)
@@ -84,6 +90,7 @@ class TestSpotColor:
 # ---------------------------------------------------------------------------
 # RGB to CMYK conversion
 # ---------------------------------------------------------------------------
+
 
 class TestRgbToCmyk:
     def test_pure_red(self):
@@ -146,6 +153,7 @@ class TestHexToCmyk:
 # CMYK string parsing
 # ---------------------------------------------------------------------------
 
+
 class TestParseCmyk:
     def test_percentage_format(self):
         c = parse_cmyk("cmyk(0,100,100,0)")
@@ -179,6 +187,7 @@ class TestParseCmyk:
 # ---------------------------------------------------------------------------
 # Content stream CMYK operators
 # ---------------------------------------------------------------------------
+
 
 class TestContentStreamCmyk:
     def test_set_fill_cmyk(self):
@@ -215,6 +224,7 @@ class TestContentStreamCmyk:
 # Document color_mode field
 # ---------------------------------------------------------------------------
 
+
 class TestDocumentColorMode:
     def test_default_is_rgb(self):
         doc = Document(title="Test")
@@ -241,9 +251,11 @@ class TestDocumentColorMode:
 # Spot color resource building
 # ---------------------------------------------------------------------------
 
+
 class TestSpotColorResource:
     def test_build_spot_color_resource(self):
         from emboss.pdf.assembler import PDFAssembler
+
         assembler = PDFAssembler()
         name, ref = build_spot_color_resource(
             assembler, "PANTONE 485 C", 0.0, 1.0, 0.95, 0.0
@@ -253,9 +265,8 @@ class TestSpotColorResource:
 
     def test_resource_name_sanitized(self):
         from emboss.pdf.assembler import PDFAssembler
+
         assembler = PDFAssembler()
-        name, _ = build_spot_color_resource(
-            assembler, "My Spot!", 0.5, 0.5, 0.5, 0.0
-        )
+        name, _ = build_spot_color_resource(assembler, "My Spot!", 0.5, 0.5, 0.5, 0.0)
         # Should not contain special characters
         assert all(c.isalnum() for c in name)

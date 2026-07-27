@@ -61,8 +61,13 @@ def _subset_font(metrics) -> tuple:
     font = TTFont(str(metrics.font_path), lazy=False, fontNumber=0)
 
     options = subset.Options()
-    options.set(layout_features=["*"], notdef_outline=True,
-                recalc_bounds=True, drop_tables=[], hinting=True)
+    options.set(
+        layout_features=["*"],
+        notdef_outline=True,
+        recalc_bounds=True,
+        drop_tables=[],
+        hinting=True,
+    )
     options.retain_gids = True
     options.name_IDs = ["*"]
     options.name_legacy = True
@@ -143,9 +148,9 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     descriptor["Type"] = PdfName("FontDescriptor")
     descriptor["FontName"] = PdfName(base_name)
     descriptor["Flags"] = metrics.flags
-    descriptor["FontBBox"] = PdfArray([
-        -200, round(metrics.descender), 1200, round(metrics.ascender)
-    ])
+    descriptor["FontBBox"] = PdfArray(
+        [-200, round(metrics.descender), 1200, round(metrics.ascender)]
+    )
     descriptor["ItalicAngle"] = 0
     descriptor["Ascent"] = round(metrics.ascender)
     descriptor["Descent"] = round(metrics.descender)
@@ -213,7 +218,7 @@ def _build_to_unicode(codepoints, gid_map) -> bytes:
     ]
 
     for start in range(0, len(entries), 100):
-        chunk = entries[start:start + 100]
+        chunk = entries[start : start + 100]
         lines.append(f"{len(chunk)} beginbfchar")
         for gid, cp in chunk:
             if cp <= 0xFFFF:
@@ -224,10 +229,12 @@ def _build_to_unicode(codepoints, gid_map) -> bytes:
                 lines.append(f"<{gid:04X}> <{hi:04X}{lo:04X}>")
         lines.append("endbfchar")
 
-    lines.extend([
-        "endcmap",
-        "CMapName currentdict /CMap defineresource pop",
-        "end",
-        "end",
-    ])
+    lines.extend(
+        [
+            "endcmap",
+            "CMapName currentdict /CMap defineresource pop",
+            "end",
+            "end",
+        ]
+    )
     return "\n".join(lines).encode("ascii")

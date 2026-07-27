@@ -2,15 +2,14 @@
 
 import struct
 import zlib
-from pathlib import Path
 
 import pytest
 
 from emboss import Document, Image, Chart, PageSpec
 from emboss.charts import ChartData, ChartSpec, render_chart
-from emboss.images import ImageData, load_image, image_xobject
-from emboss.toc import TOCEntry, build_toc_entries, _nest
-from emboss.pdfa import build_xmp_metadata, pdfa_catalog_entries
+from emboss.images import load_image, image_xobject
+from emboss.toc import TOCEntry, _nest
+from emboss.pdfa import build_xmp_metadata
 from emboss.redaction import RedactionMark, apply_redactions
 from emboss.signing import SignatureField, build_signature_appearance, can_sign
 from emboss.pdf.assembler import PDFAssembler
@@ -20,6 +19,7 @@ from emboss.pdf.streams import ContentStream
 # ---------------------------------------------------------------------------
 # Helper: create a minimal valid JPEG
 # ---------------------------------------------------------------------------
+
 
 def _make_jpeg(width: int = 8, height: int = 8) -> bytes:
     """Build the smallest valid JPEG: SOI + SOF0 + EOI."""
@@ -42,6 +42,7 @@ def _make_jpeg(width: int = 8, height: int = 8) -> bytes:
 # ---------------------------------------------------------------------------
 # Helper: create a minimal valid PNG
 # ---------------------------------------------------------------------------
+
 
 def _make_png(width: int = 4, height: int = 4) -> bytes:
     """Build a minimal valid 8-bit RGB PNG."""
@@ -68,6 +69,7 @@ def _make_png(width: int = 4, height: int = 4) -> bytes:
 
 def _write_chunk(buf: bytearray, chunk_type: bytes, data: bytes) -> None:
     import binascii
+
     buf += struct.pack(">I", len(data))
     buf += chunk_type
     buf += data
@@ -78,6 +80,7 @@ def _write_chunk(buf: bytearray, chunk_type: bytes, data: bytes) -> None:
 # ===========================================================================
 # IMAGE TESTS
 # ===========================================================================
+
 
 class TestImageParsing:
     def test_jpeg_dimensions(self):
@@ -152,6 +155,7 @@ class TestImageInDocument:
 # ===========================================================================
 # CHART TESTS
 # ===========================================================================
+
 
 class TestChartRendering:
     def test_bar_chart(self):
@@ -232,6 +236,7 @@ class TestChartInDocument:
 # TOC TESTS
 # ===========================================================================
 
+
 class TestTOC:
     def test_nest_flat_headings(self):
         flat = [
@@ -275,6 +280,7 @@ class TestTOC:
 # MULTI-COLUMN TESTS
 # ===========================================================================
 
+
 class TestMultiColumn:
     def test_two_column_layout(self):
         page = PageSpec(columns=2)
@@ -302,6 +308,7 @@ class TestMultiColumn:
 # ===========================================================================
 # PDF/A TESTS
 # ===========================================================================
+
 
 class TestPDFA:
     def test_xmp_metadata(self):
@@ -340,10 +347,15 @@ class TestPDFA:
 # REDACTION TESTS
 # ===========================================================================
 
+
 class TestRedaction:
     def test_redaction_mark(self):
         mark = RedactionMark(
-            page_index=0, x=100, y=700, width=200, height=20,
+            page_index=0,
+            x=100,
+            y=700,
+            width=200,
+            height=20,
             replacement_text="[REDACTED]",
         )
         assert mark.color == "000000"
@@ -373,7 +385,11 @@ class TestRedaction:
         doc.paragraph("Confidential data here.")
         doc.redactions = [
             RedactionMark(
-                page_index=0, x=72, y=700, width=200, height=14,
+                page_index=0,
+                x=72,
+                y=700,
+                width=200,
+                height=14,
                 replacement_text="[CLASSIFIED]",
             )
         ]
@@ -385,10 +401,13 @@ class TestRedaction:
 # SIGNATURE TESTS
 # ===========================================================================
 
+
 class TestSignature:
     def test_signature_field(self):
         sig = SignatureField(
-            page_index=0, x=350, y=72,
+            page_index=0,
+            x=350,
+            y=72,
             signer_name="John Doe",
             reason="Approval",
             location="New York",
@@ -398,7 +417,9 @@ class TestSignature:
     def test_signature_appearance(self):
         stream = ContentStream()
         sig = SignatureField(
-            page_index=0, x=100, y=100,
+            page_index=0,
+            x=100,
+            y=100,
             signer_name="Test Signer",
             reason="Testing",
         )
@@ -415,7 +436,9 @@ class TestSignature:
         doc.paragraph("This document is signed.")
         doc.signatures = [
             SignatureField(
-                page_index=0, x=350, y=72,
+                page_index=0,
+                x=350,
+                y=72,
                 signer_name="Jane Smith",
                 reason="Approval",
             )
@@ -429,9 +452,11 @@ class TestSignature:
 # PYDANTIC ADAPTER TESTS
 # ===========================================================================
 
+
 class TestPydanticNewTypes:
     def test_chart_spec_roundtrip(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
+
         data = {
             "title": "Chart Doc",
             "content": [
@@ -451,6 +476,7 @@ class TestPydanticNewTypes:
 
     def test_image_spec_roundtrip(self, tmp_path):
         from emboss.adapters.pydantic_schema import DocumentSpec
+
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -474,9 +500,11 @@ class TestPydanticNewTypes:
 # EXPORT ADAPTER TESTS
 # ===========================================================================
 
+
 class TestExportAdapters:
     def test_html_image_export(self, tmp_path):
         from emboss.adapters.html_export import to_html
+
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -489,6 +517,7 @@ class TestExportAdapters:
 
     def test_html_chart_export(self):
         from emboss.adapters.html_export import to_html
+
         doc = Document(title="HTML Chart")
         doc.chart("bar", ["X", "Y"], [5, 10], title="Test")
         html = to_html(doc)
@@ -497,6 +526,7 @@ class TestExportAdapters:
 
     def test_markdown_image_export(self, tmp_path):
         from emboss.adapters.markdown_export import to_markdown
+
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -508,6 +538,7 @@ class TestExportAdapters:
 
     def test_markdown_chart_export(self):
         from emboss.adapters.markdown_export import to_markdown
+
         doc = Document(title="MD Chart")
         doc.chart("pie", ["A", "B"], [60, 40], title="Split")
         md = to_markdown(doc)
@@ -516,6 +547,7 @@ class TestExportAdapters:
 
     def test_office_image_export(self, tmp_path):
         from emboss.adapters.docx_export import to_office_dict
+
         jpeg = tmp_path / "test.jpg"
         jpeg.write_bytes(_make_jpeg(50, 50))
 
@@ -526,6 +558,7 @@ class TestExportAdapters:
 
     def test_office_chart_export(self):
         from emboss.adapters.docx_export import to_office_dict
+
         doc = Document(title="Office Chart")
         doc.chart("line", ["A"], [10])
         data = to_office_dict(doc)
@@ -535,6 +568,7 @@ class TestExportAdapters:
 # ===========================================================================
 # INTEGRATION: FULL DOCUMENT WITH ALL FEATURES
 # ===========================================================================
+
 
 class TestFullIntegration:
     def test_all_features_together(self, tmp_path):
@@ -553,8 +587,9 @@ class TestFullIntegration:
         doc.paragraph("This document tests all features.")
         doc.image(str(jpeg), alt_text="Company logo", caption="Logo")
         doc.heading("Data Analysis", level=2)
-        doc.chart("bar", ["Q1", "Q2", "Q3", "Q4"],
-                  [100, 150, 130, 180], title="Revenue")
+        doc.chart(
+            "bar", ["Q1", "Q2", "Q3", "Q4"], [100, 150, 130, 180], title="Revenue"
+        )
         doc.table(["Metric", "Value"], [["Revenue", "$4.5M"], ["Growth", "12%"]])
         doc.rule()
         doc.heading("Conclusion", level=2)
@@ -586,12 +621,19 @@ class TestFullIntegration:
         doc.paragraph("Sensitive information follows.")
         doc.paragraph("More content.")
         doc.redactions = [
-            RedactionMark(page_index=0, x=72, y=700, width=200, height=14,
-                          replacement_text="[REDACTED]"),
+            RedactionMark(
+                page_index=0,
+                x=72,
+                y=700,
+                width=200,
+                height=14,
+                replacement_text="[REDACTED]",
+            ),
         ]
         doc.signatures = [
-            SignatureField(page_index=0, x=350, y=72,
-                           signer_name="Approver", reason="Final review"),
+            SignatureField(
+                page_index=0, x=350, y=72, signer_name="Approver", reason="Final review"
+            ),
         ]
         pdf = doc.render()
         assert b"%PDF-1.7" in pdf

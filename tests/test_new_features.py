@@ -2,10 +2,15 @@
 figure/table numbering, custom headers/footers, SVG embedding, multi-column,
 and templates.
 """
-import pytest
+
 from emboss import (
-    Document, NumberedList, BulletList, HeaderFooter, SvgBlock,
-    CrossReferenceIndex, NumberingContext, PageSpec,
+    Document,
+    NumberedList,
+    BulletList,
+    HeaderFooter,
+    CrossReferenceIndex,
+    NumberingContext,
+    PageSpec,
 )
 
 
@@ -32,10 +37,12 @@ class TestNumberedList:
         assert runs[0][0].text == "Hello"
 
     def test_numbered_list_flat_items(self):
-        nl = NumberedList(items=[
-            "Text item",
-            BulletList(items=["Sub-a"]),
-        ])
+        nl = NumberedList(
+            items=[
+                "Text item",
+                BulletList(items=["Sub-a"]),
+            ]
+        )
         flat = nl.flat_items
         assert len(flat) == 2
         assert flat[0][0] is not None  # text item
@@ -45,41 +52,49 @@ class TestNumberedList:
 class TestNestedLists:
     def test_bullet_with_bullet_sub(self):
         doc = Document(title="Test")
-        doc.bullets([
-            "Parent 1",
-            BulletList(items=["Child A", "Child B"], bullet="-"),
-            "Parent 2",
-        ])
+        doc.bullets(
+            [
+                "Parent 1",
+                BulletList(items=["Child A", "Child B"], bullet="-"),
+                "Parent 2",
+            ]
+        )
         pdf = doc.render()
         assert len(pdf) > 0
 
     def test_bullet_with_numbered_sub(self):
         doc = Document(title="Test")
-        doc.bullets([
-            "Item one",
-            NumberedList(items=["Step 1", "Step 2"]),
-            "Item two",
-        ])
+        doc.bullets(
+            [
+                "Item one",
+                NumberedList(items=["Step 1", "Step 2"]),
+                "Item two",
+            ]
+        )
         pdf = doc.render()
         assert len(pdf) > 0
 
     def test_numbered_with_bullet_sub(self):
         doc = Document(title="Test")
-        doc.numbered([
-            "First",
-            BulletList(items=["Sub-a", "Sub-b"]),
-            "Second",
-        ])
+        doc.numbered(
+            [
+                "First",
+                BulletList(items=["Sub-a", "Sub-b"]),
+                "Second",
+            ]
+        )
         pdf = doc.render()
         assert len(pdf) > 0
 
     def test_numbered_with_numbered_sub(self):
         doc = Document(title="Test")
-        doc.numbered([
-            "Outer 1",
-            NumberedList(items=["Inner 1", "Inner 2"], start=1),
-            "Outer 2",
-        ])
+        doc.numbered(
+            [
+                "Outer 1",
+                NumberedList(items=["Inner 1", "Inner 2"], start=1),
+                "Outer 2",
+            ]
+        )
         pdf = doc.render()
         assert len(pdf) > 0
 
@@ -95,8 +110,10 @@ class TestCrossReferences:
     def test_table_label(self):
         doc = Document(title="Test")
         doc.table(
-            headers=["A"], rows=[["1"]],
-            caption="My Table", label="tbl:data",
+            headers=["A"],
+            rows=[["1"]],
+            caption="My Table",
+            label="tbl:data",
         )
         idx = CrossReferenceIndex(doc)
         assert idx.label("tbl:data") == "Table 1"
@@ -202,7 +219,9 @@ class TestCustomHeadersFooters:
         doc = Document(
             title="Test",
             header=HeaderFooter(
-                left="Custom", font_size=10.0, font_family="Courier",
+                left="Custom",
+                font_size=10.0,
+                font_family="Courier",
                 color="ff0000",
             ),
         )
@@ -215,7 +234,7 @@ class TestSvgEmbedding:
     SIMPLE_SVG = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
         '<rect x="10" y="10" width="80" height="80" fill="#3b82f6"/>'
-        '</svg>'
+        "</svg>"
     )
 
     def test_basic_svg(self):
@@ -238,7 +257,7 @@ class TestSvgEmbedding:
             '<ellipse cx="120" cy="50" rx="40" ry="20" fill="green"/>'
             '<line x1="10" y1="90" x2="190" y2="90" stroke="black" stroke-width="2"/>'
             '<polygon points="170,20 190,80 150,80" fill="blue"/>'
-            '</svg>'
+            "</svg>"
         )
         doc = Document(title="Test")
         doc.svg(svg)
@@ -249,7 +268,7 @@ class TestSvgEmbedding:
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
             '<path d="M 10 10 L 90 10 L 50 90 Z" fill="orange"/>'
-            '</svg>'
+            "</svg>"
         )
         doc = Document(title="Test")
         doc.svg(svg)
@@ -273,14 +292,14 @@ class TestMultiColumn:
     def test_two_columns(self):
         doc = Document(title="Test", page=PageSpec(columns=2))
         for i in range(4):
-            doc.paragraph(f"Block {i+1}")
+            doc.paragraph(f"Block {i + 1}")
         pdf = doc.render()
         assert len(pdf) > 0
 
     def test_three_columns(self):
         doc = Document(title="Test", page=PageSpec(columns=3, column_gap=12.0))
         for i in range(6):
-            doc.paragraph(f"Block {i+1}")
+            doc.paragraph(f"Block {i + 1}")
         pdf = doc.render()
         assert len(pdf) > 0
 
@@ -288,6 +307,7 @@ class TestMultiColumn:
 class TestTemplates:
     def test_memo(self):
         from emboss.templates import memo
+
         doc = memo(title="Weekly Update", author="Eng")
         doc.paragraph("All clear.")
         pdf = doc.render()
@@ -295,6 +315,7 @@ class TestTemplates:
 
     def test_report(self):
         from emboss.templates import report
+
         doc = report(title="Q3 Report", author="Finance", toc=True)
         doc.heading("Summary", level=1)
         doc.paragraph("Revenue grew.")
@@ -303,6 +324,7 @@ class TestTemplates:
 
     def test_academic_paper(self):
         from emboss.templates import academic_paper
+
         doc = academic_paper(title="On Testing", author="Dr. X")
         doc.heading("Abstract", level=1)
         doc.paragraph("Results presented.")
@@ -311,6 +333,7 @@ class TestTemplates:
 
     def test_invoice(self):
         from emboss.templates import invoice
+
         doc = invoice(title="INV-001", author="Sales")
         doc.table(headers=["Item", "Price"], rows=[["Widget", "$10"]])
         pdf = doc.render()
@@ -318,6 +341,7 @@ class TestTemplates:
 
     def test_legal_brief(self):
         from emboss.templates import legal_brief
+
         doc = legal_brief(title="Motion", author="Counsel")
         doc.paragraph("Comes now the defendant.")
         pdf = doc.render()
@@ -325,6 +349,7 @@ class TestTemplates:
 
     def test_data_sheet(self):
         from emboss.templates import data_sheet
+
         doc = data_sheet(title="Metrics", author="Ops")
         doc.paragraph("Data here.")
         pdf = doc.render()
@@ -332,6 +357,7 @@ class TestTemplates:
 
     def test_letter(self):
         from emboss.templates import letter
+
         doc = letter(title="Notice", author="HR")
         doc.paragraph("Dear team.")
         pdf = doc.render()
@@ -341,33 +367,45 @@ class TestTemplates:
 class TestPydanticNewTypes:
     def test_numbered_list_spec(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
-        spec = DocumentSpec.model_validate({
-            "title": "Test",
-            "content": [
-                {"type": "numbered", "items": ["A", "B", "C"]},
-            ],
-        })
+
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Test",
+                "content": [
+                    {"type": "numbered", "items": ["A", "B", "C"]},
+                ],
+            }
+        )
         pdf = spec.render()
         assert len(pdf) > 0
 
     def test_svg_spec(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
-        spec = DocumentSpec.model_validate({
-            "title": "Test",
-            "content": [
-                {"type": "svg", "source": '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"><rect width="50" height="50" fill="blue"/></svg>'},
-            ],
-        })
+
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Test",
+                "content": [
+                    {
+                        "type": "svg",
+                        "source": '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"><rect width="50" height="50" fill="blue"/></svg>',
+                    },
+                ],
+            }
+        )
         pdf = spec.render()
         assert len(pdf) > 0
 
     def test_header_footer_spec(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
-        spec = DocumentSpec.model_validate({
-            "title": "Test",
-            "content": [{"type": "paragraph", "text": "Hello"}],
-            "header": {"left": "Title", "right": "{page}"},
-            "footer": {"center": "Page {page} of {pages}", "separator_line": True},
-        })
+
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Test",
+                "content": [{"type": "paragraph", "text": "Hello"}],
+                "header": {"left": "Title", "right": "{page}"},
+                "footer": {"center": "Page {page} of {pages}", "separator_line": True},
+            }
+        )
         pdf = spec.render()
         assert len(pdf) > 0

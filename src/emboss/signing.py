@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
+from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef
 
 __all__ = [
     "SignatureField",
@@ -56,7 +56,10 @@ def build_signature_appearance(
 
     # Background
     stream.rect(
-        sig.x, sig.y, sig.width, sig.height,
+        sig.x,
+        sig.y,
+        sig.width,
+        sig.height,
         fill="f5f5f4",
         stroke="a8a29e",
         line_width=0.75,
@@ -167,6 +170,7 @@ def can_sign() -> bool:
     """Check whether the ``cryptography`` package is available."""
     try:
         import cryptography  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -201,7 +205,7 @@ def sign_pdf(
     """
     try:
         from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.primitives.asymmetric import padding  # noqa: F401
         from cryptography.x509 import load_pem_x509_certificate
         from cryptography.hazmat.primitives.serialization import pkcs7
     except ImportError:
@@ -225,7 +229,7 @@ def sign_pdf(
         raise ValueError("No signature placeholder found in the PDF")
 
     # The signed data is everything except the placeholder
-    data_to_sign = pdf_bytes[:start] + pdf_bytes[start + len(placeholder):]
+    data_to_sign = pdf_bytes[:start] + pdf_bytes[start + len(placeholder) :]
 
     # Create PKCS#7 signature
     signature = (
@@ -243,7 +247,7 @@ def sign_pdf(
 
     # Pad signature to placeholder size and inject
     padded = signature + b"\x00" * (len(placeholder) - len(signature))
-    signed = pdf_bytes[:start] + padded + pdf_bytes[start + len(placeholder):]
+    signed = pdf_bytes[:start] + padded + pdf_bytes[start + len(placeholder) :]
 
     return signed
 

@@ -14,7 +14,7 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -55,8 +55,10 @@ class CrossReferenceIndex:
                 if anchor:
                     num = self._next("Section")
                     self._entries[anchor] = RefEntry(
-                        kind="Section", number=num,
-                        text=element.text, anchor=anchor,
+                        kind="Section",
+                        number=num,
+                        text=element.text,
+                        anchor=anchor,
                         element_index=idx,
                     )
 
@@ -66,8 +68,10 @@ class CrossReferenceIndex:
                     num = self._next("Table")
                     label = getattr(element, "label", None) or f"tbl:{num}"
                     self._entries[label] = RefEntry(
-                        kind="Table", number=num,
-                        text=caption, anchor=label,
+                        kind="Table",
+                        number=num,
+                        text=caption,
+                        anchor=label,
                         element_index=idx,
                     )
 
@@ -78,8 +82,10 @@ class CrossReferenceIndex:
                     num = self._next("Figure")
                     label = getattr(element, "label", None) or f"fig:{num}"
                     self._entries[label] = RefEntry(
-                        kind="Figure", number=num,
-                        text=caption or alt, anchor=label,
+                        kind="Figure",
+                        number=num,
+                        text=caption or alt,
+                        anchor=label,
                         element_index=idx,
                     )
 
@@ -89,8 +95,10 @@ class CrossReferenceIndex:
                     num = self._next("Figure")
                     label = getattr(element, "label", None) or f"chart:{num}"
                     self._entries[label] = RefEntry(
-                        kind="Figure", number=num,
-                        text=title, anchor=label,
+                        kind="Figure",
+                        number=num,
+                        text=title,
+                        anchor=label,
                         element_index=idx,
                     )
 
@@ -100,8 +108,10 @@ class CrossReferenceIndex:
                     num = self._next("Equation")
                     label = getattr(element, "label", None) or f"eq:{num}"
                     self._entries[label] = RefEntry(
-                        kind="Equation", number=num,
-                        text=caption, anchor=label,
+                        kind="Equation",
+                        number=num,
+                        text=caption,
+                        anchor=label,
                         element_index=idx,
                     )
 
@@ -111,8 +121,10 @@ class CrossReferenceIndex:
                     num = self._next("Listing")
                     label = getattr(element, "label", None) or f"lst:{num}"
                     self._entries[label] = RefEntry(
-                        kind="Listing", number=num,
-                        text=caption, anchor=label,
+                        kind="Listing",
+                        number=num,
+                        text=caption,
+                        anchor=label,
                         element_index=idx,
                     )
 
@@ -122,8 +134,10 @@ class CrossReferenceIndex:
                     num = self._next("Figure")
                     label = getattr(element, "label", None) or f"svg:{num}"
                     self._entries[label] = RefEntry(
-                        kind="Figure", number=num,
-                        text=caption, anchor=label,
+                        kind="Figure",
+                        number=num,
+                        text=caption,
+                        anchor=label,
                         element_index=idx,
                     )
 
@@ -165,10 +179,12 @@ class CrossReferenceIndex:
     def resolve_text(self, text: str) -> str:
         """Replace ``@key`` references in text with their resolved labels."""
         import re
+
         def _replace(match):
             key = match.group(1)
             entry = self._entries.get(key)
             if entry:
                 return entry.label
             return match.group(0)
+
         return re.sub(r"@([\w:.-]+)", _replace, text)

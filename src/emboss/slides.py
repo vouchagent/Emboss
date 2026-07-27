@@ -32,15 +32,21 @@ __all__ = [
 ]
 
 SLIDE_16_9 = PageSpec(
-    width=720.0, height=405.0,
-    margin_top=36.0, margin_right=48.0,
-    margin_bottom=36.0, margin_left=48.0,
+    width=720.0,
+    height=405.0,
+    margin_top=36.0,
+    margin_right=48.0,
+    margin_bottom=36.0,
+    margin_left=48.0,
 )
 
 SLIDE_4_3 = PageSpec(
-    width=720.0, height=540.0,
-    margin_top=40.0, margin_right=48.0,
-    margin_bottom=40.0, margin_left=48.0,
+    width=720.0,
+    height=540.0,
+    margin_top=40.0,
+    margin_right=48.0,
+    margin_bottom=40.0,
+    margin_left=48.0,
 )
 
 
@@ -92,15 +98,19 @@ def slide_document(
         doc.paragraph(
             subtitle,
             style=Style(
-                font_size=20.0, italic=True,
-                color="64748b", align="center",
+                font_size=20.0,
+                italic=True,
+                color="64748b",
+                align="center",
             ),
         )
     if author:
         doc.paragraph(
             author,
             style=Style(
-                font_size=16.0, color="94a3b8", align="center",
+                font_size=16.0,
+                color="94a3b8",
+                align="center",
             ),
         )
     doc.page_break()

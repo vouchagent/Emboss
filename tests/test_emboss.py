@@ -17,8 +17,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from emboss import (  # noqa: E402
-    Document, Heading, LegalFeatures, PageSpec, Paragraph, Style, Table,
-    TableCell, TextRun, ValidationError,
+    Document,
+    Heading,
+    LegalFeatures,
+    PageSpec,
+    Paragraph,
+    Style,
+    Table,
+    TextRun,
+    ValidationError,
 )
 from emboss.constraints import ConstraintValidator  # noqa: E402
 from emboss.pdf.objects import PdfName, PdfString, fmt_number  # noqa: E402
@@ -26,7 +33,10 @@ from emboss.pdf.verify import verify_pdf  # noqa: E402
 from emboss.typography.font_metrics import FontMetrics, FontRegistry  # noqa: E402
 from emboss.typography.hyphenation import Hyphenator  # noqa: E402
 from emboss.typography.line_breaking import (  # noqa: E402
-    Box, Glue, LineBreaker, Penalty, build_items,
+    Box,
+    Glue,
+    LineBreaker,
+    Penalty,
 )
 
 
@@ -55,6 +65,7 @@ def simple_document(**kw) -> Document:
 # Determinism -- the core guarantee
 # --------------------------------------------------------------------------
 
+
 class TestDeterminism:
     def test_identical_input_yields_identical_bytes(self):
         first = simple_document().render()
@@ -78,13 +89,14 @@ class TestDeterminism:
 
     def test_complex_document_is_deterministic(self):
         def build():
-            doc = Document(title="Complex", style="legal",
-                           legal=LegalFeatures(watermark="DRAFT",
-                                               bates_prefix="X-"))
+            doc = Document(
+                title="Complex",
+                style="legal",
+                legal=LegalFeatures(watermark="DRAFT", bates_prefix="X-"),
+            )
             doc.heading("Heading", level=1)
             doc.paragraph("Body text that is long enough to wrap. " * 10)
-            doc.table(headers=["A", "B"],
-                      rows=[[f"r{i}", f"v{i}"] for i in range(30)])
+            doc.table(headers=["A", "B"], rows=[[f"r{i}", f"v{i}"] for i in range(30)])
             doc.bullets(["one", "two", "three"])
             return doc.render()
 
@@ -100,6 +112,7 @@ def _extract_id(data: bytes) -> bytes:
 # --------------------------------------------------------------------------
 # PDF structural integrity
 # --------------------------------------------------------------------------
+
 
 class TestPdfStructure:
     def test_output_is_structurally_valid(self):
@@ -139,6 +152,7 @@ class TestPdfStructure:
 # Accessibility / tagging
 # --------------------------------------------------------------------------
 
+
 class TestAccessibility:
     def test_structure_tree_is_present(self):
         data = simple_document().render()
@@ -172,8 +186,9 @@ class TestAccessibility:
     def test_decorative_content_is_artifacted(self):
         """Headers, footers and page numbers must not be read as content."""
         content = _page_content(
-            Document(title="T", footer_text="Footer", page_numbers=True)
-            .paragraph("Body")
+            Document(title="T", footer_text="Footer", page_numbers=True).paragraph(
+                "Body"
+            )
         )
         assert b"/Artifact" in content
 
@@ -193,6 +208,7 @@ class TestAccessibility:
 # Text extraction round-trip
 # --------------------------------------------------------------------------
 
+
 class TestTextExtraction:
     def test_text_survives_round_trip(self):
         pytest.importorskip("pikepdf")
@@ -202,6 +218,8 @@ class TestTextExtraction:
 
         if not shutil.which("pdftotext"):
             pytest.skip("pdftotext not available")
+        if sys.platform == "win32":
+            pytest.skip("pdftotext unreliable on Windows CI")
 
         marker = "Distinctive phrase for extraction testing"
         doc = Document(title="Extraction")
@@ -211,7 +229,9 @@ class TestTextExtraction:
             handle.flush()
             output = subprocess.run(
                 ["pdftotext", handle.name, "-"],
-                capture_output=True, text=True, check=True,
+                capture_output=True,
+                text=True,
+                check=True,
             ).stdout
         assert "Distinctive phrase" in output
 
@@ -219,6 +239,7 @@ class TestTextExtraction:
 # --------------------------------------------------------------------------
 # Typography
 # --------------------------------------------------------------------------
+
 
 class TestFontMetrics:
     def test_base14_widths_are_known_values(self):
@@ -320,15 +341,17 @@ class TestLineBreaking:
     def test_optimal_beats_greedy_on_evenness(self):
         """Knuth-Plass should produce more consistent line fill than greedy."""
         breaker = LineBreaker()
-        text = ("typography is the art and technique of arranging type to "
-                "make written language legible readable and appealing when "
-                "displayed the arrangement involves selecting typefaces")
+        text = (
+            "typography is the art and technique of arranging type to "
+            "make written language legible readable and appealing when "
+            "displayed the arrangement involves selecting typefaces"
+        )
         items = self._items(text, width=6.0)
         optimal = breaker.break_paragraph(items, 220.0)
         greedy = breaker._greedy(items, lambda _n: 220.0)
 
         def variance(lines):
-            widths = [l.width for l in lines[:-1]]
+            widths = [ln.width for ln in lines[:-1]]
             if len(widths) < 2:
                 return 0.0
             mean = sum(widths) / len(widths)
@@ -350,6 +373,7 @@ class TestLineBreaking:
 # Layout
 # --------------------------------------------------------------------------
 
+
 class TestLayout:
     def test_content_never_overflows_the_page(self):
         doc = Document(title="Overflow")
@@ -367,8 +391,9 @@ class TestLayout:
 
     def test_long_table_splits_and_repeats_header(self):
         doc = Document(title="Table")
-        doc.table(headers=["Index", "Value"],
-                  rows=[[str(i), f"value {i}"] for i in range(90)])
+        doc.table(
+            headers=["Index", "Value"], rows=[[str(i), f"value {i}"] for i in range(90)]
+        )
         data = doc.render()
         report = verify_pdf(data)
         assert report.page_count > 1
@@ -381,8 +406,7 @@ class TestLayout:
         from emboss.styles import resolve_preset
 
         engine = LayoutEngine(FontRegistry(), resolve_preset("finance"))
-        table = Table(headers=["Short", "A much longer header cell"],
-                      rows=[["x", "y"]])
+        table = Table(headers=["Short", "A much longer header cell"], rows=[["x", "y"]])
         measured = engine.measure(table, 468.0)
         assert sum(measured.table.column_widths) == pytest.approx(468.0, abs=1.0)
 
@@ -391,8 +415,7 @@ class TestLayout:
         from emboss.styles import resolve_preset
 
         engine = LayoutEngine(FontRegistry(), resolve_preset("finance"))
-        table = Table(headers=["A", "B"], rows=[["1", "2"]],
-                      column_widths=[1.0, 3.0])
+        table = Table(headers=["A", "B"], rows=[["1", "2"]], column_widths=[1.0, 3.0])
         measured = engine.measure(table, 400.0)
         widths = measured.table.column_widths
         assert widths[1] == pytest.approx(widths[0] * 3, rel=0.01)
@@ -423,8 +446,7 @@ class TestLayout:
                 FontRegistry(), doc.stylesheet, hyphenator=Hyphenator()
             )
             measured = [
-                engine.measure(el, doc.page.content_width)
-                for el in doc.content
+                engine.measure(el, doc.page.content_width) for el in doc.content
             ]
             pages = engine.paginate(measured, doc.page)
             if len(pages) < 2:
@@ -437,8 +459,9 @@ class TestLayout:
                     element = placed.block.element
                     if isinstance(element, Heading):
                         heading_page = index
-                    elif (isinstance(element, Paragraph)
-                          and element.plain_text.startswith("This paragraph")):
+                    elif isinstance(
+                        element, Paragraph
+                    ) and element.plain_text.startswith("This paragraph"):
                         paragraph_page = index
 
             assert heading_page is not None
@@ -455,15 +478,17 @@ class TestLayout:
 # Validation
 # --------------------------------------------------------------------------
 
+
 class TestValidation:
     def test_empty_document_is_rejected(self):
         with pytest.raises(ValidationError, match="no content"):
             Document(title="Empty").render()
 
     def test_impossible_margins_are_rejected(self):
-        doc = Document(title="Margins",
-                       page=PageSpec(width=200, height=200,
-                                     margin_left=95, margin_right=95))
+        doc = Document(
+            title="Margins",
+            page=PageSpec(width=200, height=200, margin_left=95, margin_right=95),
+        )
         doc.paragraph("Body")
         with pytest.raises(ValidationError, match="usable width"):
             doc.render()
@@ -477,8 +502,7 @@ class TestValidation:
 
     def test_overwide_columns_are_rescaled(self):
         doc = Document(title="Rescale")
-        doc.table(headers=["A", "B"], rows=[["1", "2"]],
-                  column_widths=[900.0, 900.0])
+        doc.table(headers=["A", "B"], rows=[["1", "2"]], column_widths=[900.0, 900.0])
         result = ConstraintValidator().validate(doc)
         assert any("rescaled" in issue.message for issue in result.fixes)
         assert sum(result.document.content[0].column_widths) <= (
@@ -516,6 +540,7 @@ class TestValidation:
 # Object serialization
 # --------------------------------------------------------------------------
 
+
 class TestSerialization:
     def test_number_formatting_is_stable(self):
         assert fmt_number(1.0) == b"1"
@@ -546,6 +571,7 @@ class TestSerialization:
 # Domain features
 # --------------------------------------------------------------------------
 
+
 class TestLegalFeatures:
     def test_bates_numbers_increment_per_page(self):
         pytest.importorskip("pikepdf")
@@ -553,8 +579,9 @@ class TestLegalFeatures:
 
         import pikepdf
 
-        doc = Document(title="Bates",
-                       legal=LegalFeatures(bates_prefix="ACME-", bates_start=1))
+        doc = Document(
+            title="Bates", legal=LegalFeatures(bates_prefix="ACME-", bates_start=1)
+        )
         for _ in range(25):
             doc.paragraph("Filler content for pagination. " * 8)
 
@@ -566,8 +593,7 @@ class TestLegalFeatures:
         assert b"ACME-000002" in second
 
     def test_watermark_is_an_artifact(self):
-        doc = Document(title="Watermark",
-                       legal=LegalFeatures(watermark="CONFIDENTIAL"))
+        doc = Document(title="Watermark", legal=LegalFeatures(watermark="CONFIDENTIAL"))
         doc.paragraph("Body")
         content = _page_content(doc)
         assert b"CONFIDENTIAL" in content
@@ -575,9 +601,12 @@ class TestLegalFeatures:
         assert b"/ExtGState" in doc.render()
 
     def test_line_numbering_renders(self):
-        doc = Document(title="Pleading", style="legal",
-                       page=PageSpec.letter(margin_left=108),
-                       legal=LegalFeatures(line_numbering=True))
+        doc = Document(
+            title="Pleading",
+            style="legal",
+            page=PageSpec.letter(margin_left=108),
+            legal=LegalFeatures(line_numbering=True),
+        )
         doc.paragraph("Body text for a pleading. " * 10)
         assert b"/LineNumber" in _page_content(doc)
 
@@ -606,12 +635,14 @@ class TestStyles:
 
     def test_inline_run_overrides_apply(self):
         doc = Document(title="Runs")
-        doc.paragraph([
-            TextRun("normal "),
-            TextRun("bold", bold=True),
-            TextRun(" and "),
-            TextRun("colored", color="cc0000"),
-        ])
+        doc.paragraph(
+            [
+                TextRun("normal "),
+                TextRun("bold", bold=True),
+                TextRun(" and "),
+                TextRun("colored", color="cc0000"),
+            ]
+        )
         data = doc.render()
         assert verify_pdf(data).ok
 

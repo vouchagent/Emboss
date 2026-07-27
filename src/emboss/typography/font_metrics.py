@@ -11,8 +11,8 @@ This lets Phase 1 produce valid PDFs with no font files present.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 __all__ = ["FontMetrics", "FontRegistry", "BASE_14"]
@@ -57,6 +57,70 @@ _TIMES_BOLD_WIDTHS = (
 )
 _COURIER_WIDTHS = tuple([600] * 95)
 
+# Exact AFM widths for high-frequency WinAnsi codepoints beyond ASCII.
+# Keys are Unicode codepoints; values are 1000-unit em advances taken from
+# the Adobe Core Font AFM files. NBSP (U+00A0) and soft hyphen (U+00AD)
+# are derived from space and hyphen at table-build time.
+_HELVETICA_EXT = {
+    0x00A2: 556, 0x00A3: 556, 0x00A5: 556, 0x00A7: 556, 0x00A9: 737,
+    0x00AB: 556, 0x00AE: 737, 0x00B0: 400, 0x00B1: 584, 0x00B5: 556,
+    0x00B7: 278, 0x00BB: 556, 0x00D7: 584, 0x00F7: 584, 0x2013: 556,
+    0x2014: 1000, 0x2018: 222, 0x2019: 222, 0x201A: 222, 0x201C: 333,
+    0x201D: 333, 0x201E: 333, 0x2020: 556, 0x2021: 556, 0x2022: 350,
+    0x2026: 1000, 0x2030: 1000, 0x2039: 333, 0x203A: 333, 0x20AC: 556,
+    0x2122: 1000,
+}
+_HELVETICA_BOLD_EXT = {
+    0x00A2: 556, 0x00A3: 556, 0x00A5: 556, 0x00A7: 556, 0x00A9: 737,
+    0x00AB: 556, 0x00AE: 737, 0x00B0: 400, 0x00B1: 584, 0x00B5: 611,
+    0x00B7: 278, 0x00BB: 556, 0x00D7: 584, 0x00F7: 584, 0x2013: 556,
+    0x2014: 1000, 0x2018: 278, 0x2019: 278, 0x201A: 278, 0x201C: 500,
+    0x201D: 500, 0x201E: 500, 0x2020: 556, 0x2021: 556, 0x2022: 350,
+    0x2026: 1000, 0x2030: 1000, 0x2039: 333, 0x203A: 333, 0x20AC: 556,
+    0x2122: 1000,
+}
+_TIMES_EXT = {
+    0x00A2: 500, 0x00A3: 500, 0x00A5: 500, 0x00A7: 500, 0x00A9: 760,
+    0x00AB: 500, 0x00AE: 760, 0x00B0: 400, 0x00B1: 564, 0x00B5: 500,
+    0x00B7: 250, 0x00BB: 500, 0x00D7: 564, 0x00F7: 564, 0x2013: 500,
+    0x2014: 1000, 0x2018: 333, 0x2019: 333, 0x201A: 333, 0x201C: 444,
+    0x201D: 444, 0x201E: 444, 0x2020: 500, 0x2021: 500, 0x2022: 350,
+    0x2026: 1000, 0x2030: 1000, 0x2039: 333, 0x203A: 333, 0x20AC: 500,
+    0x2122: 980,
+}
+_TIMES_BOLD_EXT = {
+    0x00A2: 500, 0x00A3: 500, 0x00A5: 500, 0x00A7: 500, 0x00A9: 747,
+    0x00AB: 500, 0x00AE: 747, 0x00B0: 400, 0x00B1: 570, 0x00B5: 556,
+    0x00B7: 250, 0x00BB: 500, 0x00D7: 570, 0x00F7: 570, 0x2013: 500,
+    0x2014: 1000, 0x2018: 333, 0x2019: 333, 0x201A: 333, 0x201C: 500,
+    0x201D: 500, 0x201E: 500, 0x2020: 500, 0x2021: 500, 0x2022: 350,
+    0x2026: 1000, 0x2030: 1000, 0x2039: 333, 0x203A: 333, 0x20AC: 500,
+    0x2122: 1000,
+}
+_COURIER_EXT = dict.fromkeys(_HELVETICA_EXT, 600)
+_SYMBOL_EXT = {
+    0x00B0: 400, 0x00B1: 549, 0x00D7: 549, 0x00F7: 549, 0x2022: 460,
+    0x2026: 1000,
+}
+
+# name -> extended width table (oblique/italic variants share the tables,
+# matching how the ASCII width tuples above are shared).
+_EXTENDED_WIDTHS: dict[str, dict[int, int]] = {
+    "Helvetica": _HELVETICA_EXT,
+    "Helvetica-Bold": _HELVETICA_BOLD_EXT,
+    "Helvetica-Oblique": _HELVETICA_EXT,
+    "Helvetica-BoldOblique": _HELVETICA_BOLD_EXT,
+    "Times-Roman": _TIMES_EXT,
+    "Times-Bold": _TIMES_BOLD_EXT,
+    "Times-Italic": _TIMES_EXT,
+    "Times-BoldItalic": _TIMES_BOLD_EXT,
+    "Courier": _COURIER_EXT,
+    "Courier-Bold": _COURIER_EXT,
+    "Courier-Oblique": _COURIER_EXT,
+    "Courier-BoldOblique": _COURIER_EXT,
+    "Symbol": _SYMBOL_EXT,
+}
+
 # name -> (widths, ascender, descender, cap_height, is_fixed, flags)
 BASE_14: dict[str, tuple] = {
     "Helvetica": (_HELVETICA_WIDTHS, 718, -207, 718, False, 32),
@@ -92,12 +156,14 @@ class FontMetrics:
     font_path: Path | None = None
     _widths: dict = field(default_factory=dict)
     _kerning: dict = field(default_factory=dict)
+    _class_kerning: list = field(default_factory=list)
     _default_width: float = _MISSING_WIDTH
     _used_codepoints: set = field(default_factory=set)
     _gid_map: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._text_width_cache: dict[tuple, float] = {}
+        self._class_kern_memo: dict[tuple, float] = {}
 
     def __hash__(self) -> int:
         return id(self)
@@ -115,6 +181,10 @@ class FontMetrics:
         table = {
             _FIRST_PRINTABLE + i: float(w) for i, w in enumerate(widths)
         }
+        for codepoint, width in _EXTENDED_WIDTHS.get(name, {}).items():
+            table[codepoint] = float(width)
+        table[0x00A0] = table[0x20]  # NBSP advances like a space
+        table[0x00AD] = table[0x2D]  # soft hyphen advances like a hyphen
         return cls(
             name=name,
             ascender=float(asc),
@@ -168,7 +238,6 @@ class FontMetrics:
                     pass
 
             name = _postscript_name(font) or path.stem
-            flags = 4 if not _is_symbolic(font) else 4
             metrics = cls(
                 name=name,
                 ascender=ascender,
@@ -180,7 +249,9 @@ class FontMetrics:
                 _widths=widths,
                 _gid_map=gid_map,
             )
-            metrics._kerning = _extract_kerning(font, scale)
+            class_tables: list = []
+            metrics._kerning = _extract_kerning(font, scale, class_tables)
+            metrics._class_kerning = class_tables
             return metrics
         finally:
             font.close()
@@ -188,7 +259,24 @@ class FontMetrics:
     # -- measurement --
 
     def width_of(self, codepoint: int) -> float:
-        return self._widths.get(codepoint, self._default_width)
+        width = self._widths.get(codepoint)
+        if width is None:
+            width = self._fallback_width(codepoint)
+        return width
+
+    def _fallback_width(self, codepoint: int) -> float:
+        """Resolve a missing codepoint via NFD decomposition to its base letter."""
+        if not self.is_embedded:
+            base = ord(unicodedata.normalize("NFD", chr(codepoint))[0])
+            if base != codepoint:
+                width = self._widths.get(base)
+                if width is not None:
+                    # Base-14 fonts carry the precomposed Latin glyphs at
+                    # the base letter's advance; cache so later lookups
+                    # are plain dict hits.
+                    self._widths[codepoint] = width
+                    return width
+        return self._default_width
 
     def text_width(self, text: str, size: float, kerning: bool = True) -> float:
         """Exact advance width of `text` at `size` points."""
@@ -200,24 +288,57 @@ class FontMetrics:
             return cached
         total = 0.0
         previous = None
+        widths = self._widths
+        kern_map = self._kerning
+        lazy = self._class_kerning
         for char in text:
             code = ord(char)
-            total += self._widths.get(code, self._default_width)
+            width = widths.get(code)
+            if width is None:
+                width = self._fallback_width(code)
+            total += width
             if kerning and previous is not None:
-                total += self._kerning.get((previous, code), 0.0)
+                adjust = kern_map.get((previous, code))
+                if adjust is None and lazy:
+                    adjust = self._resolve_class_kern(previous, code)
+                if adjust:
+                    total += adjust
             previous = code
         result = total * size / 1000.0
         if len(self._text_width_cache) < 4096:
             self._text_width_cache[cache_key] = result
         return result
 
+    def kern(self, left: int, right: int) -> float:
+        """Kerning adjustment for a codepoint pair, in 1000-unit em space."""
+        adjust = self._kerning.get((left, right))
+        if adjust is None and self._class_kerning:
+            adjust = self._resolve_class_kern(left, right)
+        return adjust or 0.0
+
+    def _resolve_class_kern(self, left: int, right: int) -> float:
+        """Resolve GPOS Format 2 class kerning on demand, memoized per pair."""
+        key = (left, right)
+        cached = self._class_kern_memo.get(key)
+        if cached is not None:
+            return cached
+        value = 0.0
+        for table in self._class_kerning:
+            adjust = table.lookup(left, right)
+            if adjust:
+                value = adjust
+                break
+        if len(self._class_kern_memo) < 65536:
+            self._class_kern_memo[key] = value
+        return value
+
     def kern_pairs(self, text: str) -> list:
         """Return (index, adjustment) pairs for kerning inside `text`."""
-        if not self._kerning or len(text) < 2:
+        if len(text) < 2 or (not self._kerning and not self._class_kerning):
             return []
         pairs = []
         for i in range(1, len(text)):
-            adjust = self._kerning.get((ord(text[i - 1]), ord(text[i])))
+            adjust = self.kern(ord(text[i - 1]), ord(text[i]))
             if adjust:
                 pairs.append((i, adjust))
         return pairs
@@ -282,13 +403,16 @@ def _is_symbolic(font) -> bool:
         return False
 
 
-def _extract_kerning(font, scale: float) -> dict:
+def _extract_kerning(
+    font, scale: float, class_tables: list | None = None
+) -> dict:
     """Pull kern pairs from the legacy ``kern`` table, then supplement
     with GPOS PairPos subtables.
 
     Legacy kern pairs take precedence when both tables define the same
     pair, because hand-tuned kern table values are typically more
-    carefully adjusted for specific pairs.
+    carefully adjusted for specific pairs. Lazy GPOS Format 2 class
+    tables are appended to ``class_tables`` when a list is supplied.
     """
     reverse_cmap: dict = {}
     for codepoint, glyph_name in font.getBestCmap().items():
@@ -309,36 +433,76 @@ def _extract_kerning(font, scale: float) -> dict:
             pass
 
     # -- GPOS PairPos subtables --
-    _extract_gpos_kerning(font, scale, reverse_cmap, pairs)
+    tables = _extract_gpos_kerning(font, scale, reverse_cmap, pairs)
+    if class_tables is not None:
+        class_tables.extend(tables)
 
     return pairs
 
 
 def _extract_gpos_kerning(
     font, scale: float, reverse_cmap: dict, pairs: dict
-) -> None:
-    """Extract kerning from GPOS PairPos (Format 1 and 2) subtables.
+) -> list:
+    """Extract GPOS PairPos kerning; Format 1 fills ``pairs`` eagerly and
+    Format 2 subtables are returned as lazy class tables.
 
     Uses ``setdefault`` so that legacy kern values are never overwritten.
-    Wrapped in a broad ``except`` so unusual GPOS structures do not
-    crash font loading.
+    Extension lookups (LookupType 9) are unwrapped to their inner PairPos
+    subtables. Wrapped in a broad ``except`` so unusual GPOS structures
+    do not crash font loading.
     """
+    tables: list = []
     if "GPOS" not in font:
-        return
+        return tables
     try:
         gpos = font["GPOS"].table
+        seen: set = set()
         for feature_record in gpos.FeatureList.FeatureRecord:
             if feature_record.FeatureTag != "kern":
                 continue
             for lookup_index in feature_record.Feature.LookupListIndex:
+                if lookup_index in seen:
+                    continue
+                seen.add(lookup_index)
                 lookup = gpos.LookupList.Lookup[lookup_index]
-                for subtable in lookup.SubTable:
-                    if subtable.Format == 1:
+                for subtable in _pair_subtables(lookup):
+                    fmt = getattr(subtable, "Format", None)
+                    if fmt == 1:
                         _gpos_format1(subtable, reverse_cmap, scale, pairs)
-                    elif subtable.Format == 2:
-                        _gpos_format2(subtable, reverse_cmap, scale, pairs)
+                    elif fmt == 2:
+                        tables.append(
+                            _ClassKernTable.from_subtable(
+                                subtable, reverse_cmap, scale
+                            )
+                        )
     except Exception:
         pass
+    return tables
+
+
+def _pair_subtables(lookup):
+    """Yield PairPos subtables, unwrapping Extension (LookupType 9) wrappers."""
+    lookup_type = getattr(lookup, "LookupType", 2)
+    if lookup_type == 9:
+        for ext in lookup.SubTable:
+            if getattr(ext, "ExtensionLookupType", None) == 2:
+                inner = getattr(ext, "ExtSubTable", None)
+                if inner is not None:
+                    yield inner
+    elif lookup_type == 2:
+        yield from lookup.SubTable
+
+
+def _pair_adjustment(record, scale: float) -> float:
+    """Summed XAdvance of Value1 and Value2, scaled to 1000-unit em space."""
+    adj = 0
+    value1 = getattr(record, "Value1", None)
+    if value1 is not None:
+        adj += getattr(value1, "XAdvance", 0) or 0
+    value2 = getattr(record, "Value2", None)
+    if value2 is not None:
+        adj += getattr(value2, "XAdvance", 0) or 0
+    return adj * scale
 
 
 def _gpos_format1(subtable, reverse_cmap, scale, pairs) -> None:
@@ -352,43 +516,72 @@ def _gpos_format1(subtable, reverse_cmap, scale, pairs) -> None:
             second_cp = reverse_cmap.get(pvr.SecondGlyph)
             if second_cp is None:
                 continue
-            adj = (
-                getattr(pvr.Value1, "XAdvance", 0) if pvr.Value1 else 0
-            )
+            adj = _pair_adjustment(pvr, scale)
             if adj:
-                pairs.setdefault((first_cp, second_cp), adj * scale)
+                pairs.setdefault((first_cp, second_cp), adj)
+
+
+@dataclass(frozen=True)
+class _ClassKernTable:
+    """Lazy GPOS PairPos Format 2 class kerning, keyed by codepoint."""
+
+    coverage: frozenset
+    class1: dict
+    class2: dict
+    values: tuple
+
+    @classmethod
+    def from_subtable(
+        cls, subtable, reverse_cmap: dict, scale: float
+    ) -> "_ClassKernTable":
+        """Convert a fontTools Format 2 subtable to codepoint-keyed form."""
+        coverage = frozenset(
+            cp
+            for g in subtable.Coverage.glyphs
+            if (cp := reverse_cmap.get(g)) is not None
+        )
+        class1 = {
+            cp: klass
+            for g, klass in subtable.ClassDef1.classDefs.items()
+            if (cp := reverse_cmap.get(g)) is not None
+        }
+        class2 = {
+            cp: klass
+            for g, klass in subtable.ClassDef2.classDefs.items()
+            if (cp := reverse_cmap.get(g)) is not None
+        }
+        values = tuple(
+            tuple(
+                _pair_adjustment(rec, scale)
+                for rec in class1_rec.Class2Record
+            )
+            for class1_rec in subtable.Class1Record
+        )
+        return cls(coverage, class1, class2, values)
+
+    def lookup(self, left: int, right: int) -> float | None:
+        """Return the class-pair adjustment, or None when left is uncovered."""
+        if left not in self.coverage:
+            return None
+        row_idx = self.class1.get(left, 0)
+        if row_idx >= len(self.values):
+            return None
+        row = self.values[row_idx]
+        col_idx = self.class2.get(right, 0)
+        if col_idx >= len(row):
+            return None
+        return row[col_idx]
 
 
 def _gpos_format2(subtable, reverse_cmap, scale, pairs) -> None:
-    """PairPos Format 2: class-based pair kerning."""
-    classDef1 = subtable.ClassDef1.classDefs
-    classDef2 = subtable.ClassDef2.classDefs
-    for cls1_idx, class1_rec in enumerate(subtable.Class1Record):
-        for cls2_idx, class2_rec in enumerate(class1_rec.Class2Record):
-            adj = (
-                getattr(class2_rec.Value1, "XAdvance", 0)
-                if class2_rec.Value1
-                else 0
-            )
-            if not adj:
-                continue
-            glyphs1 = [g for g, c in classDef1.items() if c == cls1_idx]
-            if cls1_idx == 0:
-                glyphs1.extend(
-                    g
-                    for g in subtable.Coverage.glyphs
-                    if g not in classDef1
-                )
-            glyphs2 = [g for g, c in classDef2.items() if c == cls2_idx]
-            for g1 in glyphs1:
-                cp1 = reverse_cmap.get(g1)
-                if cp1 is None:
-                    continue
-                for g2 in glyphs2:
-                    cp2 = reverse_cmap.get(g2)
-                    if cp2 is None:
-                        continue
-                    pairs.setdefault((cp1, cp2), adj * scale)
+    """PairPos Format 2 eagerly expanded to pairs; compatibility path only."""
+    table = _ClassKernTable.from_subtable(subtable, reverse_cmap, scale)
+    rights = sorted(table.class2)
+    for left in sorted(table.coverage):
+        for right in rights:
+            adj = table.lookup(left, right)
+            if adj:
+                pairs.setdefault((left, right), adj)
 
 
 class FontRegistry:

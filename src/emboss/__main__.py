@@ -211,11 +211,7 @@ def _validate(args: argparse.Namespace) -> int:
         print(f"invalid: {exc}", file=sys.stderr)
         return 1
 
-    print(
-        f"valid: {spec.title!r}, "
-        f"{len(spec.content)} blocks, "
-        f"style={spec.style}"
-    )
+    print(f"valid: {spec.title!r}, {len(spec.content)} blocks, style={spec.style}")
     return 0
 
 
@@ -225,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Emboss — constraint-driven PDF generation for LLM pipelines",
     )
     parser.add_argument(
-        "--version", action="version",
+        "--version",
+        action="version",
         version=f"%(prog)s {_get_version()}",
     )
     sub = parser.add_subparsers(dest="command")
@@ -236,15 +233,24 @@ def main(argv: list[str] | None = None) -> int:
         description="Convert a JSON document specification to a professionally typeset PDF.",
     )
     render_p.add_argument("input", help="JSON spec file path, or '-' for stdin")
-    render_p.add_argument("-o", "--output", default="output.pdf", help="Output PDF path (default: output.pdf)")
-    render_p.add_argument("-q", "--quiet", action="store_true", help="Suppress status output")
+    render_p.add_argument(
+        "-o",
+        "--output",
+        default="output.pdf",
+        help="Output PDF path (default: output.pdf)",
+    )
+    render_p.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress status output"
+    )
 
     schema_p = sub.add_parser(
         "schema",
         help="Export the JSON Schema for LLM prompt engineering",
         description="Generate the JSON Schema that LLMs use to produce valid document specs.",
     )
-    schema_p.add_argument("-o", "--output", default=None, help="Write to file instead of stdout")
+    schema_p.add_argument(
+        "-o", "--output", default=None, help="Write to file instead of stdout"
+    )
     schema_p.add_argument("-q", "--quiet", action="store_true")
 
     verify_p = sub.add_parser(
@@ -260,12 +266,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     export_p.add_argument("input", help="JSON spec file path, or '-' for stdin")
     export_p.add_argument(
-        "-f", "--format",
+        "-f",
+        "--format",
         choices=["html", "markdown", "office-json"],
         default="html",
         help="Output format (default: html)",
     )
-    export_p.add_argument("-o", "--output", default=None, help="Write to file instead of stdout")
+    export_p.add_argument(
+        "-o", "--output", default=None, help="Write to file instead of stdout"
+    )
     export_p.add_argument("-q", "--quiet", action="store_true")
 
     analyze_p = sub.add_parser(

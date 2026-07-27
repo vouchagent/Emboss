@@ -65,15 +65,14 @@ def parse_svg(source: str | bytes) -> SvgImage:
 
     elements = []
     _collect(root, elements)
-    return SvgImage(width=width, height=height, view_box=view_box,
-                    elements=elements)
+    return SvgImage(width=width, height=height, view_box=view_box, elements=elements)
 
 
 def _parse_length(value: str) -> float:
     value = value.strip()
     for suffix in ("px", "pt", "mm", "cm", "in", "em", "%"):
         if value.endswith(suffix):
-            value = value[:-len(suffix)]
+            value = value[: -len(suffix)]
             break
     try:
         return float(value)
@@ -100,13 +99,21 @@ def _hex_color(value: str | None) -> str | None:
     if value.startswith("#"):
         h = value[1:]
         if len(h) == 3:
-            h = h[0]*2 + h[1]*2 + h[2]*2
+            h = h[0] * 2 + h[1] * 2 + h[2] * 2
         return h.lower()
     named = {
-        "black": "000000", "white": "ffffff", "red": "ff0000",
-        "green": "008000", "blue": "0000ff", "yellow": "ffff00",
-        "gray": "808080", "grey": "808080", "orange": "ffa500",
-        "purple": "800080", "navy": "000080", "teal": "008080",
+        "black": "000000",
+        "white": "ffffff",
+        "red": "ff0000",
+        "green": "008000",
+        "blue": "0000ff",
+        "yellow": "ffff00",
+        "gray": "808080",
+        "grey": "808080",
+        "orange": "ffa500",
+        "purple": "800080",
+        "navy": "000080",
+        "teal": "008080",
     }
     return named.get(value.lower())
 
@@ -122,8 +129,14 @@ def _style_attrs(el: SvgElement) -> dict:
     return result
 
 
-def render_svg(stream, svg: SvgImage, x: float, y: float,
-               display_width: float, display_height: float) -> None:
+def render_svg(
+    stream,
+    svg: SvgImage,
+    x: float,
+    y: float,
+    display_width: float,
+    display_height: float,
+) -> None:
     sx = display_width / svg.aspect_width if svg.aspect_width else 1.0
     sy = display_height / svg.aspect_height if svg.aspect_height else 1.0
 
@@ -173,16 +186,20 @@ def render_svg(stream, svg: SvgImage, x: float, y: float,
         elif el.tag == "path":
             d = attrs.get("d", "")
             if d:
-                _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke,
-                           stroke_w)
+                _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w)
 
         elif el.tag == "polygon" or el.tag == "polyline":
             points_str = attrs.get("points", "")
             if points_str:
                 points = _parse_points(points_str, x, y, ox, oy, sx, sy)
                 if points:
-                    _draw_polygon(stream, points, fill if el.tag == "polygon" else None,
-                                  stroke, stroke_w)
+                    _draw_polygon(
+                        stream,
+                        points,
+                        fill if el.tag == "polygon" else None,
+                        stroke,
+                        stroke_w,
+                    )
 
     stream.restore()
 
@@ -192,7 +209,7 @@ def _parse_points(s: str, x, y, ox, oy, sx, sy):
     points = []
     for i in range(0, len(nums) - 1, 2):
         px = (float(nums[i]) - ox) * sx + x
-        py = y - (float(nums[i+1]) - oy) * sy
+        py = y - (float(nums[i + 1]) - oy) * sy
         points.append((px, py))
     return points
 
@@ -201,10 +218,18 @@ def _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w):
     k = 0.5522847498
     ops = []
     ops.append(f"{cx + r:.4f} {cy:.4f} m")
-    ops.append(f"{cx + r:.4f} {cy + r*k:.4f} {cx + r*k:.4f} {cy + r:.4f} {cx:.4f} {cy + r:.4f} c")
-    ops.append(f"{cx - r*k:.4f} {cy + r:.4f} {cx - r:.4f} {cy + r*k:.4f} {cx - r:.4f} {cy:.4f} c")
-    ops.append(f"{cx - r:.4f} {cy - r*k:.4f} {cx - r*k:.4f} {cy - r:.4f} {cx:.4f} {cy - r:.4f} c")
-    ops.append(f"{cx + r*k:.4f} {cy - r:.4f} {cx + r:.4f} {cy - r*k:.4f} {cx + r:.4f} {cy:.4f} c")
+    ops.append(
+        f"{cx + r:.4f} {cy + r * k:.4f} {cx + r * k:.4f} {cy + r:.4f} {cx:.4f} {cy + r:.4f} c"
+    )
+    ops.append(
+        f"{cx - r * k:.4f} {cy + r:.4f} {cx - r:.4f} {cy + r * k:.4f} {cx - r:.4f} {cy:.4f} c"
+    )
+    ops.append(
+        f"{cx - r:.4f} {cy - r * k:.4f} {cx - r * k:.4f} {cy - r:.4f} {cx:.4f} {cy - r:.4f} c"
+    )
+    ops.append(
+        f"{cx + r * k:.4f} {cy - r:.4f} {cx + r:.4f} {cy - r * k:.4f} {cx + r:.4f} {cy:.4f} c"
+    )
     _fill_stroke(stream, ops, fill, stroke, stroke_w)
 
 
@@ -213,20 +238,36 @@ def _draw_ellipse(stream, cx, cy, rx, ry, fill, stroke, stroke_w):
     ky = 0.5522847498 * ry
     ops = []
     ops.append(f"{cx + rx:.4f} {cy:.4f} m")
-    ops.append(f"{cx + rx:.4f} {cy + ky:.4f} {cx + kx:.4f} {cy + ry:.4f} {cx:.4f} {cy + ry:.4f} c")
-    ops.append(f"{cx - kx:.4f} {cy + ry:.4f} {cx - rx:.4f} {cy + ky:.4f} {cx - rx:.4f} {cy:.4f} c")
-    ops.append(f"{cx - rx:.4f} {cy - ky:.4f} {cx - kx:.4f} {cy - ry:.4f} {cx:.4f} {cy - ry:.4f} c")
-    ops.append(f"{cx + kx:.4f} {cy - ry:.4f} {cx + rx:.4f} {cy - ky:.4f} {cx + rx:.4f} {cy:.4f} c")
+    ops.append(
+        f"{cx + rx:.4f} {cy + ky:.4f} {cx + kx:.4f} {cy + ry:.4f} {cx:.4f} {cy + ry:.4f} c"
+    )
+    ops.append(
+        f"{cx - kx:.4f} {cy + ry:.4f} {cx - rx:.4f} {cy + ky:.4f} {cx - rx:.4f} {cy:.4f} c"
+    )
+    ops.append(
+        f"{cx - rx:.4f} {cy - ky:.4f} {cx - kx:.4f} {cy - ry:.4f} {cx:.4f} {cy - ry:.4f} c"
+    )
+    ops.append(
+        f"{cx + kx:.4f} {cy - ry:.4f} {cx + rx:.4f} {cy - ky:.4f} {cx + rx:.4f} {cy:.4f} c"
+    )
     _fill_stroke(stream, ops, fill, stroke, stroke_w)
 
 
 def _fill_stroke(stream, ops, fill, stroke, stroke_w):
     raw_lines = []
     if fill:
-        r, g, b = int(fill[0:2], 16)/255, int(fill[2:4], 16)/255, int(fill[4:6], 16)/255
+        r, g, b = (
+            int(fill[0:2], 16) / 255,
+            int(fill[2:4], 16) / 255,
+            int(fill[4:6], 16) / 255,
+        )
         raw_lines.append(f"{r:.4f} {g:.4f} {b:.4f} rg")
     if stroke:
-        r, g, b = int(stroke[0:2], 16)/255, int(stroke[2:4], 16)/255, int(stroke[4:6], 16)/255
+        r, g, b = (
+            int(stroke[0:2], 16) / 255,
+            int(stroke[2:4], 16) / 255,
+            int(stroke[4:6], 16) / 255,
+        )
         raw_lines.append(f"{r:.4f} {g:.4f} {b:.4f} RG")
         raw_lines.append(f"{stroke_w:.4f} w")
     raw_lines.extend(ops)
@@ -251,7 +292,9 @@ def _draw_polygon(stream, points, fill, stroke, stroke_w):
 
 
 def _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w):
-    tokens = re.findall(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?", d)
+    tokens = re.findall(
+        r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?", d
+    )
     ops = []
     i = 0
     cx_cur, cy_cur = 0.0, 0.0
@@ -270,23 +313,23 @@ def _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w):
         i += 1
 
         if cmd == "M":
-            cx_cur, cy_cur = float(tokens[i]), float(tokens[i+1])
+            cx_cur, cy_cur = float(tokens[i]), float(tokens[i + 1])
             ops.append(f"{tx(cx_cur):.4f} {ty(cy_cur):.4f} m")
             i += 2
         elif cmd == "m":
             cx_cur += float(tokens[i])
-            cy_cur += float(tokens[i+1])
+            cy_cur += float(tokens[i + 1])
             ops.append(f"{tx(cx_cur):.4f} {ty(cy_cur):.4f} m")
             i += 2
         elif cmd == "L":
             while i < len(tokens) and tokens[i][0] not in "MmLlHhVvCcSsQqTtAaZz":
-                cx_cur, cy_cur = float(tokens[i]), float(tokens[i+1])
+                cx_cur, cy_cur = float(tokens[i]), float(tokens[i + 1])
                 ops.append(f"{tx(cx_cur):.4f} {ty(cy_cur):.4f} l")
                 i += 2
         elif cmd == "l":
             while i < len(tokens) and tokens[i][0] not in "MmLlHhVvCcSsQqTtAaZz":
                 cx_cur += float(tokens[i])
-                cy_cur += float(tokens[i+1])
+                cy_cur += float(tokens[i + 1])
                 ops.append(f"{tx(cx_cur):.4f} {ty(cy_cur):.4f} l")
                 i += 2
         elif cmd == "H":
@@ -307,20 +350,24 @@ def _draw_path(stream, d, x, y, ox, oy, sx, sy, fill, stroke, stroke_w):
             i += 1
         elif cmd == "C":
             while i + 5 < len(tokens) and tokens[i][0] not in "MmLlHhVvCcSsQqTtAaZz":
-                x1, y1 = float(tokens[i]), float(tokens[i+1])
-                x2, y2 = float(tokens[i+2]), float(tokens[i+3])
-                cx_cur, cy_cur = float(tokens[i+4]), float(tokens[i+5])
-                ops.append(f"{tx(x1):.4f} {ty(y1):.4f} {tx(x2):.4f} {ty(y2):.4f} {tx(cx_cur):.4f} {ty(cy_cur):.4f} c")
+                x1, y1 = float(tokens[i]), float(tokens[i + 1])
+                x2, y2 = float(tokens[i + 2]), float(tokens[i + 3])
+                cx_cur, cy_cur = float(tokens[i + 4]), float(tokens[i + 5])
+                ops.append(
+                    f"{tx(x1):.4f} {ty(y1):.4f} {tx(x2):.4f} {ty(y2):.4f} {tx(cx_cur):.4f} {ty(cy_cur):.4f} c"
+                )
                 i += 6
         elif cmd == "c":
             while i + 5 < len(tokens) and tokens[i][0] not in "MmLlHhVvCcSsQqTtAaZz":
                 x1 = cx_cur + float(tokens[i])
-                y1 = cy_cur + float(tokens[i+1])
-                x2 = cx_cur + float(tokens[i+2])
-                y2 = cy_cur + float(tokens[i+3])
-                cx_cur += float(tokens[i+4])
-                cy_cur += float(tokens[i+5])
-                ops.append(f"{tx(x1):.4f} {ty(y1):.4f} {tx(x2):.4f} {ty(y2):.4f} {tx(cx_cur):.4f} {ty(cy_cur):.4f} c")
+                y1 = cy_cur + float(tokens[i + 1])
+                x2 = cx_cur + float(tokens[i + 2])
+                y2 = cy_cur + float(tokens[i + 3])
+                cx_cur += float(tokens[i + 4])
+                cy_cur += float(tokens[i + 5])
+                ops.append(
+                    f"{tx(x1):.4f} {ty(y1):.4f} {tx(x2):.4f} {ty(y2):.4f} {tx(cx_cur):.4f} {ty(cy_cur):.4f} c"
+                )
                 i += 6
         elif cmd in ("Z", "z"):
             ops.append("h")

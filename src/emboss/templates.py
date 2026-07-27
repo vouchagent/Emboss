@@ -19,8 +19,14 @@ from __future__ import annotations
 from .spec import Document, HeaderFooter, LegalFeatures, PageSpec
 
 __all__ = [
-    "memo", "report", "letter", "invoice", "academic_paper",
-    "legal_brief", "slide_deck", "data_sheet",
+    "memo",
+    "report",
+    "letter",
+    "invoice",
+    "academic_paper",
+    "legal_brief",
+    "slide_deck",
+    "data_sheet",
 ]
 
 
@@ -36,8 +42,9 @@ def memo(*, title: str = "", author: str = "", **kw) -> Document:
     )
 
 
-def report(*, title: str = "", author: str = "", subject: str = "",
-           toc: bool = True, **kw) -> Document:
+def report(
+    *, title: str = "", author: str = "", subject: str = "", toc: bool = True, **kw
+) -> Document:
     """A formal report with table of contents and structured headers."""
     return Document(
         title=title,
@@ -78,9 +85,9 @@ def invoice(*, title: str = "Invoice", author: str = "", **kw) -> Document:
     )
 
 
-def academic_paper(*, title: str = "", author: str = "",
-                   subject: str = "", toc: bool = True,
-                   **kw) -> Document:
+def academic_paper(
+    *, title: str = "", author: str = "", subject: str = "", toc: bool = True, **kw
+) -> Document:
     """An academic paper: Times body, Helvetica headings, justified."""
     return Document(
         title=title,
@@ -94,8 +101,9 @@ def academic_paper(*, title: str = "", author: str = "",
     )
 
 
-def legal_brief(*, title: str = "", author: str = "",
-                line_numbering: bool = True, **kw) -> Document:
+def legal_brief(
+    *, title: str = "", author: str = "", line_numbering: bool = True, **kw
+) -> Document:
     """A legal brief with line numbering and generous margins."""
     return Document(
         title=title,
@@ -116,9 +124,9 @@ def legal_brief(*, title: str = "", author: str = "",
 
 def slide_deck(*, title: str = "", author: str = "", **kw) -> Document:
     """A landscape presentation deck."""
-    from .slides import slide_document, SlideConfig
-    config = SlideConfig(title=title, author=author)
-    return slide_document(config)
+    from .slides import slide_document
+
+    return slide_document(title=title, author=author, **kw)
 
 
 def data_sheet(*, title: str = "", author: str = "", **kw) -> Document:

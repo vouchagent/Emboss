@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
 
-from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
+from .pdf.objects import PdfName, PdfRef, PdfStream
 
 __all__ = ["ImageData", "load_image", "image_xobject"]
 
@@ -52,6 +52,7 @@ def load_image(source: Union[str, bytes, Path]) -> ImageData:
 # JPEG
 # ---------------------------------------------------------------------------
 
+
 def _parse_jpeg(data: bytes) -> ImageData:
     """Parse JPEG header for dimensions and component count.
 
@@ -81,8 +82,20 @@ def _parse_jpeg(data: bytes) -> ImageData:
                 data=data,
                 filter="DCTDecode",
             )
-        if marker in (0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
-                       0xD8, 0xD9, 0x01, 0x00):
+        if marker in (
+            0xD0,
+            0xD1,
+            0xD2,
+            0xD3,
+            0xD4,
+            0xD5,
+            0xD6,
+            0xD7,
+            0xD8,
+            0xD9,
+            0x01,
+            0x00,
+        ):
             continue
         if i + 2 <= len(data):
             length = struct.unpack(">H", data[i : i + 2])[0]
@@ -95,6 +108,7 @@ def _parse_jpeg(data: bytes) -> ImageData:
 # ---------------------------------------------------------------------------
 # PNG
 # ---------------------------------------------------------------------------
+
 
 def _parse_png(data: bytes) -> ImageData:
     """Parse PNG chunks: read IHDR, collect IDAT, un-filter scanlines."""
@@ -185,7 +199,10 @@ def _parse_png(data: bytes) -> ImageData:
                 for c in range(color_channels):
                     rgb.extend(scanlines[px_start + c * bpc : px_start + (c + 1) * bpc])
                 alpha.extend(
-                    scanlines[px_start + color_channels * bpc : px_start + (color_channels + 1) * bpc]
+                    scanlines[
+                        px_start + color_channels * bpc : px_start
+                        + (color_channels + 1) * bpc
+                    ]
                 )
         pixel_data = zlib.compress(bytes(rgb), 6)
         alpha_data = zlib.compress(bytes(alpha), 6)
@@ -254,6 +271,7 @@ def _paeth_predictor(a: int, b: int, c: int) -> int:
 # ---------------------------------------------------------------------------
 # PDF XObject
 # ---------------------------------------------------------------------------
+
 
 def image_xobject(assembler, image: ImageData) -> PdfRef:
     """Create the PDF XObject for an image and return its reference."""

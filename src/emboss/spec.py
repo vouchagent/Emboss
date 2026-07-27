@@ -17,11 +17,29 @@ from typing import Literal, Sequence, Union
 from .styles import Style, StyleSheet, resolve_preset
 
 __all__ = [
-    "TextRun", "Heading", "Paragraph", "BulletList", "NumberedList",
-    "Table", "TableCell",
-    "Image", "Chart", "Footnote", "Callout", "MathBlock", "CodeBlock",
-    "SvgBlock", "BibliographyBlock", "Citation", "PageBreak", "HorizontalRule",
-    "PageSpec", "Document", "LegalFeatures", "HeaderFooter", "BlockElement",
+    "TextRun",
+    "Heading",
+    "Paragraph",
+    "BulletList",
+    "NumberedList",
+    "Table",
+    "TableCell",
+    "Image",
+    "Chart",
+    "Footnote",
+    "Callout",
+    "MathBlock",
+    "CodeBlock",
+    "SvgBlock",
+    "BibliographyBlock",
+    "Citation",
+    "PageBreak",
+    "HorizontalRule",
+    "PageSpec",
+    "Document",
+    "LegalFeatures",
+    "HeaderFooter",
+    "BlockElement",
 ]
 
 Alignment = Literal["left", "center", "right", "justify"]
@@ -128,8 +146,11 @@ class BulletList:
 
     @property
     def item_runs(self) -> list:
-        return [_as_runs(item) for item in self.items
-                if not isinstance(item, (BulletList, NumberedList))]
+        return [
+            _as_runs(item)
+            for item in self.items
+            if not isinstance(item, (BulletList, NumberedList))
+        ]
 
     @property
     def structure_tag(self) -> str:
@@ -157,8 +178,11 @@ class NumberedList:
 
     @property
     def item_runs(self) -> list:
-        return [_as_runs(item) for item in self.items
-                if not isinstance(item, (BulletList, NumberedList))]
+        return [
+            _as_runs(item)
+            for item in self.items
+            if not isinstance(item, (BulletList, NumberedList))
+        ]
 
     def marker(self, index: int) -> str:
         return f"{self.start + index}."
@@ -183,9 +207,15 @@ class TableCell:
         runs = _as_runs(self.content)
         if self.bold:
             runs = [
-                TextRun(r.text, bold=True, italic=r.italic,
-                        font_size=r.font_size, font_family=r.font_family,
-                        color=r.color, link=r.link)
+                TextRun(
+                    r.text,
+                    bold=True,
+                    italic=r.italic,
+                    font_size=r.font_size,
+                    font_family=r.font_family,
+                    color=r.color,
+                    link=r.link,
+                )
                 for r in runs
             ]
         return runs
@@ -261,6 +291,7 @@ class Chart:
     colors: Sequence | None = None
     title: str | None = None
     label: str | None = None
+    alt_text: str | None = None
     width: float = 400.0
     height: float = 250.0
     style: Style | None = None
@@ -358,6 +389,7 @@ class HorizontalRule:
 @dataclass
 class CodeBlock:
     """A code block with optional syntax highlighting."""
+
     code: str
     language: str = "text"
     line_numbers: bool = True
@@ -376,6 +408,7 @@ class CodeBlock:
 @dataclass
 class MathBlock:
     """A block-level mathematical expression."""
+
     source: str
     display: bool = True
     caption: str | None = None
@@ -390,6 +423,7 @@ class MathBlock:
 @dataclass
 class SvgBlock:
     """An embedded SVG image rendered as vector graphics."""
+
     source: str | bytes
     width: float | None = None
     height: float | None = None
@@ -409,9 +443,21 @@ from .bibliography import BibliographyBlock, Citation  # noqa: E402
 
 
 BlockElement = Union[
-    Heading, Paragraph, BulletList, NumberedList, Table, Image, Chart,
-    Footnote, Callout, CodeBlock, MathBlock, BibliographyBlock,
-    SvgBlock, PageBreak, HorizontalRule,
+    Heading,
+    Paragraph,
+    BulletList,
+    NumberedList,
+    Table,
+    Image,
+    Chart,
+    Footnote,
+    Callout,
+    CodeBlock,
+    MathBlock,
+    BibliographyBlock,
+    SvgBlock,
+    PageBreak,
+    HorizontalRule,
 ]
 
 
@@ -487,16 +533,12 @@ class LegalFeatures:
     bates_prefix: str | None = None
     bates_start: int = 1
     bates_digits: int = 6
-    bates_position: Literal["bottom-right", "bottom-left", "top-right"] = (
-        "bottom-right"
-    )
+    bates_position: Literal["bottom-right", "bottom-left", "top-right"] = "bottom-right"
     bates_font_size: float = 8.0
 
     @property
     def enabled(self) -> bool:
-        return bool(
-            self.watermark or self.line_numbering or self.bates_prefix
-        )
+        return bool(self.watermark or self.line_numbering or self.bates_prefix)
 
 
 @dataclass
@@ -528,6 +570,7 @@ class Document:
 
     def __post_init__(self) -> None:
         from .typography.font_metrics import FontRegistry
+
         self._fonts = FontRegistry()
 
     @property
@@ -574,8 +617,9 @@ class Document:
         return self.add(Image(source=source, **kw))
 
     def chart(self, chart_type, labels, values, **kw) -> "Document":
-        return self.add(Chart(chart_type=chart_type, labels=labels,
-                              values=values, **kw))
+        return self.add(
+            Chart(chart_type=chart_type, labels=labels, values=values, **kw)
+        )
 
     def footnote(self, content, **kw) -> "Document":
         return self.add(Footnote(content=content, **kw))

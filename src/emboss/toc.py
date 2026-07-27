@@ -37,12 +37,14 @@ def build_toc_entries(pages) -> list[TOCEntry]:
         for placed in page.blocks:
             element = placed.block.element
             if isinstance(element, Heading):
-                flat.append(TOCEntry(
-                    text=element.text,
-                    level=element.level,
-                    page_index=page_index,
-                    y_position=placed.y,
-                ))
+                flat.append(
+                    TOCEntry(
+                        text=element.text,
+                        level=element.level,
+                        page_index=page_index,
+                        y_position=placed.y,
+                    )
+                )
 
     return _nest(flat)
 
@@ -121,9 +123,15 @@ def _build_items(
         item["Parent"] = parent_ref
 
         page_ref = page_refs[min(entry.page_index, len(page_refs) - 1)]
-        item["Dest"] = PdfArray([
-            page_ref, PdfName("XYZ"), 0, round(entry.y_position, 2), 0,
-        ])
+        item["Dest"] = PdfArray(
+            [
+                page_ref,
+                PdfName("XYZ"),
+                0,
+                round(entry.y_position, 2),
+                0,
+            ]
+        )
 
         if idx > 0:
             item["Prev"] = refs[idx - 1]
@@ -131,9 +139,7 @@ def _build_items(
             item["Next"] = refs[idx + 1]
 
         if entry.children:
-            child_refs = _build_items(
-                assembler, entry.children, page_refs, ref
-            )
+            child_refs = _build_items(assembler, entry.children, page_refs, ref)
             item["First"] = child_refs[0]
             item["Last"] = child_refs[-1]
             item["Count"] = _count_all(entry.children)

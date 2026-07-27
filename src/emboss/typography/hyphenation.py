@@ -2,25 +2,34 @@
 
 The algorithm (Liang, 1983) scores every inter-letter position in a word
 by matching a set of patterns; odd scores permit a break, even scores
-forbid one. Full TeX pattern sets run to ~4500 entries per language --
-this module ships a reduced English set sufficient for correct behaviour
-on common text, and loads full sets from data files when present.
+forbid one. The full en-US pattern set (~4900 entries plus exceptions,
+license notice retained inside the data file) ships gzip-compressed at
+`typography/patterns/en_us.txt.gz` and is lazily loaded on first
+Hyphenator construction; a reduced built-in set is the zero-IO fallback
+when the data file is absent.
 
 Pattern files are in TeX `hyph-*.tex` format (public domain / LPPL).
-Point `HyphenationDictionary.load()` at a directory of them to get
-production-grade coverage.
+Point `Hyphenator.from_pattern_file()` at one (.tex, .txt, or .gz) for
+other languages.
 """
 
 from __future__ import annotations
 
+import gzip
 from dataclasses import dataclass, field
 from pathlib import Path
 
 __all__ = ["Hyphenator", "NO_BREAK_TERMS"]
 
+#: Lazy cache of bundled pattern tables keyed by normalised language tag.
+#: Values are (patterns, exceptions) tuples, or None when no data file
+#: exists so the lookup is not retried on every Hyphenator construction.
+_BUNDLED_TABLES: dict = {}
+
 # A reduced English pattern set. Each pattern encodes digits between
 # letters; '.' anchors to a word boundary.
-_EN_PATTERNS = """
+_EN_PATTERNS = (
+    """
 .ach4 .ad4der .af1t .al3t .am5at .an5c .ang4 .ani5m .ant4 .an3te .anti5s
 .ar5s .ar4tie .ar4ty .as3c .as1p .as1s .aster5 .atom5 .au1d .av4i .awn4
 .ba4g .ba5na .bas4e .ber4 .be5ra .be3sm .be5sto .bri2 .but4ti .cam4pe
@@ -147,7 +156,8 @@ e1s4a e4sage. e4sages es2c e2sca es5can e3scr es5cu e1s2e e2sec
 es5ecr es5enc e4sert. e4serts e4serva 4esh e3sha esh5en e1si e2sic
 e2sid es5iden es5igna e2s5im es4i4n esis4te esi4u e5skin ep5ti5b
 e4put ep5uta e1q equi3l e4q3ui3s
-""".split() + """
+""".split()
+    + """
 hy3ph he2n hena4 h4y2 y1p2h 2ph 1na4 na4t 1ti2o ti4on a2t2i 4tion. 3ation.
 5ations. 1a2tion 2ta4ble 4able. 4ably. 4ance. 4ancy. 4ence. 4ency. 4ent.
 4ment. 5ments. 4ness. 4less. 4ful. 4fully. 4ship. 4hood. 4ward. 4wise.
@@ -164,17 +174,64 @@ per1 per4son 5sonal 4sonn 5sonnel 4tribu 5bution 3lease 4lease. 4leases.
 4propri 5propriat 4pportun 4bilit 5bilities 4mplement 5mentation
 4nalys 5nalysis 4sess 5sessment 4valu 5valuati 4curit 5curity
 """.split()
+)
 
 #: Terms that must never be hyphenated in legal or financial text.
 #: Breaking these across lines changes how a reader parses them.
-NO_BREAK_TERMS = frozenset({
-    "inc", "corp", "llc", "llp", "ltd", "plc", "lp", "pa", "na", "sa",
-    "gmbh", "ag", "bv", "nv", "pty", "co", "usa", "us", "uk", "eu",
-    "sec", "irs", "fda", "ftc", "doj", "sro", "finra", "gaap", "ifrs",
-    "ebitda", "ebit", "roi", "roe", "apr", "apy", "ipo", "spac", "reit",
-    "etal", "seq", "ibid", "supra", "infra", "viz", "cf", "vs",
-    "plaintiff", "defendant", "appellant", "appellee",
-})
+NO_BREAK_TERMS = frozenset(
+    {
+        "inc",
+        "corp",
+        "llc",
+        "llp",
+        "ltd",
+        "plc",
+        "lp",
+        "pa",
+        "na",
+        "sa",
+        "gmbh",
+        "ag",
+        "bv",
+        "nv",
+        "pty",
+        "co",
+        "usa",
+        "us",
+        "uk",
+        "eu",
+        "sec",
+        "irs",
+        "fda",
+        "ftc",
+        "doj",
+        "sro",
+        "finra",
+        "gaap",
+        "ifrs",
+        "ebitda",
+        "ebit",
+        "roi",
+        "roe",
+        "apr",
+        "apy",
+        "ipo",
+        "spac",
+        "reit",
+        "etal",
+        "seq",
+        "ibid",
+        "supra",
+        "infra",
+        "viz",
+        "cf",
+        "vs",
+        "plaintiff",
+        "defendant",
+        "appellant",
+        "appellee",
+    }
+)
 
 
 def _parse_pattern(pattern: str) -> tuple:
@@ -188,6 +245,56 @@ def _parse_pattern(pattern: str) -> tuple:
             letters.append(char)
             values.append(0)
     return "".join(letters), tuple(values)
+
+
+def _strip_comments(text: str) -> str:
+    """Drop %-to-end-of-line comments from a pattern file."""
+    return "\n".join(line.split("%", 1)[0] for line in text.splitlines())
+
+
+def _extract_block(text: str, name: str) -> str:
+    """Return the body of a \\name{...} block, or '' when absent."""
+    marker = "\\" + name + "{"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    start += len(marker)
+    end = text.find("}", start)
+    return text[start:end] if end >= 0 else text[start:]
+
+
+def _parse_pattern_text(text: str) -> tuple[list, dict]:
+    """Parse pattern-file text into (pattern tokens, exception words)."""
+    text = _strip_comments(text)
+    body = _extract_block(text, "patterns") or text
+    tokens = [t for t in body.split() if not t.startswith("\\")]
+    exceptions = {}
+    for word in _extract_block(text, "hyphenation").split():
+        lowered = word.lower()
+        exceptions[lowered.replace("-", "")] = lowered.split("-")
+    return tokens, exceptions
+
+
+def _read_bundled(language: str) -> bytes:
+    """Read the gzip-compressed pattern file bundled for `language`."""
+    from importlib.resources import files
+
+    name = language.lower().replace("-", "_") + ".txt.gz"
+    return (files(__package__) / "patterns" / name).read_bytes()
+
+
+def _bundled_tables(language: str) -> tuple | None:
+    """Return cached (patterns, exceptions) for a bundled language, if any."""
+    key = language.lower().replace("_", "-")
+    if key not in _BUNDLED_TABLES:
+        try:
+            raw = gzip.decompress(_read_bundled(key))
+        except (OSError, ValueError, ModuleNotFoundError, AttributeError):
+            _BUNDLED_TABLES[key] = None
+        else:
+            tokens, exceptions = _parse_pattern_text(raw.decode("utf-8", "replace"))
+            _BUNDLED_TABLES[key] = (Hyphenator._compile(tokens), exceptions)
+    return _BUNDLED_TABLES[key]
 
 
 @dataclass
@@ -209,8 +316,18 @@ class Hyphenator:
     _cache: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
-        if not self._patterns:
+        if self._patterns:
+            return
+        bundled = None
+        if self.language.lower().replace("_", "-").startswith("en"):
+            bundled = _bundled_tables("en-us")
+        if bundled is None:
             self._patterns = self._compile(_EN_PATTERNS)
+            return
+        self._patterns = bundled[0]
+        merged = dict(bundled[1])
+        merged.update(self._exceptions)
+        self._exceptions = merged
 
     @staticmethod
     def _compile(patterns) -> dict:
@@ -223,23 +340,26 @@ class Hyphenator:
 
     @classmethod
     def load(cls, path: str | Path, language: str = "en-US") -> "Hyphenator":
-        """Load a full TeX-format pattern file.
+        """Load a full pattern file (alias of `from_pattern_file`)."""
+        return cls.from_pattern_file(path, language=language)
 
-        Accepts either a bare newline/space separated list of patterns or
-        a `\\patterns{...}` block as found in `hyph-*.tex` files.
-        """
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
-        if "\\patterns{" in text:
-            start = text.index("\\patterns{") + len("\\patterns{")
-            end = text.index("}", start)
-            text = text[start:end]
-        tokens = [
-            t for t in text.split()
-            if t and not t.startswith("%") and not t.startswith("\\")
-        ]
-        instance = cls(language=language)
-        instance._patterns = cls._compile(tokens)
-        return instance
+    @classmethod
+    def from_pattern_file(
+        cls, path: str | Path, language: str = "en-US"
+    ) -> "Hyphenator":
+        """Build a Hyphenator from a .tex, .txt, or .gz pattern file."""
+        path = Path(path)
+        if path.suffix == ".gz":
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        else:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        tokens, exceptions = _parse_pattern_text(text)
+        return cls(
+            language=language,
+            _patterns=cls._compile(tokens),
+            _exceptions=exceptions,
+        )
 
     def add_exception(self, word: str, syllables) -> None:
         """Override the pattern result for one word."""

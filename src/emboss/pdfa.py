@@ -13,7 +13,6 @@ Dates are pinned to a deterministic value so output stays reproducible.
 
 from __future__ import annotations
 
-import zlib
 
 from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 
@@ -44,7 +43,6 @@ def build_xmp_metadata(
     if keywords:
         items = [kw.strip() for kw in keywords.split(",") if kw.strip()]
         if items:
-            li = "\n".join(f"            <rdf:li>{_xml_escape(k)}</rdf:li>" for k in items)
             keyword_tags = f"""
          <pdf:Keywords>{_xml_escape(keywords)}</pdf:Keywords>"""
 
@@ -169,7 +167,9 @@ def _build_minimal_srgb_icc() -> bytes:
         # Pad to 4-byte boundary
         while len(payload) % 4 != 0:
             payload += b"\x00"
-        tag_entries.append(sig + data_offset.to_bytes(4, "big") + len(payload).to_bytes(4, "big"))
+        tag_entries.append(
+            sig + data_offset.to_bytes(4, "big") + len(payload).to_bytes(4, "big")
+        )
         tag_payloads.append(payload)
         data_offset += len(payload)
 
@@ -205,13 +205,13 @@ def _build_minimal_srgb_icc() -> bytes:
     # g=2.4, a=1/1.055≈0.9479, b=0.055/1.055≈0.0521, c=0, d=0.04045, e=1/12.92≈0.0774, f=0
     gamma_payload = b"para" + b"\x00" * 4
     gamma_payload += (3).to_bytes(2, "big") + b"\x00" * 2  # function type 3
-    gamma_payload += _s15f16(2.4)      # g
-    gamma_payload += _s15f16(0.9479)   # a
-    gamma_payload += _s15f16(0.0521)   # b
-    gamma_payload += _s15f16(0.0)      # c (not used for type 3 in this form)
+    gamma_payload += _s15f16(2.4)  # g
+    gamma_payload += _s15f16(0.9479)  # a
+    gamma_payload += _s15f16(0.0521)  # b
+    gamma_payload += _s15f16(0.0)  # c (not used for type 3 in this form)
     gamma_payload += _s15f16(0.04045)  # d
-    gamma_payload += _s15f16(0.0774)   # e
-    gamma_payload += _s15f16(0.0)      # f
+    gamma_payload += _s15f16(0.0774)  # e
+    gamma_payload += _s15f16(0.0)  # f
 
     # All three channels share the same curve
     add_tag(b"rTRC", gamma_payload)

@@ -5,6 +5,13 @@ from .hyphenation import Hyphenator
 from .line_breaking import Box, Glue, LineBreaker, Penalty, build_items
 
 __all__ = [
-    "FontMetrics", "FontRegistry", "BASE_14", "Hyphenator",
-    "LineBreaker", "Box", "Glue", "Penalty", "build_items",
+    "FontMetrics",
+    "FontRegistry",
+    "BASE_14",
+    "Hyphenator",
+    "LineBreaker",
+    "Box",
+    "Glue",
+    "Penalty",
+    "build_items",
 ]

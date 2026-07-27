@@ -3,17 +3,21 @@
 import pytest
 
 from emboss import (
-    Document, Footnote, Callout, ColorTheme, CrossReferenceIndex,
-    resolve_color, PALETTES,
+    Document,
+    Footnote,
+    Callout,
+    ColorTheme,
+    CrossReferenceIndex,
+    resolve_color,
+    PALETTES,
 )
-from emboss.colors import _SEMANTIC
-from emboss.crossref import RefEntry
 from emboss.typography.ligatures import apply_ligatures, LIGATURE_MAP
 
 
 # ===========================================================================
 # COLOR THEME TESTS
 # ===========================================================================
+
 
 class TestColors:
     def test_hex_passthrough(self):
@@ -51,14 +55,26 @@ class TestColors:
         assert theme.resolve("custom") == "abcdef"
 
     def test_palette_coverage(self):
-        expected_colors = {"slate", "gray", "red", "orange", "amber",
-                           "green", "blue", "indigo", "purple", "pink", "teal"}
+        expected_colors = {
+            "slate",
+            "gray",
+            "red",
+            "orange",
+            "amber",
+            "green",
+            "blue",
+            "indigo",
+            "purple",
+            "pink",
+            "teal",
+        }
         assert expected_colors <= set(PALETTES.keys())
 
 
 # ===========================================================================
 # FOOTNOTE TESTS
 # ===========================================================================
+
 
 class TestFootnotes:
     def test_footnote_creation(self):
@@ -99,6 +115,7 @@ class TestFootnotes:
 # CALLOUT TESTS
 # ===========================================================================
 
+
 class TestCallouts:
     def test_callout_creation(self):
         c = Callout(content="Important note.", variant="info")
@@ -135,8 +152,10 @@ class TestCallouts:
 
     def test_callout_custom_colors(self):
         c = Callout(
-            content="Custom", variant="note",
-            background="e0f2fe", border_color="0284c7",
+            content="Custom",
+            variant="note",
+            background="e0f2fe",
+            border_color="0284c7",
         )
         assert c.background == "e0f2fe"
         assert c.border_color == "0284c7"
@@ -145,6 +164,7 @@ class TestCallouts:
 # ===========================================================================
 # CROSS-REFERENCE TESTS
 # ===========================================================================
+
 
 class TestCrossReferences:
     def test_basic_cross_ref(self):
@@ -158,7 +178,9 @@ class TestCrossReferences:
         assert idx.label("sec:methods") == "Section 2"
 
     def test_figure_numbering(self, tmp_path):
-        import struct, zlib, binascii
+        import struct
+        import zlib
+        import binascii
 
         def make_png():
             buf = bytearray(b"\x89PNG\r\n\x1a\n")
@@ -233,6 +255,7 @@ class TestCrossReferences:
 # LIGATURE TESTS
 # ===========================================================================
 
+
 class TestLigatures:
     def test_fi_ligature(self):
         result = apply_ligatures("find")
@@ -270,9 +293,11 @@ class TestLigatures:
 # PYDANTIC ADAPTER TESTS
 # ===========================================================================
 
+
 class TestPydanticEnrichedTypes:
     def test_footnote_spec(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
+
         data = {
             "title": "FN Test",
             "content": [
@@ -286,6 +311,7 @@ class TestPydanticEnrichedTypes:
 
     def test_callout_spec(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
+
         data = {
             "title": "Callout Test",
             "content": [
@@ -307,9 +333,11 @@ class TestPydanticEnrichedTypes:
 # EXPORT ADAPTER TESTS
 # ===========================================================================
 
+
 class TestExportAdaptersEnriched:
     def test_html_footnote(self):
         from emboss.adapters.html_export import to_html
+
         doc = Document(title="HTML FN")
         doc.footnote("Source data.", marker="1")
         html = to_html(doc)
@@ -318,6 +346,7 @@ class TestExportAdaptersEnriched:
 
     def test_html_callout(self):
         from emboss.adapters.html_export import to_html
+
         doc = Document(title="HTML Callout")
         doc.callout("Be careful!", variant="danger", title="Danger")
         html = to_html(doc)
@@ -326,6 +355,7 @@ class TestExportAdaptersEnriched:
 
     def test_markdown_footnote(self):
         from emboss.adapters.markdown_export import to_markdown
+
         doc = Document(title="MD FN")
         doc.footnote("Ref 1.", marker="1")
         md = to_markdown(doc)
@@ -333,6 +363,7 @@ class TestExportAdaptersEnriched:
 
     def test_markdown_callout(self):
         from emboss.adapters.markdown_export import to_markdown
+
         doc = Document(title="MD Callout")
         doc.callout("Note this.", variant="info", title="Info")
         md = to_markdown(doc)
@@ -341,6 +372,7 @@ class TestExportAdaptersEnriched:
 
     def test_office_footnote(self):
         from emboss.adapters.docx_export import to_office_dict
+
         doc = Document(title="Office FN")
         doc.footnote("Source.", marker="*")
         data = to_office_dict(doc)
@@ -348,6 +380,7 @@ class TestExportAdaptersEnriched:
 
     def test_office_callout(self):
         from emboss.adapters.docx_export import to_office_dict
+
         doc = Document(title="Office Callout")
         doc.callout("Note.", variant="success")
         data = to_office_dict(doc)
@@ -357,6 +390,7 @@ class TestExportAdaptersEnriched:
 # ===========================================================================
 # INTEGRATION: FULL DOCUMENT WITH ENRICHED FEATURES
 # ===========================================================================
+
 
 class TestEnrichedIntegration:
     def test_rich_document(self):

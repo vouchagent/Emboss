@@ -48,7 +48,7 @@ Changelog = "https://github.com/GGChamp85/Emboss/blob/main/CHANGELOG.md"
 where = ["src"]
 
 [tool.setuptools.package-data]
-emboss = ["py.typed", "typography/patterns/*.txt"]
+emboss = ["py.typed", "typography/patterns/*.txt", "typography/patterns/*.txt.gz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

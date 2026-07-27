@@ -63,7 +63,11 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
         if isinstance(element, Heading):
             tag = f"h{element.level}"
             style_str = _heading_style(sheet, element.level)
-            numbering = f'<span class="numbering">{_esc(element.numbering)} </span>' if element.numbering else ""
+            numbering = (
+                f'<span class="numbering">{_esc(element.numbering)} </span>'
+                if element.numbering
+                else ""
+            )
             parts.append(f"<{tag}{style_str}>{numbering}{_esc(element.text)}</{tag}>")
 
         elif isinstance(element, Paragraph):
@@ -129,26 +133,41 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
         elif isinstance(element, Footnote):
             marker = _esc(element.marker or "*")
             runs_html = _render_runs(element.runs)
-            parts.append(f'<aside class="footnote"><sup>{marker}</sup> {runs_html}</aside>')
+            parts.append(
+                f'<aside class="footnote"><sup>{marker}</sup> {runs_html}</aside>'
+            )
 
         elif isinstance(element, Callout):
             bg = element.background or "f5f5f4"
             border = element.border_color or "a8a29e"
             runs_html = _render_runs(element.runs)
-            title_html = f"<strong>{_esc(element.title)}</strong><br>" if element.title else ""
-            icon_html = f'<span class="callout-icon">{_esc(element.icon)}</span> ' if element.icon else ""
+            title_html = (
+                f"<strong>{_esc(element.title)}</strong><br>" if element.title else ""
+            )
+            icon_html = (
+                f'<span class="callout-icon">{_esc(element.icon)}</span> '
+                if element.icon
+                else ""
+            )
             parts.append(
                 f'<div class="callout callout-{element.variant}" '
                 f'style="background:#{bg};border-left:3px solid #{border};'
                 f'padding:10px;border-radius:{element.border_radius}pt;margin:8pt 0">'
-                f'{icon_html}{title_html}{runs_html}</div>'
+                f"{icon_html}{title_html}{runs_html}</div>"
             )
 
         elif isinstance(element, CodeBlock):
             from ..code_highlight import tokenize, colorize, THEME_BACKGROUNDS
+
             bg = THEME_BACKGROUNDS.get(element.theme, "1e1e1e")
-            lang_attr = f' class="language-{_esc(element.language)}"' if element.language != "text" else ""
-            parts.append(f'<pre style="background:#{bg};padding:10px;border-radius:4px;overflow-x:auto;margin:8pt 0"><code{lang_attr}>')
+            lang_attr = (
+                f' class="language-{_esc(element.language)}"'
+                if element.language != "text"
+                else ""
+            )
+            parts.append(
+                f'<pre style="background:#{bg};padding:10px;border-radius:4px;overflow-x:auto;margin:8pt 0"><code{lang_attr}>'
+            )
             tokens = tokenize(element.code, element.language)
             colored = colorize(tokens, element.theme)
             for text, color in colored:
@@ -158,20 +177,29 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
                 parts.append(f"<p><em>{_esc(element.caption)}</em></p>")
 
         elif isinstance(element, MathBlock):
-            display = "display:block;text-align:center;margin:1em 0" if element.display else "display:inline"
+            display = (
+                "display:block;text-align:center;margin:1em 0"
+                if element.display
+                else "display:inline"
+            )
             parts.append(f'<div class="math" style="{display}">')
             parts.append(f"  <code>{_esc(element.source)}</code>")
             parts.append("</div>")
             if element.caption:
-                parts.append(f'<p style="text-align:center"><em>{_esc(element.caption)}</em></p>')
+                parts.append(
+                    f'<p style="text-align:center"><em>{_esc(element.caption)}</em></p>'
+                )
 
         elif isinstance(element, BibliographyBlock):
             from ..bibliography import format_bibliography
+
             if element.title:
                 tag = f"h{element.heading_level}"
                 parts.append(f"<{tag}>{_esc(element.title)}</{tag}>")
             entries = format_bibliography(element.citations, element.bib_style)
-            parts.append('<ol class="bibliography" style="padding-left:0;list-style:none">')
+            parts.append(
+                '<ol class="bibliography" style="padding-left:0;list-style:none">'
+            )
             for entry in entries:
                 parts.append(f"  <li>{_esc(entry)}</li>")
             parts.append("</ol>")
@@ -265,7 +293,9 @@ def _heading_style(sheet, level: int) -> str:
     parts.append(f"font-size:{style.require('font_size')}pt")
     parts.append(f"color:#{style.require('color')}")
     parts.append(f"line-height:{style.require('line_height')}")
-    parts.append(f"margin:{style.require('space_before')}pt 0 {style.require('space_after')}pt 0")
+    parts.append(
+        f"margin:{style.require('space_before')}pt 0 {style.require('space_after')}pt 0"
+    )
     return f' style="{";".join(parts)}"'
 
 
@@ -312,7 +342,11 @@ def _render_table(table, sheet) -> str:
     if table.headers:
         parts.append("  <thead><tr>")
         for cell in table.header_cells:
-            align = f' style="text-align:{cell.align}"' if cell.align and cell.align != "left" else ""
+            align = (
+                f' style="text-align:{cell.align}"'
+                if cell.align and cell.align != "left"
+                else ""
+            )
             parts.append(f"    <th{align}>{_esc(cell.plain_text)}</th>")
         parts.append("  </tr></thead>")
 

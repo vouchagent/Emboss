@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
-from .objects import PdfDict, PdfName, PdfObject, PdfRef, PdfStream, serialize
+from .objects import PdfDict, PdfObject, PdfRef, serialize
 
 __all__ = ["PDFAssembler", "AssemblyError"]
 

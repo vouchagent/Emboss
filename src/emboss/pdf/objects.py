@@ -11,8 +11,14 @@ from dataclasses import dataclass, field
 from typing import Union
 
 __all__ = [
-    "PdfName", "PdfString", "PdfRef", "PdfDict", "PdfArray", "PdfStream",
-    "fmt_number", "serialize",
+    "PdfName",
+    "PdfString",
+    "PdfRef",
+    "PdfDict",
+    "PdfArray",
+    "PdfStream",
+    "fmt_number",
+    "serialize",
 ]
 
 
@@ -171,12 +177,7 @@ class PdfStream(PdfObject):
             payload = zlib.compress(payload, self._COMPRESSION_LEVEL)
             self.dictionary["Filter"] = PdfName("FlateDecode")
         self.dictionary["Length"] = len(payload)
-        return (
-            self.dictionary.serialize()
-            + b"\nstream\n"
-            + payload
-            + b"\nendstream"
-        )
+        return self.dictionary.serialize() + b"\nstream\n" + payload + b"\nendstream"
 
 
 def serialize(obj) -> bytes:

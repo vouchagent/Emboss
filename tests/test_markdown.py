@@ -2,8 +2,17 @@
 
 from emboss import Document, parse_markdown, spec_prompt, parse_spec_json
 from emboss.spec import (
-    Heading, Paragraph, BulletList, NumberedList, Table, CodeBlock,
-    MathBlock, Image, HorizontalRule, PageBreak, Callout, TextRun,
+    Heading,
+    Paragraph,
+    BulletList,
+    NumberedList,
+    Table,
+    CodeBlock,
+    MathBlock,
+    Image,
+    HorizontalRule,
+    PageBreak,
+    Callout,
 )
 
 
@@ -253,7 +262,9 @@ class TestParseSpecJson:
         assert doc.title == "Test"
 
     def test_json_with_trailing_comma(self):
-        json_str = '{"title": "Test", "content": [{"type": "paragraph", "text": "Hi",}],}'
+        json_str = (
+            '{"title": "Test", "content": [{"type": "paragraph", "text": "Hi",}],}'
+        )
         doc = parse_spec_json(json_str)
         assert doc.title == "Test"
 
@@ -271,7 +282,9 @@ class TestParseSpecJson:
 
 class TestDocumentFromJson:
     def test_basic(self):
-        json_str = '{"title": "Test", "content": [{"type": "paragraph", "text": "Hello"}]}'
+        json_str = (
+            '{"title": "Test", "content": [{"type": "paragraph", "text": "Hello"}]}'
+        )
         doc = Document.from_json(json_str)
         assert doc.title == "Test"
 

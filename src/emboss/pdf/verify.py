@@ -52,17 +52,15 @@ def verify_pdf(data: bytes) -> VerificationReport:
     if startxref_index == -1:
         problems.append("missing startxref")
     else:
-        tail = data[startxref_index + len(b"startxref"):].strip()
+        tail = data[startxref_index + len(b"startxref") :].strip()
         match = re.match(rb"(\d+)", tail)
         if not match:
             problems.append("startxref value is not a number")
         else:
             xref_offset = int(match.group(1))
             if xref_offset >= len(data):
-                problems.append(
-                    f"startxref points past end of file ({xref_offset})"
-                )
-            elif not data[xref_offset:xref_offset + 4] == b"xref":
+                problems.append(f"startxref points past end of file ({xref_offset})")
+            elif not data[xref_offset : xref_offset + 4] == b"xref":
                 problems.append(
                     f"startxref {xref_offset} does not point at an xref table"
                 )
@@ -95,7 +93,7 @@ def verify_pdf(data: bytes) -> VerificationReport:
 
 def _verify_xref(data: bytes, offset: int, problems: list) -> int:
     """Check that every xref entry points at the object it claims."""
-    section = data[offset:offset + 40]
+    _ = data[offset : offset + 40]
     lines = data[offset:].split(b"\n", 2)
     if len(lines) < 2:
         problems.append("xref table is truncated")
@@ -113,7 +111,7 @@ def _verify_xref(data: bytes, offset: int, problems: list) -> int:
 
     for index in range(count):
         entry_offset = entries_start + index * 20
-        entry = data[entry_offset:entry_offset + 20]
+        entry = data[entry_offset : entry_offset + 20]
         if len(entry) < 18:
             problems.append(f"xref entry {index} is truncated")
             break
@@ -125,7 +123,7 @@ def _verify_xref(data: bytes, offset: int, problems: list) -> int:
         if kind == b"f":
             continue
         expected = f"{start + index} 0 obj".encode("ascii")
-        actual = data[target:target + len(expected)]
+        actual = data[target : target + len(expected)]
         if actual != expected:
             problems.append(
                 f"xref entry {start + index} points to offset {target} "

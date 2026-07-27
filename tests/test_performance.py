@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from emboss import Document, Heading, Paragraph, Table, TextRun  # noqa: E402
+from emboss import Document, TextRun  # noqa: E402
 from emboss.typography.font_metrics import FontMetrics  # noqa: E402
 from emboss.typography.line_breaking import Box, Glue, Line, Penalty, _Node  # noqa: E402
 from emboss.layout.engine import LaidOutLine, PlacedBlock  # noqa: E402
@@ -63,7 +63,7 @@ class TestTextWidthCache:
     def test_different_inputs_different_results(self):
         metrics = FontMetrics.base14("Helvetica")
         w1 = metrics.text_width("Hello", 12.0)
-        w2 = metrics.text_width("World", 12.0)
+        metrics.text_width("World", 12.0)
         # Different strings have different widths (unless coincidence)
         # but different sizes definitely differ
         w3 = metrics.text_width("Hello", 24.0)
@@ -126,10 +126,7 @@ class TestLargeDocumentPerformance:
             if i % 15 == 0:
                 doc.table(
                     headers=["Name", "Value", "Status"],
-                    rows=[
-                        [f"Item {j}", f"${j * 100:,}", "Active"]
-                        for j in range(5)
-                    ],
+                    rows=[[f"Item {j}", f"${j * 100:,}", "Active"] for j in range(5)],
                 )
             else:
                 # Varied paragraph lengths
@@ -153,10 +150,12 @@ class TestLargeDocumentPerformance:
         # Use the same text run repeatedly to exercise the cache
         repeated_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
         for i in range(100):
-            doc.paragraph([
-                TextRun(repeated_text, bold=(i % 3 == 0)),
-                TextRun(repeated_text, italic=(i % 2 == 0)),
-            ])
+            doc.paragraph(
+                [
+                    TextRun(repeated_text, bold=(i % 3 == 0)),
+                    TextRun(repeated_text, italic=(i % 2 == 0)),
+                ]
+            )
 
         start = time.perf_counter()
         pdf_bytes = doc.render()

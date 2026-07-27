@@ -15,7 +15,7 @@ from emboss.typography.font_metrics import FontMetrics
 
 def _make_test_font(path, glyph_chars=None):
     """Build a minimal valid TrueType font for testing."""
-    from fontTools.fontBuilder import FontBuilder
+    from fontTools.fontBuilder import FontBuilder  # noqa: F401
     from fontTools.pens.ttGlyphPen import TTGlyphPen
 
     if glyph_chars is None:
@@ -69,6 +69,7 @@ def _make_test_font(path, glyph_chars=None):
 # STREAM ENCODING
 # ===========================================================================
 
+
 class TestCIDEncoding:
     def test_escape_text_ascii(self):
         result = _escape_text("Hello")
@@ -120,6 +121,7 @@ class TestCIDEncoding:
 # FONT METRICS GID MAP
 # ===========================================================================
 
+
 class TestFontMetricsGIDMap:
     def test_base14_no_gid_map(self):
         metrics = FontMetrics.base14("Helvetica")
@@ -133,7 +135,7 @@ class TestFontMetricsGIDMap:
     @pytest.fixture
     def ttf_path(self, tmp_path):
         try:
-            from fontTools.fontBuilder import FontBuilder
+            from fontTools.fontBuilder import FontBuilder  # noqa: F401
         except ImportError:
             pytest.skip("fontTools required for embedded font tests")
         return _make_test_font(tmp_path / "test_font.ttf")
@@ -158,11 +160,12 @@ class TestFontMetricsGIDMap:
 # FONT BUILDING
 # ===========================================================================
 
+
 class TestCIDFontBuilding:
     @pytest.fixture
     def ttf_path(self, tmp_path):
         try:
-            from fontTools.fontBuilder import FontBuilder
+            from fontTools.fontBuilder import FontBuilder  # noqa: F401
         except ImportError:
             pytest.skip("fontTools required")
         return _make_test_font(tmp_path / "cidtest.ttf")
@@ -180,7 +183,9 @@ class TestCIDFontBuilding:
         assert b"/CIDToGIDMap /Identity" in pdf
 
     def test_tounicode_cmap_2byte(self, ttf_path):
-        import re, zlib
+        import re
+        import zlib
+
         doc = Document(title="ToUnicode Test")
         doc.fonts.register("TestFont", str(ttf_path))
         doc.paragraph("AB", style=Style(font_family="TestFont"))
@@ -240,11 +245,12 @@ class TestCIDFontBuilding:
 # SUBSET RETENTION
 # ===========================================================================
 
+
 class TestSubsetRetainGIDs:
     @pytest.fixture
     def ttf_path(self, tmp_path):
         try:
-            from fontTools.fontBuilder import FontBuilder
+            from fontTools.fontBuilder import FontBuilder  # noqa: F401
         except ImportError:
             pytest.skip("fontTools required")
         chars = {32: "space"}
@@ -263,6 +269,7 @@ class TestSubsetRetainGIDs:
 
         from fontTools.ttLib import TTFont
         from io import BytesIO
+
         subset = TTFont(BytesIO(data))
         subset_cmap = subset.getBestCmap()
 
@@ -278,11 +285,12 @@ class TestSubsetRetainGIDs:
 # END-TO-END RENDERING
 # ===========================================================================
 
+
 class TestUnicodeEndToEnd:
     @pytest.fixture
     def ttf_path(self, tmp_path):
         try:
-            from fontTools.fontBuilder import FontBuilder
+            from fontTools.fontBuilder import FontBuilder  # noqa: F401
         except ImportError:
             pytest.skip("fontTools required")
         chars = {32: "space"}
@@ -293,12 +301,9 @@ class TestUnicodeEndToEnd:
     def test_full_render_with_embedded_font(self, ttf_path):
         doc = Document(title="Full Unicode Doc")
         doc.fonts.register("Unicode", str(ttf_path))
-        doc.heading("TEST HEADING", level=1,
-                     style=Style(font_family="Unicode"))
-        doc.paragraph("ABC DEF GHI",
-                       style=Style(font_family="Unicode"))
-        doc.paragraph("JKL MNO PQR",
-                       style=Style(font_family="Unicode"))
+        doc.heading("TEST HEADING", level=1, style=Style(font_family="Unicode"))
+        doc.paragraph("ABC DEF GHI", style=Style(font_family="Unicode"))
+        doc.paragraph("JKL MNO PQR", style=Style(font_family="Unicode"))
 
         pdf = doc.render()
         assert b"%PDF-1.7" in pdf

@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from emboss.intelligence import (
     ContentAnalyzer,
     DocumentTypeDetector,
-    QualityScorer,
     SmartTypography,
     TableIntelligence,
 )
@@ -256,14 +255,16 @@ class TestContentAnalyzer:
     def test_enhance_bolds_summary_rows(self):
         spec = {
             "title": "Test",
-            "content": [{
-                "type": "table",
-                "headers": ["Item", "Amount"],
-                "rows": [
-                    ["Widget", "$100"],
-                    ["Total", "$100"],
-                ],
-            }],
+            "content": [
+                {
+                    "type": "table",
+                    "headers": ["Item", "Amount"],
+                    "rows": [
+                        ["Widget", "$100"],
+                        ["Total", "$100"],
+                    ],
+                }
+            ],
         }
         enhanced = self.analyzer.enhance_spec(spec)
         total_row = enhanced["content"][0]["rows"][1]
@@ -276,7 +277,10 @@ class TestContentAnalyzer:
             "title": "Non-Disclosure Agreement",
             "content": [
                 {"type": "heading", "text": "Recitals", "level": 1},
-                {"type": "paragraph", "text": "WHEREAS the parties herein agree pursuant to this covenant."},
+                {
+                    "type": "paragraph",
+                    "text": "WHEREAS the parties herein agree pursuant to this covenant.",
+                },
             ],
         }
         enhanced = self.analyzer.enhance_spec(spec)
@@ -297,16 +301,19 @@ class TestContentAnalyzer:
     def test_from_smart_integration(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
 
-        spec = DocumentSpec.from_smart({
-            "title": "Report",
-            "content": [
-                {"type": "heading", "text": "Summary", "level": 1},
-                {"type": "paragraph", "text": 'Revenue grew "significantly"...'},
-            ],
-        })
+        spec = DocumentSpec.from_smart(
+            {
+                "title": "Report",
+                "content": [
+                    {"type": "heading", "text": "Summary", "level": 1},
+                    {"type": "paragraph", "text": 'Revenue grew "significantly"...'},
+                ],
+            }
+        )
         assert spec.title == "Report"
         pdf = spec.render()
         from emboss.pdf.verify import verify_pdf
+
         assert verify_pdf(pdf).ok
 
 

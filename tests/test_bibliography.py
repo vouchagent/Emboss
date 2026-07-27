@@ -1,7 +1,5 @@
 """Tests for bibliography and citation system."""
 
-import pytest
-
 from emboss import Document
 from emboss.bibliography import (
     BibliographyBlock,
@@ -155,9 +153,9 @@ class TestFormatBibliography:
         assert entries[1].startswith("[2]")
 
     def test_dict_input(self):
-        entries = format_bibliography([
-            {"key": "test", "authors": ["Jane Doe"], "title": "A Study", "year": 2024}
-        ])
+        entries = format_bibliography(
+            [{"key": "test", "authors": ["Jane Doe"], "title": "A Study", "year": 2024}]
+        )
         assert len(entries) == 1
         assert "J. Doe" in entries[0]
 
@@ -189,10 +187,12 @@ class TestBibliographyRendering:
         doc = Document(title="Bibliography Test")
         doc.heading("Introduction", level=1)
         doc.paragraph("Some content with references.")
-        doc.bibliography([
-            _sample_article(),
-            _sample_book(),
-        ])
+        doc.bibliography(
+            [
+                _sample_article(),
+                _sample_book(),
+            ]
+        )
         pdf = doc.render()
         assert b"%PDF-1.7" in pdf
         assert b"%%EOF" in pdf
@@ -224,6 +224,7 @@ class TestBibliographyRendering:
             doc = Document(title="Deterministic Bib")
             doc.bibliography([_sample_article(), _sample_book()])
             return doc.render()
+
         assert make() == make()
 
     def test_verification_passes(self):

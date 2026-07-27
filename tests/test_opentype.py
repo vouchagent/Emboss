@@ -12,7 +12,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,7 +29,6 @@ from emboss.typography.font_metrics import (  # noqa: E402
 from emboss.typography.line_breaking import (  # noqa: E402
     Box,
     Glue,
-    Penalty,
     build_items,
 )
 
@@ -87,9 +86,7 @@ def _make_pairpos_format2(class1_defs, class2_defs, records, coverage_glyphs):
             class2_records.append(
                 SimpleNamespace(Value1=_make_value1(xadv) if xadv else None)
             )
-        class1_records.append(
-            SimpleNamespace(Class2Record=class2_records)
-        )
+        class1_records.append(SimpleNamespace(Class2Record=class2_records))
     subtable.Class1Record = class1_records
     return subtable
 
@@ -158,11 +155,12 @@ class TestGPOSFormat1:
         assert len(pairs) == 0
 
     def test_setdefault_does_not_overwrite(self):
-        reverse_cmap = {"A": 65, "V": 86}
+
         subtable = _make_pairpos_format1(
             [("A", [("V", -80)])],
             coverage_glyphs=["A"],
         )
+        reverse_cmap = {"A": 65, "V": 86}
         pairs = {(65, 86): -50.0}  # pre-existing kern pair
         _gpos_format1(subtable, reverse_cmap, 1.0, pairs)
         assert pairs[(65, 86)] == -50.0  # not overwritten
@@ -176,12 +174,10 @@ class TestGPOSFormat2:
         class1 = {"T": 1}
         class2 = {"o": 1}
         records = [
-            [0, 0],      # class 0 x class 0, class 0 x class 1
-            [0, -90],    # class 1 x class 0, class 1 x class 1
+            [0, 0],  # class 0 x class 0, class 0 x class 1
+            [0, -90],  # class 1 x class 0, class 1 x class 1
         ]
-        subtable = _make_pairpos_format2(
-            class1, class2, records, coverage_glyphs=["T"]
-        )
+        subtable = _make_pairpos_format2(class1, class2, records, coverage_glyphs=["T"])
         pairs: dict = {}
         _gpos_format2(subtable, reverse_cmap, 1.0, pairs)
         assert (84, 111) in pairs
@@ -193,7 +189,7 @@ class TestGPOSFormat2:
         class1 = {"V": 1}  # "A" not listed -> class 0
         class2 = {"W": 1}
         records = [
-            [0, -40],    # class 0 x class 1  -> A/W pair
+            [0, -40],  # class 0 x class 1  -> A/W pair
             [0, 0],
         ]
         subtable = _make_pairpos_format2(
@@ -212,9 +208,7 @@ class TestGPOSFormat2:
             [0, 0],
             [0, -90],
         ]
-        subtable = _make_pairpos_format2(
-            class1, class2, records, coverage_glyphs=["T"]
-        )
+        subtable = _make_pairpos_format2(class1, class2, records, coverage_glyphs=["T"])
         pairs = {(84, 111): -70.0}
         _gpos_format2(subtable, reverse_cmap, 1.0, pairs)
         assert pairs[(84, 111)] == -70.0
@@ -253,13 +247,14 @@ class TestExtractGPOSKerning:
         assert pairs == {}
 
     def test_format1_through_full_path(self):
-        reverse_cmap = {"A": 65, "V": 86}
+
         subtable = _make_pairpos_format1(
             [("A", [("V", -80)])],
             coverage_glyphs=["A"],
         )
         gpos_table = _wrap_gpos([subtable])
         font = {"GPOS": SimpleNamespace(table=gpos_table)}
+        reverse_cmap = {"A": 65, "V": 86}
         pairs: dict = {}
         _extract_gpos_kerning(font, 1.0, reverse_cmap, pairs)
         assert pairs[(65, 86)] == -80.0
@@ -270,7 +265,7 @@ class TestExtractKerningIntegration:
 
     def test_kern_table_values_take_precedence(self):
         """When both kern and GPOS define the same pair, kern wins."""
-        reverse_cmap = {"A": 65, "V": 86}
+
         subtable = _make_pairpos_format1(
             [("A", [("V", -80)])],
             coverage_glyphs=["A"],
@@ -278,9 +273,7 @@ class TestExtractKerningIntegration:
         gpos_table = _wrap_gpos([subtable])
 
         # Build a minimal mock font with both kern and GPOS
-        kern_subtable = SimpleNamespace(
-            kernTable={("A", "V"): -50}
-        )
+        kern_subtable = SimpleNamespace(kernTable={("A", "V"): -50})
         kern_table = SimpleNamespace(kernTables=[kern_subtable])
 
         cmap = {65: "A", 86: "V"}
@@ -346,9 +339,9 @@ class TestSmallCaps:
         sc_size = size * 0.8
 
         expected = (
-            m.width_of(ord("A")) * size / 1000.0      # uppercase
+            m.width_of(ord("A")) * size / 1000.0  # uppercase
             + m.width_of(ord("B")) * sc_size / 1000.0  # 'b' -> 'B' at sc_size
-            + m.width_of(ord("C")) * size / 1000.0      # uppercase
+            + m.width_of(ord("C")) * size / 1000.0  # uppercase
         )
         assert m.small_caps_width(text, size) == pytest.approx(expected)
 
@@ -361,9 +354,7 @@ class TestSmallCaps:
         m = FontMetrics.base14("Helvetica")
         text = "1.2"
         size = 12.0
-        expected = sum(
-            m.width_of(ord(ch)) * size / 1000.0 for ch in text
-        )
+        expected = sum(m.width_of(ord(ch)) * size / 1000.0 for ch in text)
         assert m.small_caps_width(text, size) == pytest.approx(expected)
 
     def test_small_caps_narrower_than_uppercase(self):
@@ -384,6 +375,7 @@ class TestSmallCaps:
 @dataclass
 class _MockRun:
     """Minimal stand-in for TextRun in build_items tests."""
+
     text: str
 
 
@@ -402,11 +394,12 @@ class TestTighterSpacing:
     def test_justified_stretch_shrink_ratios(self):
         """Justified spacing now uses 0.45 stretch, 0.30 shrink."""
         run = _MockRun(text="hello world")
-        items = build_items(
-            [run], self._metrics_for, self._size_for, justified=True
-        )
-        glues = [it for it in items if isinstance(it, Glue) and it.stretch > 0
-                 and it.stretch < 1000]
+        items = build_items([run], self._metrics_for, self._size_for, justified=True)
+        glues = [
+            it
+            for it in items
+            if isinstance(it, Glue) and it.stretch > 0 and it.stretch < 1000
+        ]
         assert len(glues) >= 1
         g = glues[0]
         m = self._metrics()
@@ -416,9 +409,7 @@ class TestTighterSpacing:
 
     def test_ragged_has_no_stretch_shrink(self):
         run = _MockRun(text="hello world")
-        items = build_items(
-            [run], self._metrics_for, self._size_for, justified=False
-        )
+        items = build_items([run], self._metrics_for, self._size_for, justified=False)
         glues = [it for it in items if isinstance(it, Glue) and it.stretch < 1000]
         for g in glues:
             assert g.stretch == 0.0
@@ -441,12 +432,8 @@ class TestTighterSpacing:
 
     def test_tracking_zero_matches_no_tracking(self):
         run = _MockRun(text="The quick fox")
-        items_none = build_items(
-            [run], self._metrics_for, self._size_for
-        )
-        items_zero = build_items(
-            [run], self._metrics_for, self._size_for, tracking=0.0
-        )
+        items_none = build_items([run], self._metrics_for, self._size_for)
+        items_zero = build_items([run], self._metrics_for, self._size_for, tracking=0.0)
         widths_none = [it.width for it in items_none if isinstance(it, Box)]
         widths_zero = [it.width for it in items_zero if isinstance(it, Box)]
         assert widths_none == widths_zero
@@ -469,8 +456,12 @@ class TestTighterSpacing:
         # Use a mock hyphenator that always breaks at position 5
         hyph = SimpleNamespace(break_points=lambda w: [5])
         items = build_items(
-            [run], self._metrics_for, self._size_for,
-            hyphenator=hyph, hyphenate=True, tracking=1.0,
+            [run],
+            self._metrics_for,
+            self._size_for,
+            hyphenator=hyph,
+            hyphenate=True,
+            tracking=1.0,
         )
         boxes = [it for it in items if isinstance(it, Box)]
         # "extra" (5 chars) and "ordinary" (8 chars)

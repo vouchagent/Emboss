@@ -1,16 +1,20 @@
 """Tests for the code block syntax highlighting feature."""
 
-import pytest
-
 from emboss import Document, CodeBlock
 from emboss.code_highlight import (
-    Token, tokenize, colorize, THEMES, THEME_BACKGROUNDS, LANGUAGES,
+    Token,
+    tokenize,
+    colorize,
+    THEMES,
+    THEME_BACKGROUNDS,
+    LANGUAGES,
 )
 
 
 # ===========================================================================
 # TOKENIZER
 # ===========================================================================
+
 
 class TestTokenizer:
     def test_plain_text(self):
@@ -98,7 +102,6 @@ class TestTokenizer:
 
     def test_json_structure(self):
         tokens = tokenize('{"key": "value", "num": 42}', "json")
-        keywords = [t for t in tokens if t.type == "keyword"]
         strings = [t for t in tokens if t.type == "string"]
         numbers = [t for t in tokens if t.type == "number"]
         assert len(strings) >= 1
@@ -127,10 +130,21 @@ class TestTokenizer:
 
     def test_unknown_language_plain(self):
         tokens = tokenize("hello", "unknown_lang")
-        assert all(t.type in ("plain", "keyword", "string", "comment",
-                               "number", "function", "type", "operator",
-                               "punctuation")
-                   for t in tokens)
+        assert all(
+            t.type
+            in (
+                "plain",
+                "keyword",
+                "string",
+                "comment",
+                "number",
+                "function",
+                "type",
+                "operator",
+                "punctuation",
+            )
+            for t in tokens
+        )
 
     def test_preserves_whitespace(self):
         tokens = tokenize("  x = 1", "python")
@@ -159,9 +173,14 @@ class TestTokenizer:
 # COLORIZER
 # ===========================================================================
 
+
 class TestColorizer:
     def test_dark_modern_theme(self):
-        tokens = [Token("def", "keyword"), Token(" ", "plain"), Token("foo", "function")]
+        tokens = [
+            Token("def", "keyword"),
+            Token(" ", "plain"),
+            Token("foo", "function"),
+        ]
         colored = colorize(tokens, "dark_modern")
         assert len(colored) == 3
         assert colored[0] == ("def", "569cd6")
@@ -183,8 +202,17 @@ class TestColorizer:
         assert colored[0][1] == "d4d4d4"
 
     def test_all_themes_have_all_types(self):
-        token_types = ["keyword", "string", "comment", "number", "operator",
-                       "function", "type", "punctuation", "plain"]
+        token_types = [
+            "keyword",
+            "string",
+            "comment",
+            "number",
+            "operator",
+            "function",
+            "type",
+            "punctuation",
+            "plain",
+        ]
         for theme_name, theme_colors in THEMES.items():
             for tt in token_types:
                 assert tt in theme_colors, f"{theme_name} missing {tt}"
@@ -198,10 +226,23 @@ class TestColorizer:
 # LANGUAGES LIST
 # ===========================================================================
 
+
 class TestLanguages:
     def test_supported_languages(self):
-        expected = {"python", "javascript", "typescript", "rust", "go",
-                    "html", "css", "sql", "json", "yaml", "shell", "bash"}
+        expected = {
+            "python",
+            "javascript",
+            "typescript",
+            "rust",
+            "go",
+            "html",
+            "css",
+            "sql",
+            "json",
+            "yaml",
+            "shell",
+            "bash",
+        }
         assert expected.issubset(set(LANGUAGES))
 
     def test_no_short_aliases_in_list(self):
@@ -214,6 +255,7 @@ class TestLanguages:
 # ===========================================================================
 # CODE BLOCK DATACLASS
 # ===========================================================================
+
 
 class TestCodeBlockSpec:
     def test_defaults(self):
@@ -249,6 +291,7 @@ class TestCodeBlockSpec:
 # ===========================================================================
 # DOCUMENT INTEGRATION
 # ===========================================================================
+
 
 class TestDocumentIntegration:
     def test_convenience_method(self):
@@ -338,6 +381,7 @@ class TestDocumentIntegration:
             doc = Document(title="Deterministic")
             doc.code_block("print('hello')", language="python")
             return doc.render()
+
         assert make() == make()
 
 
@@ -345,9 +389,11 @@ class TestDocumentIntegration:
 # ADAPTER TESTS
 # ===========================================================================
 
+
 class TestMarkdownExport:
     def test_code_block_export(self):
         from emboss.adapters.markdown_export import to_markdown
+
         doc = Document(title="MD Test")
         doc.code_block("x = 1", language="python")
         md = to_markdown(doc)
@@ -357,6 +403,7 @@ class TestMarkdownExport:
 
     def test_plain_text_no_lang(self):
         from emboss.adapters.markdown_export import to_markdown
+
         doc = Document(title="MD Plain")
         doc.code_block("hello", language="text")
         md = to_markdown(doc)
@@ -364,6 +411,7 @@ class TestMarkdownExport:
 
     def test_caption_in_markdown(self):
         from emboss.adapters.markdown_export import to_markdown
+
         doc = Document(title="MD Caption")
         doc.code_block("x = 1", language="python", caption="Example")
         md = to_markdown(doc)
@@ -373,15 +421,17 @@ class TestMarkdownExport:
 class TestHTMLExport:
     def test_code_block_export(self):
         from emboss.adapters.html_export import to_html
+
         doc = Document(title="HTML Test")
         doc.code_block("def foo(): pass", language="python")
         html = to_html(doc)
-        assert '<pre' in html
-        assert '<code' in html
-        assert 'language-python' in html
+        assert "<pre" in html
+        assert "<code" in html
+        assert "language-python" in html
 
     def test_colored_spans(self):
         from emboss.adapters.html_export import to_html
+
         doc = Document(title="HTML Colors")
         doc.code_block("def foo(): pass", language="python")
         html = to_html(doc)
@@ -389,6 +439,7 @@ class TestHTMLExport:
 
     def test_caption_in_html(self):
         from emboss.adapters.html_export import to_html
+
         doc = Document(title="HTML Caption")
         doc.code_block("x = 1", caption="Example code")
         html = to_html(doc)
@@ -398,6 +449,7 @@ class TestHTMLExport:
 class TestDocxExport:
     def test_code_block_export(self):
         from emboss.adapters.docx_export import to_office_dict
+
         doc = Document(title="DOCX Test")
         doc.code_block("x = 1", language="python", caption="Example")
         data = to_office_dict(doc)
@@ -412,6 +464,7 @@ class TestDocxExport:
 class TestPydanticSchema:
     def test_code_block_spec(self):
         from emboss.adapters.pydantic_schema import CodeBlockSpec
+
         spec = CodeBlockSpec(code="x = 1", language="python")
         element = spec.to_element()
         assert isinstance(element, CodeBlock)
@@ -420,6 +473,7 @@ class TestPydanticSchema:
 
     def test_code_block_in_document_spec(self):
         from emboss.adapters.pydantic_schema import DocumentSpec
+
         data = {
             "title": "Test",
             "content": [
@@ -437,6 +491,7 @@ class TestPydanticSchema:
 
     def test_code_block_full_options(self):
         from emboss.adapters.pydantic_schema import CodeBlockSpec
+
         spec = CodeBlockSpec(
             code="fn main() {}",
             language="rust",
@@ -458,9 +513,11 @@ class TestPydanticSchema:
 # VALIDATION
 # ===========================================================================
 
+
 class TestConstraintValidation:
     def test_code_block_passes_validation(self):
         from emboss.constraints import ConstraintValidator
+
         doc = Document(title="Validation Test")
         doc.code_block("x = 1", language="python")
         validator = ConstraintValidator()
@@ -469,12 +526,12 @@ class TestConstraintValidation:
 
     def test_code_block_not_rejected_as_unknown(self):
         from emboss.constraints import ConstraintValidator
+
         doc = Document(title="Known Type")
         doc.code_block("x = 1")
         validator = ConstraintValidator()
         result = validator.validate(doc)
         unknown_errors = [
-            i for i in result.errors
-            if "unsupported element type" in i.message
+            i for i in result.errors if "unsupported element type" in i.message
         ]
         assert len(unknown_errors) == 0

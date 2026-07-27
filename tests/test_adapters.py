@@ -45,10 +45,12 @@ SAMPLE_SPEC = {
 
 class TestDocumentSpec:
     def test_parse_minimal_spec(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Minimal",
-            "content": [{"type": "paragraph", "text": "Hello world."}],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Minimal",
+                "content": [{"type": "paragraph", "text": "Hello world."}],
+            }
+        )
         assert spec.title == "Minimal"
         assert len(spec.content) == 1
 
@@ -74,76 +76,90 @@ class TestDocumentSpec:
 
     def test_all_styles_render(self):
         for style in ("legal", "finance", "academic", "corporate", "minimal"):
-            spec = DocumentSpec.model_validate({
-                "title": f"Style {style}",
-                "style": style,
-                "content": [
-                    {"type": "heading", "text": "Test", "level": 1},
-                    {"type": "paragraph", "text": "Body text."},
-                ],
-            })
+            spec = DocumentSpec.model_validate(
+                {
+                    "title": f"Style {style}",
+                    "style": style,
+                    "content": [
+                        {"type": "heading", "text": "Test", "level": 1},
+                        {"type": "paragraph", "text": "Body text."},
+                    ],
+                }
+            )
             report = verify_pdf(spec.render())
             assert report.ok, f"style {style} failed: {report.problems}"
 
     def test_invalid_style_rejected(self):
         with pytest.raises(Exception, match="literal_error"):
-            DocumentSpec.model_validate({
-                "title": "Bad",
-                "style": "nonexistent",
-                "content": [{"type": "paragraph", "text": "x"}],
-            })
+            DocumentSpec.model_validate(
+                {
+                    "title": "Bad",
+                    "style": "nonexistent",
+                    "content": [{"type": "paragraph", "text": "x"}],
+                }
+            )
 
 
 class TestSelfHealing:
     def test_heading_level_jump_is_healed(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Healed",
-            "content": [
-                {"type": "heading", "text": "Chapter", "level": 1},
-                {"type": "heading", "text": "Deep", "level": 4},
-                {"type": "paragraph", "text": "Body."},
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Healed",
+                "content": [
+                    {"type": "heading", "text": "Chapter", "level": 1},
+                    {"type": "heading", "text": "Deep", "level": 4},
+                    {"type": "paragraph", "text": "Body."},
+                ],
+            }
+        )
         levels = [b.level for b in spec.content if isinstance(b, HeadingSpec)]
         assert levels == [1, 2]
 
     def test_empty_paragraph_gets_space(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Empty",
-            "content": [
-                {"type": "heading", "text": "H", "level": 1},
-                {"type": "paragraph"},
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Empty",
+                "content": [
+                    {"type": "heading", "text": "H", "level": 1},
+                    {"type": "paragraph"},
+                ],
+            }
+        )
         para = spec.content[1]
         assert isinstance(para, ParagraphSpec)
         assert para.text == " "
 
     def test_heading_text_stripped(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Stripped",
-            "content": [
-                {"type": "heading", "text": "  Padded Heading  ", "level": 1},
-                {"type": "paragraph", "text": "Body."},
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Stripped",
+                "content": [
+                    {"type": "heading", "text": "  Padded Heading  ", "level": 1},
+                    {"type": "paragraph", "text": "Body."},
+                ],
+            }
+        )
         assert spec.content[0].text == "Padded Heading"
 
 
 class TestAutoDecimalAlignment:
     def test_detects_numeric_columns(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Decimal",
-            "content": [{
-                "type": "table",
-                "headers": ["Item", "Price"],
-                "rows": [
-                    ["A", "$1,234.56"],
-                    ["B", "$987.65"],
-                    ["C", "$2,345.00"],
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Decimal",
+                "content": [
+                    {
+                        "type": "table",
+                        "headers": ["Item", "Price"],
+                        "rows": [
+                            ["A", "$1,234.56"],
+                            ["B", "$987.65"],
+                            ["C", "$2,345.00"],
+                        ],
+                    }
                 ],
-            }],
-        })
+            }
+        )
         table = spec.content[0]
         assert isinstance(table, TableSpec)
         for row in table.rows:
@@ -151,17 +167,21 @@ class TestAutoDecimalAlignment:
             assert hasattr(cell, "align") and cell.align == "decimal"
 
     def test_does_not_align_text_columns(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Text",
-            "content": [{
-                "type": "table",
-                "headers": ["Name", "City"],
-                "rows": [
-                    ["Alice", "New York"],
-                    ["Bob", "London"],
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Text",
+                "content": [
+                    {
+                        "type": "table",
+                        "headers": ["Name", "City"],
+                        "rows": [
+                            ["Alice", "New York"],
+                            ["Bob", "London"],
+                        ],
+                    }
                 ],
-            }],
-        })
+            }
+        )
         table = spec.content[0]
         for row in table.rows:
             for cell in row:
@@ -257,9 +277,17 @@ class TestCli:
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         out_path = tmp_path / "output.pdf"
         result = subprocess.run(
-            [sys.executable, "-m", "emboss", "render",
-             str(spec_path), "-o", str(out_path)],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "-m",
+                "emboss",
+                "render",
+                str(spec_path),
+                "-o",
+                str(out_path),
+            ],
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, result.stderr
         assert out_path.exists()
@@ -268,10 +296,10 @@ class TestCli:
     def test_render_from_stdin(self, tmp_path):
         out_path = tmp_path / "stdin.pdf"
         result = subprocess.run(
-            [sys.executable, "-m", "emboss", "render",
-             "-", "-o", str(out_path)],
+            [sys.executable, "-m", "emboss", "render", "-", "-o", str(out_path)],
             input=json.dumps(SAMPLE_SPEC),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, result.stderr
         assert out_path.exists()
@@ -281,7 +309,8 @@ class TestCli:
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         result = subprocess.run(
             [sys.executable, "-m", "emboss", "validate", str(spec_path)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "valid" in result.stdout
@@ -291,14 +320,16 @@ class TestCli:
         spec_path.write_text('{"title": ""}')
         result = subprocess.run(
             [sys.executable, "-m", "emboss", "validate", str(spec_path)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 1
 
     def test_schema_output(self):
         result = subprocess.run(
             [sys.executable, "-m", "emboss", "schema"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         schema = json.loads(result.stdout)
@@ -309,9 +340,19 @@ class TestCli:
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         out_path = tmp_path / "output.html"
         result = subprocess.run(
-            [sys.executable, "-m", "emboss", "export",
-             str(spec_path), "-f", "html", "-o", str(out_path)],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "-m",
+                "emboss",
+                "export",
+                str(spec_path),
+                "-f",
+                "html",
+                "-o",
+                str(out_path),
+            ],
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, result.stderr
         assert out_path.exists()
@@ -322,9 +363,19 @@ class TestCli:
         spec_path.write_text(json.dumps(SAMPLE_SPEC))
         out_path = tmp_path / "output.md"
         result = subprocess.run(
-            [sys.executable, "-m", "emboss", "export",
-             str(spec_path), "-f", "markdown", "-o", str(out_path)],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "-m",
+                "emboss",
+                "export",
+                str(spec_path),
+                "-f",
+                "markdown",
+                "-o",
+                str(out_path),
+            ],
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, result.stderr
         assert out_path.exists()
@@ -336,7 +387,8 @@ class TestCli:
         pdf_path.write_bytes(spec.render())
         result = subprocess.run(
             [sys.executable, "-m", "emboss", "verify", str(pdf_path)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "valid" in result.stdout
@@ -346,83 +398,101 @@ class TestRichDocumentSpec:
     """Test complex document specs that exercise all features."""
 
     def test_legal_document(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Memorandum of Understanding",
-            "style": "legal",
-            "page": {"preset": "letter", "margin_left": 108},
-            "legal": {
-                "watermark": "DRAFT",
-                "line_numbering": True,
-                "bates_prefix": "MOU-",
-            },
-            "content": [
-                {"type": "heading", "text": "Parties", "level": 1},
-                {"type": "paragraph", "text": "This Memorandum is between Party A and Party B."},
-                {"type": "heading", "text": "Terms", "level": 2},
-                {"type": "paragraph", "text": "The parties agree to the following terms and conditions as outlined herein. " * 10},
-                {"type": "heading", "text": "Signatures", "level": 2},
-                {"type": "paragraph", "text": "IN WITNESS WHEREOF, the parties have executed this agreement."},
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Memorandum of Understanding",
+                "style": "legal",
+                "page": {"preset": "letter", "margin_left": 108},
+                "legal": {
+                    "watermark": "DRAFT",
+                    "line_numbering": True,
+                    "bates_prefix": "MOU-",
+                },
+                "content": [
+                    {"type": "heading", "text": "Parties", "level": 1},
+                    {
+                        "type": "paragraph",
+                        "text": "This Memorandum is between Party A and Party B.",
+                    },
+                    {"type": "heading", "text": "Terms", "level": 2},
+                    {
+                        "type": "paragraph",
+                        "text": "The parties agree to the following terms and conditions as outlined herein. "
+                        * 10,
+                    },
+                    {"type": "heading", "text": "Signatures", "level": 2},
+                    {
+                        "type": "paragraph",
+                        "text": "IN WITNESS WHEREOF, the parties have executed this agreement.",
+                    },
+                ],
+            }
+        )
         pdf = spec.render()
         report = verify_pdf(pdf)
         assert report.ok
         assert report.page_count >= 1
 
     def test_mixed_formatting_runs(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Runs",
-            "content": [
-                {"type": "heading", "text": "Styled Text", "level": 1},
-                {
-                    "type": "paragraph",
-                    "runs": [
-                        {"text": "Revenue increased "},
-                        {"text": "24.1%", "bold": True, "color": "0d6e3f"},
-                        {"text": " year over year, with "},
-                        {"text": "operating margin", "italic": True},
-                        {"text": " at 18.2%."},
-                    ],
-                },
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Runs",
+                "content": [
+                    {"type": "heading", "text": "Styled Text", "level": 1},
+                    {
+                        "type": "paragraph",
+                        "runs": [
+                            {"text": "Revenue increased "},
+                            {"text": "24.1%", "bold": True, "color": "0d6e3f"},
+                            {"text": " year over year, with "},
+                            {"text": "operating margin", "italic": True},
+                            {"text": " at 18.2%."},
+                        ],
+                    },
+                ],
+            }
+        )
         pdf = spec.render()
         assert verify_pdf(pdf).ok
 
     def test_large_table_spanning_pages(self):
         rows = [[f"Row {i}", f"${i * 100:,.2f}", f"+{i % 20}%"] for i in range(100)]
-        spec = DocumentSpec.model_validate({
-            "title": "Large Table",
-            "content": [
-                {"type": "heading", "text": "Data", "level": 1},
-                {
-                    "type": "table",
-                    "headers": ["Item", "Amount", "Change"],
-                    "rows": rows,
-                    "stripe": True,
-                },
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Large Table",
+                "content": [
+                    {"type": "heading", "text": "Data", "level": 1},
+                    {
+                        "type": "table",
+                        "headers": ["Item", "Amount", "Change"],
+                        "rows": rows,
+                        "stripe": True,
+                    },
+                ],
+            }
+        )
         pdf = spec.render()
         report = verify_pdf(pdf)
         assert report.ok
         assert report.page_count > 1
 
     def test_all_block_types(self):
-        spec = DocumentSpec.model_validate({
-            "title": "Everything",
-            "content": [
-                {"type": "heading", "text": "Heading 1", "level": 1},
-                {"type": "paragraph", "text": "Paragraph text."},
-                {"type": "heading", "text": "Heading 2", "level": 2},
-                {"type": "bullets", "items": ["One", "Two", "Three"]},
-                {"type": "rule"},
-                {"type": "table", "headers": ["A", "B"], "rows": [["1", "2"]]},
-                {"type": "page_break"},
-                {"type": "heading", "text": "Page Two", "level": 1},
-                {"type": "paragraph", "text": "On the second page."},
-            ],
-        })
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "Everything",
+                "content": [
+                    {"type": "heading", "text": "Heading 1", "level": 1},
+                    {"type": "paragraph", "text": "Paragraph text."},
+                    {"type": "heading", "text": "Heading 2", "level": 2},
+                    {"type": "bullets", "items": ["One", "Two", "Three"]},
+                    {"type": "rule"},
+                    {"type": "table", "headers": ["A", "B"], "rows": [["1", "2"]]},
+                    {"type": "page_break"},
+                    {"type": "heading", "text": "Page Two", "level": 1},
+                    {"type": "paragraph", "text": "On the second page."},
+                ],
+            }
+        )
         pdf = spec.render()
         report = verify_pdf(pdf)
         assert report.ok

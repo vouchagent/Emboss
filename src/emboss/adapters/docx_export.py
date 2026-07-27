@@ -52,102 +52,125 @@ def to_office_dict(document: "Document") -> dict:
 
     for element in document.content:
         if isinstance(element, Heading):
-            blocks.append({
-                "type": "heading",
-                "level": element.level,
-                "text": element.text,
-                "numbering": element.numbering,
-                "runs": _serialize_runs(element.runs),
-            })
+            blocks.append(
+                {
+                    "type": "heading",
+                    "level": element.level,
+                    "text": element.text,
+                    "numbering": element.numbering,
+                    "runs": _serialize_runs(element.runs),
+                }
+            )
 
         elif isinstance(element, Paragraph):
             style = sheet.resolved(sheet.body, element.style)
-            blocks.append({
-                "type": "paragraph",
-                "runs": _serialize_runs(element.runs),
-                "align": style.require("align"),
-                "indent_first": style.indent_first or 0,
-            })
+            blocks.append(
+                {
+                    "type": "paragraph",
+                    "runs": _serialize_runs(element.runs),
+                    "align": style.require("align"),
+                    "indent_first": style.indent_first or 0,
+                }
+            )
 
         elif isinstance(element, BulletList):
             items = []
             for item_runs in element.item_runs:
                 items.append({"runs": _serialize_runs(item_runs)})
-            blocks.append({
-                "type": "list",
-                "bullet": element.bullet,
-                "items": items,
-            })
+            blocks.append(
+                {
+                    "type": "list",
+                    "bullet": element.bullet,
+                    "items": items,
+                }
+            )
 
         elif isinstance(element, Table):
             blocks.append(_serialize_table(element))
 
         elif isinstance(element, Image):
-            blocks.append({
-                "type": "image",
-                "source": element.source if isinstance(element.source, str) else "<bytes>",
-                "alt_text": element.alt_text,
-                "width": element.width,
-                "height": element.height,
-                "caption": element.caption,
-                "align": element.align,
-            })
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": element.source
+                    if isinstance(element.source, str)
+                    else "<bytes>",
+                    "alt_text": element.alt_text,
+                    "width": element.width,
+                    "height": element.height,
+                    "caption": element.caption,
+                    "align": element.align,
+                }
+            )
 
         elif isinstance(element, Chart):
-            blocks.append({
-                "type": "chart",
-                "chart_type": element.chart_type,
-                "labels": list(element.labels),
-                "values": list(element.values),
-                "title": element.title,
-                "width": element.width,
-                "height": element.height,
-            })
+            blocks.append(
+                {
+                    "type": "chart",
+                    "chart_type": element.chart_type,
+                    "labels": list(element.labels),
+                    "values": list(element.values),
+                    "title": element.title,
+                    "width": element.width,
+                    "height": element.height,
+                }
+            )
 
         elif isinstance(element, Footnote):
-            blocks.append({
-                "type": "footnote",
-                "marker": element.marker,
-                "runs": _serialize_runs(element.runs),
-            })
+            blocks.append(
+                {
+                    "type": "footnote",
+                    "marker": element.marker,
+                    "runs": _serialize_runs(element.runs),
+                }
+            )
 
         elif isinstance(element, Callout):
-            blocks.append({
-                "type": "callout",
-                "variant": element.variant,
-                "title": element.title,
-                "runs": _serialize_runs(element.runs),
-                "background": element.background,
-                "border_color": element.border_color,
-            })
+            blocks.append(
+                {
+                    "type": "callout",
+                    "variant": element.variant,
+                    "title": element.title,
+                    "runs": _serialize_runs(element.runs),
+                    "background": element.background,
+                    "border_color": element.border_color,
+                }
+            )
 
         elif isinstance(element, CodeBlock):
-            blocks.append({
-                "type": "code_block",
-                "code": element.code,
-                "language": element.language,
-                "line_numbers": element.line_numbers,
-                "caption": element.caption,
-            })
+            blocks.append(
+                {
+                    "type": "code_block",
+                    "code": element.code,
+                    "language": element.language,
+                    "line_numbers": element.line_numbers,
+                    "caption": element.caption,
+                }
+            )
 
         elif isinstance(element, MathBlock):
-            blocks.append({
-                "type": "math",
-                "source": element.source,
-                "display": element.display,
-                "caption": element.caption,
-            })
+            blocks.append(
+                {
+                    "type": "math",
+                    "source": element.source,
+                    "display": element.display,
+                    "caption": element.caption,
+                }
+            )
 
         elif isinstance(element, BibliographyBlock):
             from ..bibliography import format_bibliography
-            blocks.append({
-                "type": "bibliography",
-                "title": element.title,
-                "heading_level": element.heading_level,
-                "entries": format_bibliography(
-                    element.citations, element.bib_style
-                ),
-            })
+
+            blocks.append(
+                {
+                    "type": "bibliography",
+                    "title": element.title,
+                    "heading_level": element.heading_level,
+                    "entries": format_bibliography(
+                        element.citations, element.bib_style
+                    ),
+                }
+            )
 
         elif isinstance(element, HorizontalRule):
             blocks.append({"type": "horizontal_rule"})
@@ -194,22 +217,26 @@ def _serialize_runs(runs: list) -> list[dict]:
 def _serialize_table(table) -> dict:
     headers = []
     for cell in table.header_cells:
-        headers.append({
-            "text": cell.plain_text,
-            "align": cell.align,
-            "bold": cell.bold,
-        })
+        headers.append(
+            {
+                "text": cell.plain_text,
+                "align": cell.align,
+                "bold": cell.bold,
+            }
+        )
 
     rows = []
     for row in table.body_rows:
         cells = []
         for cell in row:
-            cells.append({
-                "text": cell.plain_text,
-                "align": cell.align,
-                "bold": cell.bold,
-                "background": cell.background,
-            })
+            cells.append(
+                {
+                    "text": cell.plain_text,
+                    "align": cell.align,
+                    "bold": cell.bold,
+                    "background": cell.background,
+                }
+            )
         rows.append(cells)
 
     return {

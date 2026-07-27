@@ -17,16 +17,23 @@ where no break sequence fits within tolerance.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Sequence
 
 __all__ = [
-    "Box", "Glue", "Penalty", "Line", "LineBreaker",
-    "INFINITE_PENALTY", "build_items", "detect_rivers",
+    "Box",
+    "Glue",
+    "Penalty",
+    "Line",
+    "LineBreaker",
+    "INFINITE_PENALTY",
+    "build_items",
+    "detect_rivers",
 ]
 
 INFINITE_PENALTY = 10_000.0
 _EJECT_PENALTY = -INFINITE_PENALTY
+_EMERGENCY_PENALTY = 800.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +43,7 @@ class Box:
     width: float
     text: str = ""
     run_index: int = 0
+    char_widths: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +110,8 @@ class _Node:
     demerits: float
     previous: "_Node | None" = None
     ratio: float = 0.0
+    flagged: bool = False
+    ladder: int = 0
 
 
 def _fitness_class(ratio: float) -> int:
@@ -113,7 +123,7 @@ def _fitness_class(ratio: float) -> int:
         return 1  # decent
     if ratio <= 1.0:
         return 2  # loose
-    return 3      # very loose
+    return 3  # very loose
 
 
 @dataclass
@@ -131,6 +141,8 @@ class LineBreaker:
     hyphen_penalty: float = 50.0
     flagged_demerit: float = 3000.0
     fitness_demerit: float = 3000.0
+    ladder_demerit: float = 100_000_000.0
+    ladder_limit: int = 3
     protrusion: bool = True
     avoid_rivers: bool = True
 
@@ -143,9 +155,8 @@ class LineBreaker:
         if not items:
             return []
 
-        width_for = (
-            line_width if callable(line_width) else (lambda _n: line_width)
-        )
+        width_for = line_width if callable(line_width) else (lambda _n: line_width)
+        items = self._exploded(items, width_for)
         sums = self._running_sums(items)
 
         best = self._optimize(items, sums, width_for, self.tolerance)
@@ -160,7 +171,10 @@ class LineBreaker:
             rivers = detect_rivers(lines)
             if rivers > 0:
                 tighter = self._optimize(
-                    items, sums, width_for, self.tolerance * 0.8,
+                    items,
+                    sums,
+                    width_for,
+                    self.tolerance * 0.8,
                 )
                 if tighter is not None:
                     alt = self._assemble(items, tighter)
@@ -170,6 +184,23 @@ class LineBreaker:
         return lines
 
     # -- internals --
+
+    @staticmethod
+    def _exploded(items: Sequence, width_for: Callable) -> list:
+        """Split any box wider than the narrowest measure into char boxes."""
+        widest = max((it.width for it in items if isinstance(it, Box)), default=0.0)
+        if widest <= 0.0:
+            return list(items)
+        limit = min(width_for(n) for n in range(len(items) + 1))
+        if limit <= 0.0 or widest <= limit:
+            return list(items)
+        out: list = []
+        for item in items:
+            if isinstance(item, Box) and item.width > limit and len(item.text) > 1:
+                out.extend(_emergency_pieces(item))
+            else:
+                out.append(item)
+        return out
 
     @staticmethod
     def _running_sums(items: Sequence) -> list:
@@ -199,8 +230,12 @@ class LineBreaker:
         return False
 
     def _adjustment_ratio(
-        self, node: _Node, index: int, items: Sequence,
-        sums: list, target: float,
+        self,
+        node: _Node,
+        index: int,
+        items: Sequence,
+        sums: list,
+        target: float,
     ) -> float:
         """How much the glue on this line must stretch (+) or shrink (-)."""
         width = sums[index][0] - node.total_width
@@ -210,9 +245,7 @@ class LineBreaker:
 
         effective_target = target
         if self.protrusion:
-            effective_target += self._protrusion_slack(
-                items, node.position, index
-            )
+            effective_target += self._protrusion_slack(items, node.position, index)
 
         if width < effective_target:
             stretch = sums[index][1] - node.total_stretch
@@ -256,27 +289,35 @@ class LineBreaker:
         if penalty >= 0:
             value = (self.line_penalty + badness + penalty) ** 2
         elif penalty > _EJECT_PENALTY:
-            value = (self.line_penalty + badness) ** 2 - penalty ** 2
+            value = (self.line_penalty + badness) ** 2 - penalty**2
         else:
             value = (self.line_penalty + badness) ** 2
 
         if isinstance(item, Penalty) and item.flagged:
-            previous = node.previous
-            if previous is not None and getattr(node, "flagged", False):
+            if node.flagged:
                 value += self.flagged_demerit
+            if node.ladder >= self.ladder_limit:
+                value += self.ladder_demerit
 
         if abs(fitness - node.fitness) > 1:
             value += self.fitness_demerit
         return value
 
     def _optimize(
-        self, items: Sequence, sums: list,
-        width_for: Callable, tolerance: float,
+        self,
+        items: Sequence,
+        sums: list,
+        width_for: Callable,
+        tolerance: float,
     ) -> _Node | None:
         active = [
             _Node(
-                position=0, line=0, fitness=1,
-                total_width=0.0, total_stretch=0.0, total_shrink=0.0,
+                position=0,
+                line=0,
+                fitness=1,
+                total_width=0.0,
+                total_stretch=0.0,
+                total_shrink=0.0,
                 demerits=0.0,
             )
         ]
@@ -312,6 +353,7 @@ class LineBreaker:
                         candidates[key] = (demerits, node, ratio, fitness)
 
             active = survivors
+            break_flagged = isinstance(item, Penalty) and item.flagged
             for demerits, parent, ratio, fitness in candidates.values():
                 width, stretch, shrink = sums[index]
                 if isinstance(item, Glue):
@@ -331,6 +373,8 @@ class LineBreaker:
                         demerits=demerits,
                         previous=parent,
                         ratio=ratio,
+                        flagged=break_flagged,
+                        ladder=parent.ladder + 1 if break_flagged else 0,
                     )
                 )
 
@@ -365,10 +409,7 @@ class LineBreaker:
                 and break_item.flagged
                 and break_item.width > 0
             )
-            width = sum(
-                it.width for it in segment
-                if isinstance(it, (Box, Glue))
-            )
+            width = sum(it.width for it in segment if isinstance(it, (Box, Glue)))
             lines.append(
                 Line(
                     items=segment,
@@ -386,13 +427,14 @@ class LineBreaker:
         """Last-resort breaker: fills each line as full as it will go.
 
         Also used as the comparison baseline in tests. It breaks at the
-        last legal point that still fits, so lines never exceed the target
-        unless a single unbreakable box is wider than the measure.
+        last legal point that still fits; boxes wider than the measure are
+        first split into per-character pieces so lines never overflow.
         """
+        items = self._exploded(items, width_for)
         lines: list = []
         start = 0
         line_number = 0
-        last_legal = None       # index of the most recent legal break
+        last_legal = None  # index of the most recent legal break
         width_at_legal = 0.0
         width = 0.0
 
@@ -411,12 +453,16 @@ class LineBreaker:
             if width + item_width > target and last_legal is not None:
                 segment = list(items[start:last_legal])
                 lines.append(
-                    Line(items=segment, start=start, end=last_legal,
-                         ratio=0.0, width=width_at_legal)
+                    Line(
+                        items=segment,
+                        start=start,
+                        end=last_legal,
+                        ratio=0.0,
+                        width=width_at_legal,
+                    )
                 )
                 broke_on = items[last_legal]
-                start = (last_legal + 1 if isinstance(broke_on, Glue)
-                         else last_legal)
+                start = last_legal + 1 if isinstance(broke_on, Glue) else last_legal
                 index = start
                 width = 0.0
                 last_legal = None
@@ -430,12 +476,57 @@ class LineBreaker:
         if start < len(items):
             segment = list(items[start:])
             lines.append(
-                Line(items=segment, start=start, end=len(items), ratio=0.0,
-                     width=width, is_last=True)
+                Line(
+                    items=segment,
+                    start=start,
+                    end=len(items),
+                    ratio=0.0,
+                    width=width,
+                    is_last=True,
+                )
             )
         if lines:
             lines[-1].is_last = True
         return lines
+
+
+def _emergency_pieces(box: Box) -> list:
+    """Split an oversized box into character boxes with flagged breaks."""
+    count = len(box.text)
+    if box.char_widths and len(box.char_widths) == count:
+        widths = box.char_widths
+    else:
+        widths = (box.width / count,) * count
+    pieces: list = []
+    for i in range(count):
+        if i:
+            pieces.append(
+                Penalty(
+                    penalty=_EMERGENCY_PENALTY,
+                    width=0.0,
+                    flagged=True,
+                    run_index=box.run_index,
+                )
+            )
+        pieces.append(
+            Box(
+                width=widths[i],
+                text=box.text[i],
+                run_index=box.run_index,
+                char_widths=(widths[i],),
+            )
+        )
+    return pieces
+
+
+def _char_widths(
+    text: str,
+    metrics,
+    size: float,
+    tracking: float,
+) -> tuple[float, ...]:
+    """Per-character advances for a box, including tracking."""
+    return tuple(metrics.text_width(char, size) + tracking for char in text)
 
 
 def build_items(
@@ -476,8 +567,12 @@ def build_items(
         for token_index, token in enumerate(tokens):
             if token_index > 0:
                 items.append(
-                    Glue(width=space_width, stretch=stretch, shrink=shrink,
-                         run_index=run_index)
+                    Glue(
+                        width=space_width,
+                        stretch=stretch,
+                        shrink=shrink,
+                        run_index=run_index,
+                    )
                 )
             if not token:
                 continue
@@ -493,8 +588,12 @@ def build_items(
 
             if not points:
                 items.append(
-                    Box(width=token_width, text=token,
-                        run_index=run_index)
+                    Box(
+                        width=token_width,
+                        text=token,
+                        run_index=run_index,
+                        char_widths=_char_widths(token, metrics, size, tracking),
+                    )
                 )
                 continue
 
@@ -506,12 +605,20 @@ def build_items(
                 if tracking:
                     frag_width += len(fragment) * tracking
                 items.append(
-                    Box(width=frag_width,
-                        text=fragment, run_index=run_index)
+                    Box(
+                        width=frag_width,
+                        text=fragment,
+                        run_index=run_index,
+                        char_widths=_char_widths(fragment, metrics, size, tracking),
+                    )
                 )
                 items.append(
-                    Penalty(penalty=50.0, width=hyphen_width, flagged=True,
-                            run_index=run_index)
+                    Penalty(
+                        penalty=50.0,
+                        width=hyphen_width,
+                        flagged=True,
+                        run_index=run_index,
+                    )
                 )
                 previous = point
             tail = token[previous:]
@@ -519,8 +626,12 @@ def build_items(
             if tracking:
                 tail_width += len(tail) * tracking
             items.append(
-                Box(width=tail_width, text=tail,
-                    run_index=run_index)
+                Box(
+                    width=tail_width,
+                    text=tail,
+                    run_index=run_index,
+                    char_widths=_char_widths(tail, metrics, size, tracking),
+                )
             )
 
     # Terminate the paragraph: infinite glue absorbs the slack on the last
