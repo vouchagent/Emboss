@@ -1,7 +1,7 @@
 # Emboss
 
 [![CI](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml/badge.svg)](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss-pdf/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
 Precision PDF generation for Python. Describe a document with a declarative spec; the engine handles typography, layout, accessibility tagging, and the complete PDF structure. Output is deterministic and byte-identical across runs.
@@ -77,17 +77,17 @@ assert doc.render() == doc.render()   # always true
 ## Installation
 
 ```bash
-pip install emboss
+pip install emboss-pdf
 ```
 
 Requires Python 3.10+ and `fonttools`. Optional extras:
 
 ```bash
-pip install emboss[all]       # pydantic + pikepdf + cryptography
-pip install emboss[llm]       # pydantic schemas for LLM structured output
-pip install emboss[verify]    # pikepdf for PDF structural verification
-pip install emboss[signing]   # cryptography for digital signatures
-pip install emboss[dev]       # full dev environment (pytest, mypy, ruff)
+pip install emboss-pdf[all]       # pydantic + pikepdf + cryptography
+pip install emboss-pdf[llm]       # pydantic schemas for LLM structured output
+pip install emboss-pdf[verify]    # pikepdf for PDF structural verification
+pip install emboss-pdf[signing]   # cryptography for digital signatures
+pip install emboss-pdf[dev]       # full dev environment (pytest, mypy, ruff)
 ```
 
 ---
@@ -561,7 +561,7 @@ signed_bytes = sign_pdf(
 )
 ```
 
-Requires `pip install emboss[signing]`.
+Requires `pip install emboss-pdf[signing]`.
 
 ---
 

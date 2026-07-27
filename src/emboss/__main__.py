@@ -20,7 +20,7 @@ def _render(args: argparse.Namespace) -> int:
     except ImportError:
         print(
             "error: pydantic is required for JSON-to-PDF conversion.\n"
-            "  pip install emboss[llm]",
+            "  pip install emboss-pdf[llm]",
             file=sys.stderr,
         )
         return 1
@@ -77,7 +77,7 @@ def _schema(args: argparse.Namespace) -> int:
     except ImportError:
         print(
             "error: pydantic is required for schema generation.\n"
-            "  pip install emboss[llm]",
+            "  pip install emboss-pdf[llm]",
             file=sys.stderr,
         )
         return 1
@@ -112,7 +112,7 @@ def _export(args: argparse.Namespace) -> int:
         from .adapters.pydantic_schema import DocumentSpec
     except ImportError:
         print(
-            "error: pydantic is required.\n  pip install emboss[llm]",
+            "error: pydantic is required.\n  pip install emboss-pdf[llm]",
             file=sys.stderr,
         )
         return 1
@@ -189,7 +189,7 @@ def _validate(args: argparse.Namespace) -> int:
         from .adapters.pydantic_schema import DocumentSpec
     except ImportError:
         print(
-            "error: pydantic is required.\n  pip install emboss[llm]",
+            "error: pydantic is required.\n  pip install emboss-pdf[llm]",
             file=sys.stderr,
         )
         return 1

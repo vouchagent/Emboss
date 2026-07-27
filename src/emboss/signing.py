@@ -7,7 +7,7 @@ Provides:
 
 The visual appearance is always available. Actual signing requires::
 
-    pip install emboss[signing]
+    pip install emboss-pdf[signing]
 """
 
 from __future__ import annotations
@@ -180,7 +180,7 @@ def sign_pdf(
 ) -> bytes:
     """Sign a PDF with a PKCS#7 detached signature.
 
-    Requires ``pip install emboss[signing]``.
+    Requires ``pip install emboss-pdf[signing]``.
 
     Parameters
     ----------
@@ -207,7 +207,7 @@ def sign_pdf(
     except ImportError:
         raise ImportError(
             "Digital signing requires the 'cryptography' package.\n"
-            "  pip install emboss[signing]"
+            "  pip install emboss-pdf[signing]"
         ) from None
 
     from pathlib import Path

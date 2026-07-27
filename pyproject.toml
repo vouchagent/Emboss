@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "emboss"
+name = "emboss-pdf"
 version = "0.1.0"
 description = "Emboss — precision PDF generation with optimal typesetting and PDF/UA structure"
 readme = "README.md"
