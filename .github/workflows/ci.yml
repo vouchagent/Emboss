@@ -62,8 +62,9 @@ jobs:
           set -eux
           curl -L -o verapdf-installer.zip https://software.verapdf.org/releases/verapdf-installer.zip
           unzip -q verapdf-installer.zip
-          DIR=$(find . -maxdepth 1 -type d -name 'verapdf-*' | head -1)
-          cat > auto-install.xml <<XML
+          DIR=$(find "$PWD" -maxdepth 1 -type d -name 'verapdf-*' | head -1)
+          AI="$PWD/auto-install.xml"
+          cat > "$AI" <<XML
           <?xml version="1.0" encoding="UTF-8" standalone="no"?>
           <AutomatedInstallation langpack="eng">
             <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
@@ -71,15 +72,17 @@ jobs:
               <installpath>${HOME}/verapdf</installpath>
             </com.izforge.izpack.panels.target.TargetPanel>
             <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
-              <pack index="0" name="veraPDF Mac and *nix Startup Scripts" selected="true"/>
-              <pack index="1" name="veraPDF Validation model" selected="true"/>
-              <pack index="2" name="veraPDF GUI" selected="true"/>
+              <pack index="0" name="veraPDF GUI" selected="true"/>
+              <pack index="1" name="veraPDF Mac and *nix Startup Scripts" selected="true"/>
+              <pack index="2" name="veraPDF Batch files" selected="false"/>
+              <pack index="3" name="veraPDF Documentation" selected="false"/>
+              <pack index="4" name="veraPDF Sample Plugins" selected="false"/>
             </com.izforge.izpack.panels.packs.PacksPanel>
             <com.izforge.izpack.panels.install.InstallPanel id="install"/>
             <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
           </AutomatedInstallation>
           XML
-          "$DIR"/verapdf-install auto-install.xml
+          "$DIR"/verapdf-install "$AI"
           echo "VERAPDF_PATH=$HOME/verapdf/verapdf" >> "$GITHUB_ENV"
       - name: Verify veraPDF runs
         run: "$HOME/verapdf/verapdf --version"
