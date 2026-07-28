@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..spec import (
     BibliographyBlock,
+    BlockQuote,
     BulletList,
     Callout,
     Chart,
@@ -49,6 +50,7 @@ from ..spec import (
     PageBreak,
     PageSpec,
     Paragraph,
+    Series,
     SvgBlock,
     Table,
     TableCell,
@@ -67,8 +69,10 @@ __all__ = [
     "NumberedListSpec",
     "ImageSpec",
     "ChartSpec",
+    "SeriesSpec",
     "FootnoteSpec",
     "CalloutSpec",
+    "BlockQuoteSpec",
     "SvgBlockSpec",
     "HeaderFooterSpec",
     "TextRunSpec",
@@ -481,6 +485,16 @@ class ImageSpec(BaseModel):
         )
 
 
+class SeriesSpec(BaseModel):
+    """One named data series within a chart."""
+
+    label: str = Field("", description="Series name shown in the legend.")
+    values: list[float] = Field(..., min_length=1, description="Series values.")
+
+    def to_element(self) -> Series:
+        return Series(label=self.label, values=self.values)
+
+
 class ChartSpec(BaseModel):
     """A data chart rendered as vector graphics."""
 
@@ -495,26 +509,57 @@ class ChartSpec(BaseModel):
                     "values": [100, 150, 130, 180],
                     "title": "Quarterly Revenue",
                 },
+                {
+                    "type": "chart",
+                    "chart_type": "line",
+                    "labels": ["Q1", "Q2"],
+                    "series": [
+                        {"label": "North", "values": [100, 150]},
+                        {"label": "South", "values": [90, 120]},
+                    ],
+                    "x_title": "Quarter",
+                    "y_title": "Units",
+                },
             ],
         }
     }
 
     type: Literal["chart"] = "chart"
-    chart_type: Literal["bar", "line", "pie"] = Field("bar", description="Chart type.")
-    labels: list[str] = Field(..., min_length=1, description="Data labels.")
-    values: list[float] = Field(..., min_length=1, description="Data values.")
+    chart_type: Literal["bar", "line", "pie", "scatter"] = Field(
+        "bar", description="Chart type."
+    )
+    labels: list[str] = Field(..., min_length=1, description="Category labels.")
+    values: list[float] | None = Field(
+        None, description="Data values for a single-series chart."
+    )
+    series: list[SeriesSpec] | None = Field(
+        None, description="Named series for multi-series charts."
+    )
     colors: list[str] | None = Field(None, description="Hex colors for data series.")
     title: str | None = Field(None, description="Chart title.")
+    x_title: str | None = Field(None, description="X-axis title.")
+    y_title: str | None = Field(None, description="Y-axis title.")
+    legend: bool = Field(True, description="Show a legend for named series.")
     width: float = Field(400.0, ge=50, description="Chart width in points.")
     height: float = Field(250.0, ge=50, description="Chart height in points.")
+
+    @model_validator(mode="after")
+    def _require_data(self) -> "ChartSpec":
+        if not self.values and not self.series:
+            raise ValueError("chart requires either 'values' or 'series'")
+        return self
 
     def to_element(self) -> Chart:
         return Chart(
             chart_type=self.chart_type,
             labels=self.labels,
-            values=self.values,
+            values=self.values or [],
+            series=[s.to_element() for s in self.series] if self.series else None,
             colors=self.colors,
             title=self.title,
+            x_title=self.x_title,
+            y_title=self.y_title,
+            legend=self.legend,
             width=self.width,
             height=self.height,
         )
@@ -575,6 +620,32 @@ class CalloutSpec(BaseModel):
             variant=self.variant,
             title=self.title,
         )
+
+
+class BlockQuoteSpec(BaseModel):
+    """A pull-quote or quoted passage set off from the body text."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Block Quote",
+            "examples": [
+                {
+                    "type": "blockquote",
+                    "text": "Simplicity is the ultimate sophistication.",
+                    "attribution": "Leonardo da Vinci",
+                },
+            ],
+        }
+    }
+
+    type: Literal["blockquote"] = "blockquote"
+    text: str = Field(..., min_length=1, description="Quoted text.")
+    attribution: str | None = Field(
+        None, description="Source of the quote, shown after an em dash."
+    )
+
+    def to_element(self) -> BlockQuote:
+        return BlockQuote(content=self.text, attribution=self.attribution)
 
 
 class CodeBlockSpec(BaseModel):
@@ -764,7 +835,10 @@ class HeaderFooterSpec(BaseModel):
     """Structured header or footer with left/center/right slots."""
 
     left: str | None = Field(
-        None, description="Left-aligned text. Use {page} and {pages} placeholders."
+        None,
+        description=(
+            "Left-aligned text. Use {page}, {pages}, and {section} placeholders."
+        ),
     )
     center: str | None = Field(None, description="Center-aligned text.")
     right: str | None = Field(None, description="Right-aligned text.")
@@ -772,6 +846,12 @@ class HeaderFooterSpec(BaseModel):
     font_family: str | None = None
     color: str | None = Field(None, pattern=r"^[0-9a-fA-F]{6}$")
     separator_line: bool = Field(False, description="Draw a separator line.")
+    first_page: bool = Field(
+        True, description="Set false to suppress this header/footer on page 1."
+    )
+    first_page_override: "HeaderFooterSpec | None" = Field(
+        None, description="Replacement header/footer used only on page 1."
+    )
 
     def to_header_footer(self) -> HeaderFooter:
         return HeaderFooter(
@@ -782,6 +862,12 @@ class HeaderFooterSpec(BaseModel):
             font_family=self.font_family,
             color=self.color,
             separator_line=self.separator_line,
+            first_page=self.first_page,
+            first_page_override=(
+                self.first_page_override.to_header_footer()
+                if self.first_page_override
+                else None
+            ),
         )
 
 
@@ -796,6 +882,7 @@ ContentBlock = Annotated[
         ChartSpec,
         FootnoteSpec,
         CalloutSpec,
+        BlockQuoteSpec,
         CodeBlockSpec,
         MathBlockSpec,
         BibliographySpec,
@@ -841,6 +928,12 @@ class PageConfig(BaseModel):
     column_gap: float | None = Field(
         None, ge=0, description="Gap between columns in points."
     )
+    mirror_margins: bool = Field(
+        False,
+        description=(
+            "Swap left/right margins on even (verso) pages for bound documents."
+        ),
+    )
 
     def to_page_spec(self) -> PageSpec:
         overrides = {}
@@ -852,6 +945,8 @@ class PageConfig(BaseModel):
             overrides["columns"] = self.columns
         if self.column_gap is not None:
             overrides["column_gap"] = self.column_gap
+        if self.mirror_margins:
+            overrides["mirror_margins"] = True
 
         if self.width and self.height:
             return PageSpec(width=self.width, height=self.height, **overrides)
@@ -995,6 +1090,17 @@ class DocumentSpec(BaseModel):
         None, description="Structured footer with left/center/right slots."
     )
     page_numbers: bool = Field(True, description="Show page numbers in the footer.")
+    page_number_format: Literal["arabic", "roman", "ROMAN"] = Field(
+        "arabic",
+        description="Page number style: arabic (1, 2), roman (i, ii), ROMAN (I, II).",
+    )
+    front_matter_pages: int = Field(
+        0,
+        ge=0,
+        description=(
+            "Number the first N pages i, ii, iii; body numbering restarts at 1."
+        ),
+    )
     tagged: bool = Field(True, description="Generate PDF/UA accessibility tags.")
     toc: bool = Field(
         False, description="Insert an automatically generated table of contents."
@@ -1047,6 +1153,8 @@ class DocumentSpec(BaseModel):
             header=self.header.to_header_footer() if self.header else None,
             footer=self.footer.to_header_footer() if self.footer else None,
             page_numbers=self.page_numbers,
+            page_number_format=self.page_number_format,
+            front_matter_pages=self.front_matter_pages,
             tagged=self.tagged,
             toc=self.toc,
             legal=self.legal.to_legal_features() if self.legal else None,

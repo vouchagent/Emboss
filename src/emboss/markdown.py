@@ -22,6 +22,7 @@ items and raw HTML passthrough; both are left as literal text.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
 from .spec import (
     BlockQuote,
@@ -41,12 +42,12 @@ from .spec import (
 )
 from .styles import Style
 
-__all__ = ["parse_markdown", "BLOCKQUOTE_NATIVE"]
+__all__ = ["parse_markdown", "parse_front_matter", "FrontMatter", "BLOCKQUOTE_NATIVE"]
 
-# When False, plain blockquotes map to indented italic paragraphs (which
-# render today); when True they emit the dedicated BlockQuote element,
-# which requires the writer-side rendering hook.
-BLOCKQUOTE_NATIVE = False
+# When False, plain blockquotes map to indented italic paragraphs; when
+# True they emit the dedicated BlockQuote element, rendered natively by
+# the writer with an accent bar and attribution support.
+BLOCKQUOTE_NATIVE = True
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)(?:\s+#*)?$")
 _BULLET_RE = re.compile(r"^(\s*)[-*+]\s+(.+)$")
@@ -73,6 +74,85 @@ _INLINE_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _ESCAPABLE = "\\*_`$[]~<>!"
 _BULLET_MARKERS = ("•", "-", "·")
 _QUOTE_INDENT = 18.0
+
+_FM_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
+_FM_INT_RE = re.compile(r"^-?\d+$")
+_FM_FLOAT_RE = re.compile(r"^-?(?:\d+\.\d*|\.\d+)$")
+_FM_STRING_KEYS = frozenset(
+    {"title", "author", "subject", "keywords", "style", "language", "color_mode"}
+)
+_FM_BOOL_KEYS = frozenset({"toc", "number_sections", "page_numbers"})
+_FM_COLOR_MODES = frozenset({"rgb", "cmyk"})
+
+
+@dataclass
+class FrontMatter:
+    """Parsed front-matter fields, warnings, and the remaining Markdown body."""
+
+    fields: dict = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    body: str = ""
+
+
+def _parse_fm_scalar(raw: str) -> str | bool | int | float:
+    """Parse a flat YAML scalar: quoted string, bool, int, float, or string."""
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+        return raw[1:-1]
+    lowered = raw.lower()
+    if lowered in ("true", "yes", "on"):
+        return True
+    if lowered in ("false", "no", "off"):
+        return False
+    if _FM_INT_RE.match(raw):
+        return int(raw)
+    if _FM_FLOAT_RE.match(raw):
+        return float(raw)
+    return raw
+
+
+def parse_front_matter(text: str) -> FrontMatter:
+    """Split a leading --- delimited flat key: value block from Markdown text."""
+    as_markdown = FrontMatter(body=text)
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return as_markdown
+    end = next(
+        (i for i in range(1, len(lines)) if lines[i].strip() == "---"), None
+    )
+    if end is None:
+        return as_markdown
+
+    fields: dict = {}
+    warnings: list[str] = []
+    for line in lines[1:end]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        matched = _FM_LINE_RE.match(stripped)
+        if matched is None:
+            return as_markdown
+        key, value = matched.group(1), _parse_fm_scalar(matched.group(2))
+        if key in _FM_BOOL_KEYS:
+            if isinstance(value, bool):
+                fields[key] = value
+            elif isinstance(value, int):
+                fields[key] = bool(value)
+            else:
+                warnings.append(f"front-matter key {key!r} expects a boolean; ignored")
+        elif key in _FM_STRING_KEYS:
+            value = value if isinstance(value, str) else str(value)
+            if key == "color_mode" and value not in _FM_COLOR_MODES:
+                warnings.append(
+                    f"front-matter color_mode {value!r} is not rgb/cmyk; ignored"
+                )
+            else:
+                fields[key] = value
+        else:
+            warnings.append(f"unknown front-matter key ignored: {key!r}")
+    return FrontMatter(
+        fields=fields, warnings=warnings, body="\n".join(lines[end + 1 :])
+    )
 
 
 def _make_run(text: str, base: dict, **extra) -> TextRun:
@@ -385,10 +465,11 @@ def parse_markdown(text: str) -> list:
     Supports: ATX and setext headings, paragraphs, nested bullet/numbered
     lists, task lists, tables, fenced code blocks, math blocks ($$...$$),
     blockquotes, callouts (> [!NOTE]), footnotes ([^1]), images, links,
-    horizontal rules, and page breaks. Multi-paragraph list items and raw
-    HTML passthrough are not supported and stay literal text.
+    horizontal rules, and page breaks. A leading --- front-matter block is
+    stripped (Document.from_markdown applies its metadata). Multi-paragraph
+    list items and raw HTML passthrough are not supported and stay literal.
     """
-    lines, refs, footnote_defs = _extract_definitions(text)
+    lines, refs, footnote_defs = _extract_definitions(parse_front_matter(text).body)
     elements: list = []
     emitted_footnotes: set[str] = set()
     i = 0

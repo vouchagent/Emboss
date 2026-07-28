@@ -1,0 +1,78 @@
+---
+title: Math Notation
+description: LaTeX-subset math rendering with real metrics and TeX spacing
+---
+
+# Math Notation
+
+LaTeX-style math renders directly to PDF operators with no external dependencies:
+
+```python
+doc.math(r"E = mc^2")
+doc.math(r"\int_{0}^{\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}")
+doc.math(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}")
+doc.math(r"f(x) = \begin{cases} x^2 & x \ge 0 \\ -x & x < 0 \end{cases}")
+```
+
+In the JSON spec this is `{"type": "math", "source": "...", "display": true}`; in Markdown, `$$ ... $$` blocks.
+
+## Supported syntax
+
+| Category | Commands |
+|----------|----------|
+| Scripts | `x^{2}`, `a_{n}`, combined `\sum_{i=1}^{n}` |
+| Fractions and roots | `\frac{a}{b}`, `\sqrt{x}` |
+| Greek letters | `\alpha` ... `\Omega` (full lower and upper case sets) |
+| Big operators | `\sum`, `\prod`, `\int`, `\partial`, `\nabla` |
+| Relations | `\leq`, `\geq`, `\neq`, `\approx`, `\equiv`, `\sim`, `\propto` |
+| Arrows | `\to`, `\leftarrow`, `\Rightarrow`, and friends |
+| Sets | `\in`, `\notin`, `\subset`, `\cup`, `\cap`, `\emptyset` |
+| Misc | `\infty`, `\pm`, `\mp`, `\times`, `\div`, `\cdot`, `\ldots`, `\forall`, `\exists` |
+| Delimiters | `\left( \right)`, `\left[ \right]`, and other paired delimiters |
+| Text and styles | `\text{}`, `\operatorname{}`, `\mathrm{}`, `\mathbf{}`, `\mathbb{}`, `\mathcal{}`, `\mathscr{}`, `\mathit{}` |
+| Function names | `\lim`, `\sin`, `\cos`, `\tan`, `\log`, `\ln`, `\exp`, `\det`, `\max`, `\min` (set upright) |
+| Accents | `\hat{x}`, `\bar{x}`, `\dot{x}`, `\vec{x}`, `\tilde{x}` |
+| Spacing | `\quad`, `\qquad`, `\,` |
+
+## Environments
+
+`\begin{...}` with `&` column separators and `\\` row breaks:
+
+- Matrices: `matrix`, `pmatrix`, `bmatrix`, `vmatrix`, `Bmatrix`
+- Piecewise: `cases`
+- Aligned equations: `aligned`, `align`, `align*`, `split`
+- Gathered equations: `gathered`, `gather`, `gather*`
+
+## Layout quality
+
+Layout comes from real metrics, not approximations:
+
+- **Real AFM metrics.** Glyph dimensions use the base-14 AFM tables: Times italic for variables, Times roman for digits, upright text, and function names, and the PDF Symbol font for Greek letters and operators.
+- **TeX spacing classes.** Inter-atom spacing follows the TeXbook chapter 18 table over the classes Ord, Op, Bin, Rel, Open, Close, and Punct, with thin (3/18 em), medium (4/18 em), and thick (5/18 em) spaces.
+- **Display limits.** In display mode, `\sum`, `\prod`, `\int`, and `\lim` place their sub- and superscripts above and below the operator at 0.7x script size; inline they attach as ordinary scripts.
+
+## API
+
+```python
+from emboss import parse_math, render_math, MathExpression
+
+ast = parse_math(r"\frac{d}{dx} e^x = e^x")   # AST for inspection
+```
+
+Block-level math is tagged `/Formula` in the structure tree. Inline `$...$` inside Markdown paragraphs renders as italic text; a paragraph consisting solely of one `$...$` span is promoted to a math block.
+
+## MathML input
+
+Presentation MathML is accepted alongside LaTeX. `parse_math` (and therefore `MathBlock`) auto-detects a source that starts with `<math` and routes it through `emboss.mathml.parse_mathml`, which parses into the same AST the LaTeX parser produces, so layout and rendering are shared:
+
+```python
+doc.math('<math><mfrac><mi>a</mi><mi>b</mi></mfrac></math>')
+```
+
+Supported elements: `mi`/`mn`/`mo` tokens, `mrow`, `mfrac`, `msqrt`/`mroot`, `msup`/`msub`/`msubsup`, `munder`/`mover`/`munderover` (mapped onto the display-limit machinery), `mtable`/`mtr`/`mtd`, `mfenced`, `mtext`, `mspace`, `mstyle`, and `semantics` (annotations ignored). Details:
+
+- Uses only the standard library; HTML5/MathML named entities are expanded and XML namespaces are stripped.
+- Known operator and Greek characters map onto the same Symbol-font symbols as their LaTeX commands; invisible operators (function application, invisible times) are dropped.
+- An `mtable` with `columnalign="right left"` becomes aligned equation rows; otherwise it becomes a matrix, and matched `mo` fences or `mfenced` fold into matrix delimiters.
+- `mroot` degrades to a plain square root (the index is dropped).
+- Malformed input raises `ValueError` rather than rendering garbage.

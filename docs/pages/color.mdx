@@ -1,0 +1,68 @@
+---
+title: Color and Print
+description: Named palettes, CMYK end-to-end, spot colors, and print production
+---
+
+# Color and Print Production
+
+## Named colors
+
+Anywhere a color is accepted, three forms work:
+
+```python
+"2563eb"        # 6-digit hex, no '#'
+"blue-600"      # named shade from the built-in palettes
+"primary"       # semantic alias
+```
+
+Eleven palettes ship (slate, gray, red, orange, amber, green, blue, indigo, purple, pink, teal) in shades 50 through 950, plus semantic aliases (`primary`, `secondary`, `success`, `warning`, `danger`, `info`, `muted`, `dark`, `light`, `accent`). Named shades cost an LLM fewer tokens than hex strings and keep documents on a consistent palette.
+
+```python
+from emboss import resolve_color, ColorTheme
+
+resolve_color("blue-600")            # -> "2563eb"
+theme = ColorTheme(brand="1e40af")   # document-level names
+theme.resolve("brand")               # -> "1e40af"
+```
+
+## CMYK end-to-end
+
+Set `color_mode="cmyk"` on the document and every draw path (text, rules, tables, charts, shapes) emits CMYK operators (`k`/`K`) instead of RGB:
+
+```python
+from emboss import Document, TextRun
+
+doc = Document(
+    title="Print Run",
+    color_mode="cmyk",
+    pdfa=True,   # output intent switches to a CMYK profile (N=4)
+)
+doc.paragraph([TextRun(text="Brand red", color="cmyk(0,100,95,0)")])
+doc.paragraph([TextRun(text="Spot ink", color="spot(PANTONE 485 C,0,100,95,0)")])
+doc.save("print_run.pdf")
+```
+
+- `cmyk(c,m,y,k)` strings work anywhere a color is accepted. Components may be 0 to 100 (percentages) or 0.0 to 1.0 (fractions); if any component exceeds 1.0 all are treated as percentages.
+- RGB and hex colors are converted when the document is in CMYK mode (`rgb_to_cmyk`, a basic algorithmic conversion; ICC-profile conversion is preferred for critical brand color).
+- Redaction and signature appearances follow the document's color mode.
+
+```python
+from emboss import CmykColor, SpotColor, parse_cmyk, rgb_to_cmyk
+
+CmykColor(0.0, 1.0, 1.0, 0.0)                 # pure red, components 0.0-1.0
+parse_cmyk("cmyk(0,100,95,0)")                # -> CmykColor
+SpotColor("PANTONE 485 C", 0.0, 1.0, 0.95, 0.0)
+```
+
+## Spot colors as Separation spaces
+
+`spot(Name,c,m,y,k)` defines a named spot color with a CMYK fallback. In the PDF it becomes a `/Separation` color space with `/DeviceCMYK` as the alternate space and a Type 4 PostScript tint-transform function that scales the fallback by the tint value, which is how prepress tools expect named inks. Resource names are derived deterministically from the ink name, keeping output byte-identical.
+
+## PDF/A output intent
+
+PDF/A output embeds an ICC output intent matched to the document's color mode:
+
+- RGB documents get an sRGB IEC61966-2.1 intent (N=3).
+- CMYK documents get an N=4 intent whose OutputConditionIdentifier names the standard CGATS TR 001 printing condition.
+
+Both profiles are minimal, deterministic ICC v2 constructions built in code, so no profile files are needed and output stays byte-identical.

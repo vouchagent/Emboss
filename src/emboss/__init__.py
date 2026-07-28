@@ -38,6 +38,7 @@ from .spec import (
     PageBreak,
     PageSpec,
     Paragraph,
+    Series,
     SvgBlock,
     Table,
     TableCell,
@@ -80,8 +81,14 @@ from .templates import (
     slide_deck,
     data_sheet,
 )
-from .markdown import parse_markdown
-from .generate import spec_prompt, generate, parse_spec_json
+from .markdown import parse_markdown, parse_front_matter, FrontMatter
+from .generate import (
+    spec_prompt,
+    generate,
+    parse_spec_json,
+    parse_spec_dict,
+    spec_schema,
+)
 from .writer import RenderResult, render_document
 
 __version__ = "0.1.0"
@@ -98,6 +105,7 @@ __all__ = [
     "TextRun",
     "Image",
     "Chart",
+    "Series",
     "Footnote",
     "Callout",
     "CodeBlock",
@@ -157,9 +165,13 @@ __all__ = [
     "render_document",
     "RenderResult",
     "parse_markdown",
+    "parse_front_matter",
+    "FrontMatter",
     "spec_prompt",
     "generate",
     "parse_spec_json",
+    "parse_spec_dict",
+    "spec_schema",
     "ContentAnalyzer",
     "QualityScorer",
     "SmartTypography",

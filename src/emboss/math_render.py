@@ -309,12 +309,14 @@ class SymbolNode(MathNode):
 class SuperscriptNode(MathNode):
     base: MathNode
     exponent: MathNode
+    limits: bool = False
 
 
 @dataclass
 class SubscriptNode(MathNode):
     base: MathNode
     subscript: MathNode
+    limits: bool = False
 
 
 @dataclass
@@ -322,6 +324,7 @@ class SuperSubNode(MathNode):
     base: MathNode
     superscript: MathNode
     subscript: MathNode
+    limits: bool = False
 
 
 @dataclass
@@ -333,6 +336,7 @@ class FractionNode(MathNode):
 @dataclass
 class SqrtNode(MathNode):
     radicand: MathNode
+    index: MathNode | None = None
 
 
 @dataclass
@@ -602,8 +606,15 @@ class MathParser:
             den = self._parse_atom()
             return FractionNode(numerator=num, denominator=den)
         elif name == "sqrt":
+            index: MathNode | None = None
+            if self.pos < len(self.source) and self.source[self.pos] == "[":
+                self.pos += 1
+                inner = self._parse_sequence(stop_at="]")
+                if self.pos < len(self.source) and self.source[self.pos] == "]":
+                    self.pos += 1
+                index = GroupNode(children=inner) if len(inner) != 1 else inner[0]
             radicand = self._parse_atom()
-            return SqrtNode(radicand=radicand)
+            return SqrtNode(radicand=radicand, index=index)
         elif name == "begin":
             return self._parse_environment()
         elif name in ("hat", "bar", "dot", "vec", "tilde"):
@@ -679,7 +690,11 @@ class MathParser:
 
 
 def parse_math(source: str) -> MathNode:
-    """Parse a LaTeX math string into an AST."""
+    """Parse a LaTeX math string (or presentation MathML) into an AST."""
+    if source.lstrip().startswith("<math"):
+        from .mathml import parse_mathml
+
+        return parse_mathml(source)
     return MathParser(source).parse()
 
 
@@ -1012,15 +1027,24 @@ class MathLayoutEngine:
 
     # -- scripts --
 
-    def _limits_base(self, base: MathNode) -> bool:
-        """True when scripts should render as display-style limits."""
-        if not self.display:
-            return False
+    @staticmethod
+    def _movable_limits(base: MathNode) -> bool:
+        """True for operators whose limits attach only in display mode."""
         if isinstance(base, SymbolNode) and base.symbol in _OP_SYMBOLS:
             return True
         if isinstance(base, TextNode) and not base.italic:
             return base.text == "lim"
         return False
+
+    def _limits_base(self, base: MathNode) -> bool:
+        """True when scripts should render as display-style limits."""
+        return self.display and self._movable_limits(base)
+
+    def _script_as_limits(self, node) -> bool:
+        """True when a script node places its scripts above/below the base."""
+        if self._movable_limits(node.base):
+            return self.display
+        return node.limits
 
     def _layout_limits(
         self,
@@ -1078,7 +1102,7 @@ class MathLayoutEngine:
     def _layout_superscript(
         self, node: SuperscriptNode, x: float, y: float, size: float
     ) -> MathLayout:
-        if self._limits_base(node.base):
+        if self._script_as_limits(node):
             return self._layout_limits(node.base, node.exponent, None, x, y, size)
         base = self._layout_node(node.base, x, y, size)
         sup_size = size * 0.7
@@ -1096,7 +1120,7 @@ class MathLayoutEngine:
     def _layout_subscript(
         self, node: SubscriptNode, x: float, y: float, size: float
     ) -> MathLayout:
-        if self._limits_base(node.base):
+        if self._script_as_limits(node):
             return self._layout_limits(node.base, None, node.subscript, x, y, size)
         base = self._layout_node(node.base, x, y, size)
         sub_size = size * 0.7
@@ -1114,7 +1138,7 @@ class MathLayoutEngine:
     def _layout_supersub(
         self, node: SuperSubNode, x: float, y: float, size: float
     ) -> MathLayout:
-        if self._limits_base(node.base):
+        if self._script_as_limits(node):
             return self._layout_limits(
                 node.base, node.superscript, node.subscript, x, y, size
             )
@@ -1171,16 +1195,32 @@ class MathLayoutEngine:
         hook_w = self._symbol.text_width("√", size * 1.1)
         pad = size * 0.15
 
-        inner_shifted = self._layout_node(node.radicand, x + hook_w, y, size)
+        index_w = 0.0
+        index_boxes: list = []
+        index_lines: list = []
+        index_top = 0.0
+        if node.index is not None:
+            index_size = size * 0.6
+            index_y = y + size * 0.45
+            measured = self._layout_node(node.index, 0.0, 0.0, index_size)
+            placed = self._layout_node(node.index, x, index_y, index_size)
+            # The index tucks into the radical's rising diagonal.
+            index_w = max(0.0, measured.width - hook_w * 0.35)
+            index_boxes = placed.boxes
+            index_lines = placed.lines
+            index_top = (index_y - y) + measured.height
+
+        rad_x = x + index_w
+        inner_shifted = self._layout_node(node.radicand, rad_x + hook_w, y, size)
 
         layout = MathLayout()
-        layout.boxes = inner_shifted.boxes
-        layout.lines = inner_shifted.lines
+        layout.boxes = index_boxes + inner_shifted.boxes
+        layout.lines = index_lines + inner_shifted.lines
 
         bar_y = y + inner.height + pad * 0.5
         layout.lines.append(
             MathLine(
-                x=x + hook_w - 1,
+                x=rad_x + hook_w - 1,
                 y=bar_y,
                 width=inner.width + 2,
                 thickness=size * 0.04,
@@ -1189,12 +1229,17 @@ class MathLayoutEngine:
 
         # Radical sign from Symbol font
         radical = MathBox(
-            text="√", x=x, y=y - size * 0.1, size=size * 1.1, italic=False, symbol=True
+            text="√",
+            x=rad_x,
+            y=y - size * 0.1,
+            size=size * 1.1,
+            italic=False,
+            symbol=True,
         )
         layout.boxes.append(radical)
 
-        layout.width = hook_w + inner.width
-        layout.height = inner.height + pad
+        layout.width = index_w + hook_w + inner.width
+        layout.height = max(inner.height + pad, index_top)
         layout.depth = inner.depth
         return layout
 

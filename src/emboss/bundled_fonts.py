@@ -12,6 +12,12 @@ __all__ = ["BUNDLED_FAMILIES", "bundled_font_path", "register_bundled_fonts"]
 # Canonical family name -> (bold, italic) -> bundled filename. The font
 # binaries are unmodified upstream releases (SIL OFL 1.1; see the
 # LICENSE-*.txt files next to them and the repository NOTICE file).
+#
+# NOTICE: "Emboss Math" is the one exception — it is a modified subset of
+# STIX Two Math v2.13 (Copyright 2001-2021 The STIX Fonts Project Authors,
+# https://github.com/stipub/stixfonts, SIL OFL 1.1), reduced to the
+# mathematical alphanumeric glyphs and renamed as the OFL requires for
+# modified versions. See fonts/LICENSE-EmbossMath.txt for details.
 BUNDLED_FAMILIES: dict[str, dict[tuple[bool, bool], str]] = {
     "Source Serif 4": {
         (False, False): "SourceSerif4-Regular.ttf",
@@ -29,6 +35,9 @@ BUNDLED_FAMILIES: dict[str, dict[tuple[bool, bool], str]] = {
         (False, False): "SourceCodePro-Regular.ttf",
         (True, False): "SourceCodePro-Bold.ttf",
     },
+    "Emboss Math": {
+        (False, False): "EmbossMath-Regular.ttf",
+    },
 }
 
 # Friendly Emboss-branded aliases resolving to the canonical families.
@@ -42,6 +51,7 @@ _LICENSE_FILES = (
     "LICENSE-SourceSerif4.txt",
     "LICENSE-SourceSans3.txt",
     "LICENSE-SourceCodePro.txt",
+    "LICENSE-EmbossMath.txt",
 )
 
 

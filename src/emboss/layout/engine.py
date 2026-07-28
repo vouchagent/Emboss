@@ -11,7 +11,7 @@ and float placement for figures.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..spec import (
     BibliographyBlock,
@@ -32,6 +32,7 @@ from ..spec import (
     Table,
 )
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
+from ..typography.substitutions import substitute_unsupported
 
 __all__ = [
     "LaidOutLine",
@@ -157,6 +158,8 @@ class LayoutEngine:
         self.hyphenator = hyphenator
         self.breaker = breaker or LineBreaker()
         self.optimize_layout = optimize_layout
+        self.warnings: list = []
+        self._warned: set = set()
 
     # -- font resolution --
 
@@ -172,6 +175,42 @@ class LayoutEngine:
         if run is not None and run.font_size:
             return run.font_size
         return style.require("font_size")
+
+    # -- glyph availability --
+
+    def _substituted_runs(self, runs, style) -> list:
+        """Copy runs, replacing characters their resolved font cannot render."""
+        out = None
+        for index, run in enumerate(runs):
+            metrics = self._metrics(style, run)
+            new_text, replaced = substitute_unsupported(run.text, metrics.supports)
+            if not replaced:
+                continue
+            if out is None:
+                out = list(runs)
+            out[index] = replace(run, text=new_text)
+            metrics.note_usage(new_text)
+            for char in sorted(set(replaced)):
+                key = (char, metrics.name)
+                if key not in self._warned:
+                    self._warned.add(key)
+                    self.warnings.append(
+                        f"U+{ord(char):04X} {char!r} is not renderable by "
+                        f"{metrics.name}; substituted"
+                    )
+        return runs if out is None else out
+
+    def segment_run(self, style, run) -> list:
+        """Fallback-font (segment, metrics) pairs for one run's text.
+
+        Exposed for writer-side per-segment font wiring; measurement itself
+        currently substitutes instead of switching fonts mid-run.
+        """
+        metrics = self._metrics(style, run)
+        segment = getattr(self.fonts, "segment_runs", None)
+        if segment is None:
+            return [(run.text, metrics)]
+        return segment(run.text, metrics)
 
     # -- measurement --
 
@@ -241,6 +280,7 @@ class LayoutEngine:
         hanging_indent: float = 0.0,
     ) -> list:
         """Break runs into positioned lines within `width`."""
+        runs = self._substituted_runs(runs, style)
         align = style.require("align")
         justified = align == "justify"
         hyphenate = bool(style.hyphenate) and self.hyphenator is not None
@@ -276,7 +316,10 @@ class LayoutEngine:
             glue_count = sum(1 for it in line.items if isinstance(it, Glue))
             extra = 0.0
             if justified and not line.is_last and glue_count:
-                slack = available - natural
+                # Right-protrusion credit widens the usable measure so the
+                # closing punctuation hangs past the margin at render time.
+                credit = getattr(line, "protrusion_credit", 0.0)
+                slack = available + credit - natural
                 if line.hyphenated:
                     slack -= 0.0
                 extra = slack / glue_count
@@ -796,6 +839,24 @@ class LayoutEngine:
         # and let cell text wrap.
         return [width * (m / total_minimum) for m in minimums]
 
+    # -- baseline grid --
+
+    _GRID_SNAP_TYPES = (Heading, Paragraph, BlockQuote, BibliographyBlock, Footnote)
+
+    def _grid_snap_delta(self, block: MeasuredBlock, top: float, page_spec) -> float:
+        """Downward shift putting the block's first baseline on the grid."""
+        grid = getattr(self.sheet, "baseline_grid", None)
+        if not grid or not block.lines:
+            return 0.0
+        if not isinstance(block.element, self._GRID_SNAP_TYPES):
+            return 0.0
+        baseline = top - block.lines[0].ascent
+        offset = page_spec.content_top - baseline
+        delta = (-offset) % grid
+        if grid - delta < 1e-6:
+            delta = 0.0
+        return delta
+
     # -- float helpers --
 
     @staticmethod
@@ -813,7 +874,9 @@ class LayoutEngine:
         if page_spec.columns > 1:
             return self._paginate_multicolumn(blocks, page_spec)
         pages = self._paginate_single(blocks, page_spec)
-        if self.optimize_layout:
+        # The two-pass optimizer reflows without grid awareness, so it is
+        # skipped when a baseline grid is active to keep baselines snapped.
+        if self.optimize_layout and not getattr(self.sheet, "baseline_grid", None):
             pages = self._optimize_pages(pages, page_spec)
         return pages
 
@@ -827,6 +890,11 @@ class LayoutEngine:
         current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
         col_cursors = [page_spec.content_top] * cols
         col_idx = 0
+        # Column-flowed blocks on the current page, used to rebalance the
+        # final page after the greedy pass.
+        flow_blocks: list = []
+        flow_placed: list = []
+        flow_top = page_spec.content_top
 
         def col_left(c: int) -> float:
             return page_spec.margin_left + c * (col_w + gap)
@@ -841,12 +909,16 @@ class LayoutEngine:
 
         def _new_page():
             nonlocal current, col_idx, col_cursors
+            nonlocal flow_blocks, flow_placed, flow_top
             pages.append(current)
             current = Page(
                 number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
             )
             col_cursors = [page_spec.content_top] * cols
             col_idx = 0
+            flow_blocks = []
+            flow_placed = []
+            flow_top = page_spec.content_top
 
         def _place(block, x, y):
             return PlacedBlock(
@@ -860,6 +932,12 @@ class LayoutEngine:
                 else None,
             )
 
+        def _flow_place(block, c, y):
+            placed = _place(block, col_left(c), y)
+            current.blocks.append(placed)
+            flow_blocks.append(block)
+            flow_placed.append(placed)
+
         for block in blocks:
             if isinstance(block.element, PageBreak):
                 _new_page()
@@ -868,43 +946,143 @@ class LayoutEngine:
             if _is_spanning(block):
                 lowest = min(col_cursors)
                 gap_before = block.space_before
+                gap_before += self._grid_snap_delta(
+                    block, lowest - gap_before, page_spec
+                )
                 available = lowest - page_spec.content_bottom - gap_before
                 if block.height > available:
                     _new_page()
                     lowest = page_spec.content_top
+                    gap_before = block.space_before
+                    gap_before += self._grid_snap_delta(
+                        block, lowest - gap_before, page_spec
+                    )
                 y = lowest - gap_before
                 current.blocks.append(_place(block, page_spec.margin_left, y))
                 new_cursor = y - block.height - block.space_after
                 col_cursors = [new_cursor] * cols
                 col_idx = 0
+                flow_blocks = []
+                flow_placed = []
+                flow_top = new_cursor
                 continue
 
             gap_before = block.space_before if current.blocks else 0.0
+            gap_before += self._grid_snap_delta(
+                block, col_cursors[col_idx] - gap_before, page_spec
+            )
             available = col_cursors[col_idx] - page_spec.content_bottom - gap_before
 
             if block.height <= available:
                 col_cursors[col_idx] -= gap_before
-                current.blocks.append(
-                    _place(block, col_left(col_idx), col_cursors[col_idx])
-                )
+                _flow_place(block, col_idx, col_cursors[col_idx])
                 col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
             col_idx += 1
             if col_idx < cols:
-                current.blocks.append(
-                    _place(block, col_left(col_idx), col_cursors[col_idx])
+                col_cursors[col_idx] -= self._grid_snap_delta(
+                    block, col_cursors[col_idx], page_spec
                 )
+                _flow_place(block, col_idx, col_cursors[col_idx])
                 col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
             _new_page()
-            current.blocks.append(_place(block, col_left(0), col_cursors[0]))
+            col_cursors[0] -= self._grid_snap_delta(block, col_cursors[0], page_spec)
+            _flow_place(block, 0, col_cursors[0])
             col_cursors[0] -= block.height + block.space_after
 
         if current.blocks or not pages:
             pages.append(current)
+            if cols > 1 and len(flow_blocks) > 1:
+                self._balance_last_page(
+                    current,
+                    flow_blocks,
+                    flow_placed,
+                    flow_top,
+                    cols,
+                    col_left,
+                    page_spec,
+                )
         return pages
+
+    def _flow_columns(
+        self,
+        blocks: list,
+        flow_top: float,
+        height: float,
+        cols: int,
+        page_spec,
+        first_gap: bool,
+    ) -> list | None:
+        """First-fit blocks into columns of `height`; None when they overflow."""
+        placements: list = []
+        col = 0
+        used = 0.0
+        for index, block in enumerate(blocks):
+            before = block.space_before if (index > 0 or first_gap) else 0.0
+            before += self._grid_snap_delta(block, flow_top - used - before, page_spec)
+            if used + before + block.height <= height + 1e-6:
+                placements.append((block, col, flow_top - used - before))
+                used += before + block.height + block.space_after
+                continue
+            col += 1
+            if col >= cols:
+                return None
+            delta = self._grid_snap_delta(block, flow_top, page_spec)
+            if delta + block.height > height + 1e-6:
+                return None
+            placements.append((block, col, flow_top - delta))
+            used = delta + block.height + block.space_after
+        return placements
+
+    def _balance_last_page(
+        self,
+        page,
+        blocks: list,
+        placed: list,
+        flow_top: float,
+        cols: int,
+        col_left,
+        page_spec,
+    ) -> None:
+        """Reflow the final page's columns at the minimal balanced height."""
+        max_h = flow_top - page_spec.content_bottom
+        if max_h <= 0:
+            return
+        first_gap = len(page.blocks) > len(placed)
+
+        def fits(h: float) -> list | None:
+            return self._flow_columns(blocks, flow_top, h, cols, page_spec, first_gap)
+
+        if fits(max_h) is None:
+            return
+        low, high = 0.0, max_h
+        for _ in range(60):
+            mid = (low + high) / 2.0
+            if fits(mid) is not None:
+                high = mid
+            else:
+                low = mid
+        result = fits(high)
+        if result is None:
+            return
+        placed_ids = {id(pb) for pb in placed}
+        kept = [pb for pb in page.blocks if id(pb) not in placed_ids]
+        page.blocks = kept + [
+            PlacedBlock(
+                block=block,
+                x=col_left(col),
+                y=y,
+                height=block.height,
+                lines=block.lines,
+                table_rows=list(range(len(block.table.row_heights)))
+                if block.table
+                else None,
+            )
+            for block, col, y in result
+        ]
 
     def _paginate_single(self, blocks: list, page_spec) -> list:
         pages: list = []
@@ -1071,6 +1249,13 @@ class LayoutEngine:
                     _start_new_page()
                     gap = 0.0
                     available = current.remaining()
+
+            # Baseline grid: absorb the snap into the gap before the block
+            # so every remaining-height check sees the snapped position.
+            snap = self._grid_snap_delta(block, current.cursor - gap, page_spec)
+            if snap:
+                gap += snap
+                available = current.remaining() - gap
 
             if block.height <= available:
                 current.cursor -= gap

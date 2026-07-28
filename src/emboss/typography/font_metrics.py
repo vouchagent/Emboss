@@ -695,6 +695,13 @@ BASE_14: dict[str, tuple] = {
 _FIRST_PRINTABLE = 32
 _MISSING_WIDTH = 500
 
+# Codepoints representable in WinAnsi (cp1252), the encoding used for
+# base-14 text output. DEL (0x7F) is excluded; the undefined cp1252 bytes
+# drop out via errors="ignore". Deterministic: derived from the codec.
+_WINANSI_CODEPOINTS: frozenset = frozenset(
+    ord(char) for char in bytes(range(0x20, 0x100)).decode("cp1252", "ignore")
+) - {0x7F}
+
 
 @dataclass
 class FontMetrics:
@@ -930,7 +937,13 @@ class FontMetrics:
         return set(self._used_codepoints)
 
     def supports(self, char: str) -> bool:
-        return ord(char) in self._widths
+        """True when this font can actually render `char` in PDF output."""
+        code = ord(char)
+        if code in self._widths:
+            return True
+        if self.is_embedded or self.flags & 4:  # embedded: cmap only; symbolic
+            return False
+        return code in _WINANSI_CODEPOINTS
 
     @property
     def gid_map(self) -> dict | None:
@@ -1146,6 +1159,8 @@ class FontRegistry:
     def __init__(self) -> None:
         self._cache: dict = {}
         self._custom: dict = {}
+        self._fallback_paths: list = []
+        self._fallback_metrics: list | None = None
 
     def register(
         self, family: str, path: str | Path, bold: bool = False, italic: bool = False
@@ -1178,6 +1193,54 @@ class FontRegistry:
 
         self._cache[key] = metrics
         return metrics
+
+    def register_fallback(self, path: str | Path) -> None:
+        """Append a fallback font tried, in order, for unsupported glyphs."""
+        self._fallback_paths.append(Path(path))
+        self._fallback_metrics = None
+
+    @property
+    def fallbacks(self) -> list:
+        """Fallback FontMetrics in registration order, loaded lazily."""
+        if self._fallback_metrics is None:
+            self._fallback_metrics = [
+                FontMetrics.from_file(path) for path in self._fallback_paths
+            ]
+        return list(self._fallback_metrics)
+
+    def segment_runs(self, text: str, primary_metrics: FontMetrics) -> list:
+        """Split text into maximal (segment, metrics) runs by glyph support.
+
+        Each character keeps the primary font when it supports it, else the
+        first registered fallback that does; characters no font supports stay
+        with the primary so the substitution layer can handle them. With no
+        fallbacks registered the text is returned whole under the primary.
+        """
+        if not text:
+            return []
+        if not self._fallback_paths:
+            return [(text, primary_metrics)]
+        fallbacks = self.fallbacks
+
+        def pick(char: str) -> FontMetrics:
+            if primary_metrics.supports(char):
+                return primary_metrics
+            for candidate in fallbacks:
+                if candidate.supports(char):
+                    return candidate
+            return primary_metrics
+
+        segments: list = []
+        start = 0
+        current = pick(text[0])
+        for index in range(1, len(text)):
+            chosen = pick(text[index])
+            if chosen is not current:
+                segments.append((text[start:index], current))
+                current = chosen
+                start = index
+        segments.append((text[start:], current))
+        return segments
 
     def is_available(self, family: str) -> bool:
         low = family.lower()

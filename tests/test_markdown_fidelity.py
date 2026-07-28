@@ -236,23 +236,21 @@ class TestTaskLists:
 
 
 class TestBlockquotes:
-    def test_flag_defaults_off(self):
-        assert BLOCKQUOTE_NATIVE is False
+    def test_flag_defaults_on(self):
+        assert BLOCKQUOTE_NATIVE is True
 
-    def test_plain_blockquote_maps_to_indented_italic_paragraph(self):
+    def test_plain_blockquote_maps_to_native_element(self):
         result = parse_markdown("> quoted wisdom")
         assert len(result) == 1
-        para = result[0]
-        assert isinstance(para, Paragraph)
-        assert all(r.italic for r in para.runs)
-        assert para.style is not None
-        assert para.style.indent_left > 0
+        quote = result[0]
+        assert isinstance(quote, BlockQuote)
+        assert quote.plain_text == "quoted wisdom"
 
     def test_multiline_and_lazy_continuation(self):
         md = "> line one\n> line two\nlazy three"
-        para = parse_markdown(md)[0]
-        assert isinstance(para, Paragraph)
-        assert para.plain_text == "line one line two lazy three"
+        quote = parse_markdown(md)[0]
+        assert isinstance(quote, BlockQuote)
+        assert quote.plain_text == "line one line two lazy three"
 
     def test_blockquote_renders_today(self):
         md = "> quoted wisdom\n\nAfter."

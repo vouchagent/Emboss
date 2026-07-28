@@ -24,6 +24,7 @@ from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
     BibliographyBlock,
+    BlockQuote,
     BulletList,
     Callout,
     Chart,
@@ -42,7 +43,36 @@ from .spec import (
 from .styles import Style
 from .typography.hyphenation import Hyphenator
 
-__all__ = ["render_document", "RenderResult", "Renderer"]
+__all__ = ["render_document", "RenderResult", "Renderer", "roman"]
+
+_ROMAN_NUMERALS = (
+    (1000, "m"),
+    (900, "cm"),
+    (500, "d"),
+    (400, "cd"),
+    (100, "c"),
+    (90, "xc"),
+    (50, "l"),
+    (40, "xl"),
+    (10, "x"),
+    (9, "ix"),
+    (5, "v"),
+    (4, "iv"),
+    (1, "i"),
+)
+
+
+def roman(value: int, upper: bool = False) -> str:
+    """Format a positive integer as a roman numeral, lowercase by default."""
+    if value <= 0:
+        return str(value)
+    parts = []
+    for magnitude, glyph in _ROMAN_NUMERALS:
+        while value >= magnitude:
+            parts.append(glyph)
+            value -= magnitude
+    text = "".join(parts)
+    return text.upper() if upper else text
 
 
 @dataclass
@@ -82,6 +112,8 @@ class Renderer:
         self._element_keys: dict = {}
         # spot color name -> SpotColor, in first-use order across pages
         self._used_spots: dict = {}
+        # page index -> running section title for the {section} token
+        self._section_titles: list = []
 
     def run(self) -> RenderResult:
         validation = self.validator.validate(self.source).raise_if_failed()
@@ -98,6 +130,7 @@ class Renderer:
         width = document.page.content_width
         measured = [engine.measure(el, width) for el in content]
         pages = engine.paginate(measured, document.page)
+        self._section_titles = self._collect_section_titles(document, pages)
 
         assembler = PDFAssembler()
         data = self._assemble(assembler, document, sheet, pages)
@@ -129,6 +162,86 @@ class Renderer:
             )
             prefix.append(Paragraph(document.author, style=author_style))
         return prefix + content
+
+    # -- paged-media helpers --
+
+    @staticmethod
+    def _collect_section_titles(document, pages) -> list:
+        """Map each page to its running section title for the {section} token."""
+        current = document.title or ""
+        titles = []
+        for page in pages:
+            for placed in page.blocks:
+                element = placed.block.element
+                if isinstance(element, Heading) and element.level <= 2:
+                    prefix = f"{element.numbering} " if element.numbering else ""
+                    current = prefix + element.text
+            titles.append(current)
+        return titles
+
+    @staticmethod
+    def _is_mirrored(document, page_index: int) -> bool:
+        """True on verso pages (PDF page 2, 4, ...) of a mirrored document."""
+        mirror = bool(getattr(document.page, "mirror_margins", False))
+        return mirror and page_index % 2 == 1
+
+    @staticmethod
+    def _front_matter_count(document, total: int) -> int:
+        """Clamp front_matter_pages to the actual page count."""
+        front = int(getattr(document, "front_matter_pages", 0) or 0)
+        return min(max(front, 0), total)
+
+    def _page_number_labels(self, document, page_index: int, total: int) -> tuple:
+        """Return ({page}, {pages}) labels for this page's numbering sequence."""
+        fmt = getattr(document, "page_number_format", "arabic")
+        front = self._front_matter_count(document, total)
+        upper = fmt == "ROMAN"
+        if page_index < front:
+            return roman(page_index + 1, upper=upper), roman(front, upper=upper)
+
+        def _fmt(n: int) -> str:
+            return roman(n, upper=upper) if fmt in ("roman", "ROMAN") else str(n)
+
+        return _fmt(page_index - front + 1), _fmt(total - front)
+
+    def _page_labels_dict(self, document, total: int):
+        """Build a /PageLabels tree matching the visible numbering, or None."""
+        fmt = getattr(document, "page_number_format", "arabic")
+        front = self._front_matter_count(document, total)
+        if fmt == "arabic" and front == 0:
+            return None
+        body_style = {"arabic": "D", "roman": "r", "ROMAN": "R"}[fmt]
+
+        def _range(style: str) -> PdfDict:
+            entry = PdfDict()
+            entry["S"] = PdfName(style)
+            return entry
+
+        nums: list = []
+        if front:
+            nums.extend([0, _range("R" if fmt == "ROMAN" else "r")])
+            if front < total:
+                nums.extend([front, _range(body_style)])
+        else:
+            nums.extend([0, _range(body_style)])
+        labels = PdfDict()
+        labels["Nums"] = PdfArray(nums)
+        return labels
+
+    @staticmethod
+    def _effective_hf(hf, page_index: int, mirrored: bool):
+        """Resolve first-page override/suppression and mirror slot swapping."""
+        if hf is None:
+            return None
+        if page_index == 0:
+            override = getattr(hf, "first_page_override", None)
+            if override is not None:
+                hf = override
+            elif not getattr(hf, "first_page", True):
+                return None
+        if mirrored and (hf.left or hf.right):
+            hf = replace(hf, left=hf.right, right=hf.left)
+        return hf
 
     # -- cross-reference resolution --
 
@@ -317,6 +430,10 @@ class Renderer:
             view_prefs["DisplayDocTitle"] = True
             catalog["ViewerPreferences"] = view_prefs
 
+        page_labels = self._page_labels_dict(document, len(pages))
+        if page_labels is not None:
+            catalog["PageLabels"] = page_labels
+
         if document.toc:
             from .toc import build_toc_entries, build_outline_dict
 
@@ -331,6 +448,10 @@ class Renderer:
             pdfa_entries = pdfa_catalog_entries(assembler, document)
             for key, value in pdfa_entries.items():
                 catalog[key] = value
+        elif document.tagged:
+            from .pdfa import build_xmp_stream
+
+            catalog["Metadata"] = build_xmp_stream(assembler, document, pdfa=False)
 
         if document.signatures:
             from .signing import (
@@ -436,7 +557,15 @@ class Renderer:
         if legal and legal.watermark:
             self._draw_watermark(stream, document, sheet, legal, font_registry)
 
-        for placed in page.blocks:
+        page_blocks = page.blocks
+        if self._is_mirrored(document, page_index):
+            shift = document.page.margin_right - document.page.margin_left
+            if shift:
+                page_blocks = [
+                    replace(placed, x=placed.x + shift) for placed in page.blocks
+                ]
+
+        for placed in page_blocks:
             element = placed.block.element
             if isinstance(element, Heading):
                 self._draw_text_block(
@@ -451,6 +580,8 @@ class Renderer:
                 self._draw_text_block(
                     stream, placed, page_index, root, font_registry, tag="P"
                 )
+            elif isinstance(element, BlockQuote):
+                self._draw_blockquote(stream, placed, page_index, root, font_registry)
             elif isinstance(element, BulletList):
                 self._draw_list(stream, placed, page_index, root, font_registry)
             elif isinstance(element, NumberedList):
@@ -542,6 +673,16 @@ class Renderer:
         key = self._font_key(metrics, registry)
         return metrics, size, key
 
+    def _draw_strikethrough(
+        self, stream, metrics, size: float, x: float, baseline: float, text, color
+    ) -> None:
+        """Strike a fragment with a rule above the baseline, in text color."""
+        width = metrics.text_width(text, size)
+        if width <= 0:
+            return
+        y = baseline + size * 0.28
+        stream.line(x, y, x + width, y, color=color, width=max(size * 0.06, 0.4))
+
     def _draw_text_block(
         self, stream, placed, page_index, root, registry, tag: str
     ) -> None:
@@ -593,6 +734,10 @@ class Renderer:
                     kern_pairs=metrics.kern_pairs(text),
                     gid_map=metrics.gid_map,
                 )
+                if run.strikethrough:
+                    self._draw_strikethrough(
+                        stream, metrics, size, x, baseline, text, color
+                    )
                 if run.link:
                     rect = [
                         x,
@@ -612,6 +757,46 @@ class Renderer:
 
         stream.end_marked()
 
+    @staticmethod
+    def _draw_checkbox(stream, x: float, baseline: float, color, checked) -> None:
+        """Draw a 7pt checkbox outline plus a two-segment tick when checked."""
+        stream.rect(x, baseline, 7.0, 7.0, stroke=color, line_width=0.7)
+        if checked:
+            stream.set_stroke(color)
+            stream.set_line_width(0.9)
+            stream.raw(
+                b" ".join([stream._num(x + 1.4), stream._num(baseline + 3.5), b"m"])
+            )
+            stream.raw(
+                b" ".join([stream._num(x + 2.9), stream._num(baseline + 1.7), b"l"])
+            )
+            stream.raw(
+                b" ".join([stream._num(x + 5.6), stream._num(baseline + 5.3), b"l"])
+            )
+            stream.raw(b"S")
+
+    @staticmethod
+    def _strip_task_prefix(lines: list, checked) -> list:
+        """Drop the literal checkbox prefix from a task item's first line."""
+        if not lines:
+            return lines
+        pending = "[x]" if checked else "[]"
+        fragments: list = []
+        shift = None
+        for text, run, offset in lines[0].fragments:
+            if pending:
+                if pending.startswith(text):
+                    pending = pending[len(text) :]
+                    continue
+                if text.startswith(pending):
+                    text = text[len(pending) :]
+                pending = ""
+            if shift is None:
+                shift = offset
+            if text:
+                fragments.append((text, run, offset - shift))
+        return [replace(lines[0], fragments=fragments)] + list(lines[1:])
+
     def _draw_list(self, stream, placed, page_index, root, registry) -> None:
         from .layout.engine import MeasuredBlock
 
@@ -626,13 +811,14 @@ class Renderer:
         bullet_width = metrics.text_width(element.bullet + " ", size)
         indent = style.require("indent_left")
         color = style.require("color")
+        checked = list(getattr(element, "checked", None) or [])
 
         y = placed.y
-        for entry in block.list_items:
+        for item_index, entry in enumerate(block.list_items):
             if isinstance(entry, MeasuredBlock):
                 nested_placed = PlacedBlock(
                     block=entry,
-                    x=placed.x + indent + bullet_width,
+                    x=placed.x + LayoutEngine.NESTED_LIST_INDENT,
                     y=y,
                     height=entry.height,
                     lines=entry.lines,
@@ -647,7 +833,10 @@ class Renderer:
                 y -= entry.height + entry.space_after
                 continue
 
+            item_checked = checked[item_index] if item_index < len(checked) else None
             lines = entry
+            if item_checked is not None:
+                lines = self._strip_task_prefix(lines, item_checked)
             item = StructureElement(tag="LI")
             list_el.children.append(item)
 
@@ -656,7 +845,15 @@ class Renderer:
             label_mcid = stream.next_mcid()
             label.add_mcid(page_index, label_mcid)
             stream.begin_marked("Lbl", label_mcid)
-            if lines:
+            if lines and item_checked is not None:
+                self._draw_checkbox(
+                    stream,
+                    placed.x + indent,
+                    y - lines[0].ascent,
+                    color,
+                    item_checked,
+                )
+            elif lines:
                 stream.text_line(
                     element.bullet,
                     key,
@@ -680,16 +877,27 @@ class Renderer:
                     run_metrics, run_size, run_key = self._resolve_font(
                         style, run, registry
                     )
+                    x = placed.x + indent + bullet_width + offset
                     stream.text_line(
                         text,
                         run_key,
                         run_size,
-                        placed.x + indent + bullet_width + offset,
+                        x,
                         baseline,
                         run.color or color,
                         kern_pairs=run_metrics.kern_pairs(text),
                         gid_map=run_metrics.gid_map,
                     )
+                    if run.strikethrough:
+                        self._draw_strikethrough(
+                            stream,
+                            run_metrics,
+                            run_size,
+                            x,
+                            baseline,
+                            text,
+                            run.color or color,
+                        )
                 y -= line.height
             stream.end_marked()
             y -= style.require("space_after")
@@ -719,7 +927,7 @@ class Renderer:
             if isinstance(entry, MeasuredBlock):
                 nested_placed = PlacedBlock(
                     block=entry,
-                    x=placed.x + indent + marker_width,
+                    x=placed.x + LayoutEngine.NESTED_LIST_INDENT,
                     y=y,
                     height=entry.height,
                     lines=entry.lines,
@@ -768,16 +976,27 @@ class Renderer:
                     run_metrics, run_size, run_key = self._resolve_font(
                         style, run, registry
                     )
+                    x = placed.x + indent + marker_width + offset
                     stream.text_line(
                         text,
                         run_key,
                         run_size,
-                        placed.x + indent + marker_width + offset,
+                        x,
                         baseline,
                         run.color or color,
                         kern_pairs=run_metrics.kern_pairs(text),
                         gid_map=run_metrics.gid_map,
                     )
+                    if run.strikethrough:
+                        self._draw_strikethrough(
+                            stream,
+                            run_metrics,
+                            run_size,
+                            x,
+                            baseline,
+                            text,
+                            run.color or color,
+                        )
                 y -= line.height
             stream.end_marked()
             y -= style.require("space_after")
@@ -791,6 +1010,49 @@ class Renderer:
             self._draw_numbered_list(stream, placed, page_index, root, registry)
         elif isinstance(element, BulletList):
             self._draw_list(stream, placed, page_index, root, registry)
+
+    def _draw_blockquote(self, stream, placed, page_index, root, registry) -> None:
+        element = placed.block.element
+        style = placed.block.style
+        inset = LayoutEngine.BLOCKQUOTE_INDENT
+        color = style.require("color")
+
+        stream.begin_artifact()
+        stream.rect(placed.x, placed.y - placed.height, 2.0, placed.height, fill=color)
+        stream.end_marked()
+
+        quote_el = StructureElement(tag="BlockQuote")
+        root.children.append(quote_el)
+        mcid = stream.next_mcid()
+        quote_el.add_mcid(page_index, mcid)
+        stream.begin_marked("BlockQuote", mcid)
+
+        body_ids = {id(run) for run in element.runs}
+        y = placed.y
+        for line in placed.lines:
+            baseline = y - line.ascent
+            for text, run, offset in line.fragments:
+                metrics, size, key = self._resolve_font(style, run, registry)
+                if id(run) not in body_ids:
+                    size *= 0.85
+                x = placed.x + inset + offset
+                stream.text_line(
+                    text,
+                    key,
+                    size,
+                    x,
+                    baseline,
+                    run.color or color,
+                    kern_pairs=metrics.kern_pairs(text),
+                    gid_map=metrics.gid_map,
+                )
+                if run.strikethrough:
+                    self._draw_strikethrough(
+                        stream, metrics, size, x, baseline, text, run.color or color
+                    )
+            y -= line.height
+
+        stream.end_marked()
 
     def _draw_table(self, stream, placed, page_index, root, registry, sheet) -> None:
         block = placed.block
@@ -1042,16 +1304,13 @@ class Renderer:
         return self._image_refs[source_key][0]
 
     def _draw_chart(self, stream, placed, page_index, root, registry) -> None:
-        from .charts import ChartData, ChartSpec, render_chart
+        from .charts import ChartData, ChartSpec, render_chart, series_summary
 
         element = placed.block.element
         style = placed.block.style
 
         fig_el = StructureElement(tag="Figure")
-        fig_el.alt_text = element.alt_text or (
-            f"{element.chart_type} chart"
-            + (f": {element.title}" if element.title else "")
-        )
+        fig_el.alt_text = element.alt_text or series_summary(element)
         root.children.append(fig_el)
 
         mcid = stream.next_mcid()
@@ -1591,17 +1850,10 @@ class Renderer:
         left,
         right,
         y,
-        page_index,
-        total,
+        expand,
         artifact_type,
     ):
         """Draw left / center / right slots for a HeaderFooter."""
-
-        def _expand(text: str) -> str:
-            return text.replace("{page}", str(page_index + 1)).replace(
-                "{pages}", str(total)
-            )
-
         content_width = right - left
         for slot_text, align in [
             (hf.left, "left"),
@@ -1610,7 +1862,7 @@ class Renderer:
         ]:
             if not slot_text:
                 continue
-            rendered = _expand(slot_text)
+            rendered = expand(slot_text)
             tw = metrics.text_width(rendered, size)
             if align == "left":
                 x = left
@@ -1632,14 +1884,34 @@ class Renderer:
         legal = document.legal
 
         gmap = metrics.gid_map
-        content_left = spec.margin_left
-        content_right = spec.width - spec.margin_right
+        mirrored = self._is_mirrored(document, page_index)
+        if mirrored:
+            content_left = spec.margin_right
+            content_right = spec.width - spec.margin_left
+        else:
+            content_left = spec.margin_left
+            content_right = spec.width - spec.margin_right
 
         header_y = spec.height - spec.margin_top + 22.0
         footer_y = spec.margin_bottom - 26.0
 
-        hf_header = document.header if hasattr(document, "header") else None
-        hf_footer = document.footer if hasattr(document, "footer") else None
+        page_label, pages_label = self._page_number_labels(document, page_index, total)
+        titles = self._section_titles
+        section = (
+            titles[page_index] if page_index < len(titles) else document.title or ""
+        )
+
+        def expand(text: str) -> str:
+            return (
+                text.replace("{page}", page_label)
+                .replace("{pages}", pages_label)
+                .replace("{section}", section)
+            )
+
+        base_header = document.header if hasattr(document, "header") else None
+        base_footer = document.footer if hasattr(document, "footer") else None
+        hf_header = self._effective_hf(base_header, page_index, mirrored)
+        hf_footer = self._effective_hf(base_footer, page_index, mirrored)
 
         if hf_header:
             h_size = hf_header.font_size or size
@@ -1661,8 +1933,7 @@ class Renderer:
                 content_left,
                 content_right,
                 header_y,
-                page_index,
-                total,
+                expand,
                 "Header",
             )
             if hf_header.separator_line:
@@ -1677,7 +1948,7 @@ class Renderer:
                     width=0.5,
                 )
                 stream.end_marked()
-        elif document.header_text:
+        elif document.header_text and base_header is None:
             stream.begin_artifact("Header")
             stream.text_line(
                 document.header_text,
@@ -1722,11 +1993,10 @@ class Renderer:
                 content_left,
                 content_right,
                 footer_y,
-                page_index,
-                total,
+                expand,
                 "Footer",
             )
-        elif document.footer_text:
+        elif document.footer_text and base_footer is None:
             stream.begin_artifact("Footer")
             stream.text_line(
                 document.footer_text,
@@ -1739,8 +2009,8 @@ class Renderer:
             )
             stream.end_marked()
 
-        if document.page_numbers and not hf_footer:
-            label = f"{page_index + 1} of {total}"
+        if document.page_numbers and base_footer is None:
+            label = f"{page_label} of {pages_label}"
             width = metrics.text_width(label, size)
             stream.begin_artifact("Footer")
             stream.text_line(

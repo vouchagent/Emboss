@@ -27,6 +27,7 @@ __all__ = [
     "BlockQuote",
     "Image",
     "Chart",
+    "Series",
     "Footnote",
     "Callout",
     "MathBlock",
@@ -320,10 +321,22 @@ class Image:
 
 
 @dataclass
-class Chart:
-    """A data chart rendered as vector graphics."""
+class Series:
+    """One named data series within a chart."""
 
-    chart_type: Literal["bar", "line", "pie"] = "bar"
+    label: str = ""
+    values: Sequence = field(default_factory=list)
+
+
+@dataclass
+class Chart:
+    """A data chart rendered as vector graphics.
+
+    Provide either ``labels`` + ``values`` (one unnamed series) or
+    ``labels`` + ``series`` for multi-series charts.
+    """
+
+    chart_type: Literal["bar", "line", "pie", "scatter"] = "bar"
     labels: Sequence = field(default_factory=list)
     values: Sequence = field(default_factory=list)
     colors: Sequence | None = None
@@ -334,6 +347,10 @@ class Chart:
     height: float = 250.0
     style: Style | None = None
     float: Literal["here", "top", "bottom", "auto"] | None = None
+    series: Sequence | None = None
+    x_title: str | None = None
+    y_title: str | None = None
+    legend: bool = True
 
     @property
     def structure_tag(self) -> str:
@@ -512,6 +529,7 @@ class PageSpec:
     margin_left: float = 72.0
     columns: int = 1
     column_gap: float = 18.0
+    mirror_margins: bool = False
 
     @classmethod
     def letter(cls, **kw) -> "PageSpec":
@@ -547,8 +565,13 @@ class PageSpec:
 class HeaderFooter:
     """Structured header or footer with left/center/right slots.
 
-    Use ``{page}`` and ``{pages}`` placeholders in text fields;
-    they are replaced with the current page number and total pages.
+    Use ``{page}``, ``{pages}``, and ``{section}`` placeholders in text
+    fields; they are replaced with the current page number, the page
+    count of the current numbering sequence, and the text of the most
+    recent level-1/2 heading at or before this page (falling back to
+    the document title). On page 1, ``first_page_override`` replaces
+    this header/footer when set; otherwise ``first_page=False``
+    suppresses it entirely.
     """
 
     left: str | None = None
@@ -558,6 +581,8 @@ class HeaderFooter:
     font_family: str | None = None
     color: str | None = None
     separator_line: bool = False
+    first_page: bool = True
+    first_page_override: "HeaderFooter | None" = None
 
 
 @dataclass
@@ -604,6 +629,8 @@ class Document:
     signatures: list | None = None
     toc: bool = False
     color_mode: Literal["rgb", "cmyk"] = "rgb"
+    page_number_format: Literal["arabic", "roman", "ROMAN"] = "arabic"
+    front_matter_pages: int = 0
     creator: str = "Emboss"
     producer: str = "Emboss"
 
@@ -702,20 +729,39 @@ class Document:
     def from_markdown(cls, text: str, **kw) -> "Document":
         """Create a Document from a Markdown string.
 
+        A leading --- front-matter block supplies document metadata
+        (title, author, style, toc, ...); explicit keyword arguments win.
         Any keyword arguments are passed to the Document constructor
         (style, page, legal, header, footer, etc.).
         """
-        from .markdown import parse_markdown
+        from .markdown import parse_front_matter, parse_markdown
 
-        elements = parse_markdown(text)
-        title = kw.pop("title", "")
+        matter = parse_front_matter(text)
+        elements = parse_markdown(matter.body)
+        meta = {**matter.fields, **kw}
+        number_sections = meta.pop("number_sections", None)
+        title = meta.pop("title", "")
         if not title:
             for el in elements:
                 if isinstance(el, Heading) and el.level == 1:
                     title = el.text
                     break
-        doc = cls(title=title, content=elements, **kw)
+        doc = cls(title=title, content=elements, **meta)
+        if number_sections is not None:
+            doc.number_sections = number_sections
         return doc
+
+    @classmethod
+    def from_llm(cls, text: str, **kw) -> "Document":
+        """Create a Document from raw LLM output, auto-detecting the format.
+
+        Routing order: fenced ```json block, bare JSON object containing
+        "content", MathML fragment, then Markdown. Never raises on
+        ambiguous input; Markdown is the final fallback.
+        """
+        from .generate import document_from_llm_text
+
+        return document_from_llm_text(text, **kw)
 
     @classmethod
     def from_json(cls, json_str: str, **kw) -> "Document":

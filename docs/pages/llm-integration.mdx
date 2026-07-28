@@ -1,0 +1,107 @@
+---
+title: LLM Integration
+description: Three tiers of LLM integration, from spec prompts to Markdown
+---
+
+import { Callout, Tabs, Tab } from 'nextra/components'
+
+# LLM Integration
+
+Emboss offers three integration tiers. All three produce identical PDF quality: the typography engine (Knuth-Plass, optical margins, kerning) runs the same regardless of input format.
+
+<Tabs items={['Tier 1: Spec prompt', 'Tier 2: One-liner', 'Tier 3: Markdown']}>
+<Tab>
+
+Bring your own LLM client. `spec_prompt()` returns a compact system prompt (about 2K tokens) that teaches the model the EmbossSpec format, then `Document.from_json` parses the response:
+
+```python
+from emboss import spec_prompt, Document
+
+system = spec_prompt(style="finance")
+response = client.messages.create(
+    model="claude-sonnet-5",
+    system=system,
+    messages=[{"role": "user", "content": "Create a Q3 financial report"}],
+)
+doc = Document.from_json(response.text)
+doc.save("report.pdf")
+```
+
+`spec_prompt(style=..., features=...)` accepts a default style preset to suggest and an optional list of features to emphasize, for example `features=["tables", "math", "code"]`. Because the prompt teaches the exact vocabulary the validator accepts, valid output is the common case rather than a lucky one.
+
+For structured-output APIs, the pydantic model and its JSON Schema are available directly:
+
+```python
+from emboss.adapters.pydantic_schema import DocumentSpec, generate_json_schema
+
+schema = generate_json_schema()          # JSON Schema string for prompts
+spec = DocumentSpec.model_validate_json(llm_output)
+spec.to_document().save("output.pdf")
+```
+
+</Tab>
+<Tab>
+
+`generate()` runs the full pipeline: build the system prompt, call the LLM, parse the JSON, render, and optionally save:
+
+```python
+from emboss import generate
+
+generate("Create a quarterly financial report",
+         style="finance", output="report.pdf",
+         provider="anthropic")  # or "openai"
+```
+
+Parameters: `provider` is `"anthropic"` (default model `claude-sonnet-5`) or `"openai"` (default model `gpt-4o`), overridable via `model=`. The API key comes from `api_key=` or the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variable. `smart=True` applies content intelligence to the parsed spec, and extra keyword arguments become Document-level overrides (`legal`, `header`, `footer`, and so on). Returns the PDF bytes; `output=` additionally writes them to a file. The provider SDK (`anthropic` or `openai`) must be installed.
+
+</Tab>
+<Tab>
+
+Works with any LLM output, no schema at all. Markdown is what models produce naturally:
+
+```python
+from emboss import Document
+
+md = llm.generate("Write a quarterly report...")  # any LLM, any provider
+doc = Document.from_markdown(md, style="finance")
+doc.save("report.pdf")
+```
+
+Keyword arguments pass through to the Document constructor (`style`, `page`, `legal`, `header`, `footer`, ...). If no `title` is given, the first level-1 heading becomes the document title. The supported Markdown surface is documented in [Markdown Input](/markdown).
+
+</Tab>
+</Tabs>
+
+## Robust parsing
+
+LLM output is messy; the parser is built for it.
+
+```python
+doc = Document.from_json(
+    text,
+    strict=False,      # default: repair instead of raising
+    smart=True,        # content intelligence: typography, tables, auto-style
+    on_warning=print,  # one message per repair performed
+)
+```
+
+What the non-strict path repairs, in order:
+
+1. **Fence stripping.** A surrounding ```` ```json ```` fence is removed before parsing.
+2. **Trailing commas.** Removed with a targeted rewrite before `json.loads`.
+3. **Truncation repair.** Output cut off mid-generation is closed deterministically: an unterminated string is terminated, a dangling key gets a `null` value, and open braces and brackets are balanced in reverse order. A repair emits one `on_warning` message.
+4. **Synonym normalization.** Legacy type tags and field spellings are mapped onto the canonical vocabulary on both parse paths: `bullet_list` becomes `bullets`, `numbered_list` becomes `numbered`, `math_block` becomes `math`, `horizontal_rule` becomes `rule`. Callout variants `tip`, `caution`, and `important` map to `info`, `warning`, and `note`; a callout `content` field is accepted as `text`; a chart `caption` is accepted as `title`.
+5. **Per-block recovery.** When document validation fails, every content block is re-validated independently. An invalid block that still carries usable text (`text`, `content`, `code`, or `source`) is coerced to a paragraph; an empty one is dropped. The rest of the document renders. Each action emits an `on_warning` message.
+6. **Heading hierarchy healing.** A heading level that jumps more than one step below its predecessor (an H1 followed by an H4) is pulled up to the next level, a common LLM slip.
+
+`strict=True` disables all of this and raises on any malformed input. `smart=True` runs the `ContentAnalyzer` on the raw dict before validation: smart typography (curly quotes, proper dashes, ellipses), table intelligence (summary-row detection, numeric column alignment), and auto-style detection when no style was specified.
+
+<Callout type="info">
+Numeric columns are detected even without `smart`: a table column whose
+values are at least 70% numeric gets decimal alignment automatically
+during validation.
+</Callout>
+
+## Layout features from the spec
+
+Specs can request layout features directly: `"toc": true` inserts an auto-generated table of contents, and `"page": {"columns": 2, "column_gap": 18}` sets multi-column geometry. See the [EmbossSpec Format](/spec-format) for the full field reference.

@@ -30,7 +30,13 @@ from typing import TYPE_CHECKING, Callable, Literal
 if TYPE_CHECKING:
     from .spec import Document
 
-__all__ = ["spec_prompt", "generate", "parse_spec_json"]
+__all__ = [
+    "spec_prompt",
+    "generate",
+    "parse_spec_json",
+    "parse_spec_dict",
+    "spec_schema",
+]
 
 SPEC_SYNONYMS = {
     "bullet_list": "bullets",
@@ -69,9 +75,224 @@ def _normalize_spec(data: dict) -> dict:
     return data
 
 
+def spec_schema() -> dict:
+    """Return the JSON Schema dict for the EmbossSpec document format."""
+    try:
+        from .adapters.pydantic_schema import DocumentSpec
+    except ImportError:
+        raise ImportError(
+            "Structured outputs require pydantic to build the EmbossSpec "
+            "JSON Schema.\n  pip install pydantic"
+        ) from None
+    return DocumentSpec.model_json_schema()
+
+
+def _add_null_union(prop: dict) -> None:
+    """Make a property schema accept null, per OpenAI's optional-field pattern."""
+    options = prop.get("anyOf")
+    if isinstance(options, list):
+        if not any(o.get("type") == "null" for o in options if isinstance(o, dict)):
+            options.append({"type": "null"})
+        return
+    if "$ref" in prop:
+        prop["anyOf"] = [{"$ref": prop.pop("$ref")}, {"type": "null"}]
+        return
+    type_tag = prop.get("type")
+    if isinstance(type_tag, str):
+        prop["type"] = [type_tag, "null"]
+    elif isinstance(type_tag, list) and "null" not in type_tag:
+        type_tag.append("null")
+    enum = prop.get("enum")
+    if isinstance(enum, list) and None not in enum:
+        enum.append(None)
+
+
+def _make_strict(node) -> None:
+    """Recursively enforce OpenAI strict-mode rules on a schema node."""
+    if isinstance(node, dict):
+        if isinstance(node.get("properties"), dict):
+            node["additionalProperties"] = False
+            optional = set(node["properties"]) - set(node.get("required", []))
+            node["required"] = list(node["properties"])
+            for name, prop in node["properties"].items():
+                if name in optional and isinstance(prop, dict) and "const" not in prop:
+                    _add_null_union(prop)
+        elif node.get("type") == "object":
+            node.setdefault("additionalProperties", False)
+        for value in node.values():
+            _make_strict(value)
+    elif isinstance(node, list):
+        for value in node:
+            _make_strict(value)
+
+
+def _strict_schema(schema: dict) -> dict:
+    """Return a deep copy of `schema` compatible with OpenAI strict mode."""
+    import copy
+
+    schema = copy.deepcopy(schema)
+    _make_strict(schema)
+    return schema
+
+
+_DOC_TYPE_EXEMPLARS: dict[str, dict] = {
+    "report": {
+        "title": "Q3 Operations Report",
+        "style": "finance",
+        "toc": True,
+        "content": [
+            {"type": "heading", "text": "Executive Summary", "level": 1},
+            {"type": "paragraph", "text": "Output rose 8% quarter over quarter."},
+            {"type": "heading", "text": "Regional Performance", "level": 2},
+            {
+                "type": "table",
+                "headers": ["Region", "Revenue", "Change"],
+                "rows": [["North", "$2.4M", "+11.5%"], ["South", "$1.8M", "+3.2%"]],
+                "stripe": True,
+            },
+            {"type": "heading", "text": "Trend", "level": 2},
+            {
+                "type": "chart",
+                "chart_type": "bar",
+                "labels": ["Q1", "Q2", "Q3"],
+                "values": [100, 120, 130],
+                "title": "Quarterly Output",
+            },
+        ],
+    },
+    "paper": {
+        "title": "Spectral Methods for Sparse Systems",
+        "style": "academic",
+        "page": {"preset": "a4", "columns": 2},
+        "content": [
+            {
+                "type": "paragraph",
+                "text": "Abstract. We present a spectral method for sparse systems.",
+                "style": {"italic": True},
+            },
+            {"type": "heading", "text": "Introduction", "level": 1, "numbering": "1"},
+            {"type": "paragraph", "text": "Sparse systems arise across analysis."},
+            {"type": "heading", "text": "Method", "level": 1, "numbering": "2"},
+            {"type": "math", "source": "\\sum_{i=1}^{n} \\lambda_i x_i = b"},
+            {"type": "heading", "text": "References", "level": 1},
+            {"type": "paragraph", "text": "[1] A. Author, Iterative Methods, 2024."},
+        ],
+    },
+    "brief": {
+        "title": "Market Entry Brief",
+        "style": "brief",
+        "content": [
+            {"type": "heading", "text": "Market Entry: Northern Europe", "level": 1},
+            {
+                "type": "table",
+                "headers": ["Metric", "Value"],
+                "rows": [["TAM", "$1.2B"], ["CAGR", "9.4%"]],
+            },
+            {
+                "type": "callout",
+                "text": "Regulatory approval expected in Q2.",
+                "variant": "info",
+                "title": "Timing",
+            },
+            {
+                "type": "blockquote",
+                "text": "The window for category leadership is now.",
+                "attribution": "CEO",
+            },
+            {
+                "type": "callout",
+                "text": "Currency exposure remains unhedged.",
+                "variant": "warning",
+            },
+        ],
+    },
+    "deck": {
+        "title": "Product Launch Deck",
+        "style": "corporate",
+        "content": [
+            {"type": "heading", "text": "Launch Plan", "level": 1},
+            {"type": "paragraph", "text": "A three-phase rollout in two markets."},
+            {"type": "page_break"},
+            {"type": "heading", "text": "Phase One", "level": 1},
+            {
+                "type": "bullets",
+                "items": ["Private beta", "Feedback loop", "Pricing test"],
+            },
+            {"type": "page_break"},
+            {"type": "heading", "text": "Metrics", "level": 1},
+            {
+                "type": "chart",
+                "chart_type": "line",
+                "labels": ["W1", "W2", "W3"],
+                "values": [120, 340, 610],
+                "title": "Signups",
+            },
+        ],
+    },
+    "architecture": {
+        "title": "Ingest Service Architecture",
+        "style": "corporate",
+        "content": [
+            {"type": "heading", "text": "Overview", "level": 1},
+            {"type": "paragraph", "text": "Events flow from gateway to processor."},
+            {
+                "type": "svg",
+                "source": (
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="200" '
+                    'height="60"><rect x="5" y="15" width="80" height="30" '
+                    'fill="none" stroke="black"/><rect x="115" y="15" '
+                    'width="80" height="30" fill="none" stroke="black"/>'
+                    '<line x1="85" y1="30" x2="115" y2="30" stroke="black"/>'
+                    "</svg>"
+                ),
+                "caption": "Gateway to processor",
+                "alt_text": "Two boxes joined by a line",
+            },
+            {"type": "heading", "text": "Endpoints", "level": 2},
+            {
+                "type": "table",
+                "headers": ["Route", "Method"],
+                "rows": [["/ingest", "POST"], ["/health", "GET"]],
+            },
+            {
+                "type": "code_block",
+                "code": "def handle(event):\n    return enqueue(event)",
+                "language": "python",
+            },
+            {
+                "type": "callout",
+                "text": "The queue is the only stateful component.",
+                "variant": "note",
+            },
+        ],
+    },
+}
+
+
+def _format_exemplar(doc: dict) -> str:
+    """Format an exemplar dict as compact JSON with one content block per line."""
+    lines = ["{"]
+    items = list(doc.items())
+    for index, (key, value) in enumerate(items):
+        comma = "," if index < len(items) - 1 else ""
+        if key == "content":
+            lines.append('  "content": [')
+            for j, block in enumerate(value):
+                block_comma = "," if j < len(value) - 1 else ""
+                encoded = json.dumps(block, separators=(", ", ": "))
+                lines.append(f"    {encoded}{block_comma}")
+            lines.append(f"  ]{comma}")
+        else:
+            encoded = json.dumps(value, separators=(", ", ": "))
+            lines.append(f"  {json.dumps(key)}: {encoded}{comma}")
+    lines.append("}")
+    return "\n".join(lines)
+
+
 def spec_prompt(
     style: str = "corporate",
     features: list[str] | None = None,
+    doc_type: str | None = None,
 ) -> str:
     """Return a system prompt that teaches an LLM the EmbossSpec format.
 
@@ -82,10 +303,25 @@ def spec_prompt(
     Args:
         style: default style preset to suggest (legal/finance/academic/corporate/minimal/journal/brief)
         features: optional list of features to emphasize (e.g. ["tables", "math", "code"])
+        doc_type: optional genre (report/paper/brief/deck/architecture) whose
+            worked example is appended to the prompt
     """
+    if doc_type is not None and doc_type not in _DOC_TYPE_EXEMPLARS:
+        available = ", ".join(sorted(_DOC_TYPE_EXEMPLARS))
+        raise ValueError(f"Unknown doc_type {doc_type!r}. Available: {available}")
+
     feature_hints = ""
     if features:
         feature_hints = f"\nFocus on these elements: {', '.join(features)}.\n"
+
+    exemplar_section = ""
+    if doc_type is not None:
+        exemplar = _format_exemplar(_DOC_TYPE_EXEMPLARS[doc_type])
+        exemplar_section = (
+            f"\n\n## Worked Example: {doc_type}\n"
+            "Follow this genre skeleton; replace the material with content "
+            f"for the user's request.\n```json\n{exemplar}\n```"
+        )
 
     return f"""You are a document generation assistant. Output a JSON object following the EmbossSpec format below. The JSON will be rendered into a professional PDF with optimal typography, accessibility tags, and deterministic output.
 
@@ -111,12 +347,20 @@ def spec_prompt(
 - "academic" — serif body, sans headings, justified (papers, theses)
 - "corporate" — sans-serif, readable, roomy (memos, policies)
 - "minimal" — compact, minimal ornament (data exports)
+- "journal" — serif, justified, muted forest accent (long-form reports, journals)
+- "brief" — sans-serif, bold accents, stat-friendly (executive briefs)
 
 ## Page Options
 ```json
 {{"page": {{"preset": "a4", "columns": 2, "column_gap": 24}}, "toc": true}}
 ```
 Presets: letter, a4, legal. Use "columns": 2 for two-column layouts (newsletters, academic papers); "column_gap" is in points.
+
+## Headers, Footers & Page Numbers
+```json
+{{"header": {{"left": "{{section}}", "right": "{{page}} of {{pages}}"}}, "page_number_format": "arabic", "front_matter_pages": 0}}
+```
+"header"/"footer" slots (left/center/right) accept {{page}}, {{pages}}, and {{section}} (current heading) tokens; "first_page": false suppresses page 1. "page_number_format" is "arabic", "roman", or "ROMAN"; "front_matter_pages": N numbers the first N pages i, ii, ... and restarts the body at 1.
 
 ## Block Element Types
 
@@ -194,7 +438,11 @@ Variants: info, warning, success, danger, note.
 ```json
 {{"type": "chart", "chart_type": "bar", "labels": ["Q1", "Q2"], "values": [100, 150], "title": "Revenue"}}
 ```
-Types: bar, line, pie.
+Multi-series (grouped bars, multi-line, or scatter) with axis titles and legend:
+```json
+{{"type": "chart", "chart_type": "scatter", "labels": ["Q1", "Q2"], "series": [{{"label": "North", "values": [100, 150]}}, {{"label": "South", "values": [90, 120]}}], "x_title": "Quarter", "y_title": "Units"}}
+```
+Types: bar, line, pie, scatter. Pie uses the first series only.
 
 ## Rules
 1. Always output valid JSON — no comments, no trailing commas.
@@ -206,7 +454,7 @@ Types: bar, line, pie.
 7. Use math blocks for equations and formulas.
 8. Set "toc": true for long documents with many sections.
 {feature_hints}
-Output ONLY the JSON object, no surrounding text or markdown fences."""
+Output ONLY the JSON object, no surrounding text or markdown fences.{exemplar_section}"""
 
 
 def _strip_fences(text: str) -> str:
@@ -353,6 +601,40 @@ def parse_spec_json(
         data = json.loads(_repair_truncation(text))
         _warn(on_warning, "repaired truncated JSON")
 
+    return _parse_spec_data(
+        data, strict=strict, smart=smart, on_warning=on_warning, **overrides
+    )
+
+
+def parse_spec_dict(
+    data: dict,
+    *,
+    strict: bool = False,
+    smart: bool = False,
+    on_warning: Callable[[str], None] | None = None,
+    **overrides,
+) -> "Document":
+    """Parse an EmbossSpec dict (e.g. forced tool-use input) into a Document."""
+    import copy
+
+    return _parse_spec_data(
+        copy.deepcopy(data),
+        strict=strict,
+        smart=smart,
+        on_warning=on_warning,
+        **overrides,
+    )
+
+
+def _parse_spec_data(
+    data: dict,
+    *,
+    strict: bool = False,
+    smart: bool = False,
+    on_warning: Callable[[str], None] | None = None,
+    **overrides,
+) -> "Document":
+    """Validate a decoded EmbossSpec dict through the normalize/repair pipeline."""
     for key, value in overrides.items():
         data[key] = value
 
@@ -381,6 +663,7 @@ def parse_spec_json(
 def _manual_parse(data: dict) -> "Document":
     """Fallback parser when pydantic is not installed."""
     from .spec import (
+        BlockQuote,
         BulletList,
         Callout,
         Chart,
@@ -442,6 +725,10 @@ def _manual_parse(data: dict) -> "Document":
             variant=b.get("variant", "note"),
             title=b.get("title"),
         ),
+        "blockquote": lambda b: BlockQuote(
+            content=b.get("text", ""),
+            attribution=b.get("attribution"),
+        ),
         "rule": lambda b: HorizontalRule(),
         "page_break": lambda b: PageBreak(),
     }
@@ -477,6 +764,78 @@ def _parse_paragraph(block: dict):
     return Paragraph(content=block.get("text", ""))
 
 
+_FENCED_JSON_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def _balanced_object_end(text: str, start: int) -> int:
+    """Return the index of the } closing the { at `start`, or -1."""
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _extract_json_candidate(text: str) -> str | None:
+    """Find EmbossSpec JSON inside chat output: fenced block, then bare object."""
+    fenced = _FENCED_JSON_RE.search(text)
+    if fenced:
+        return fenced.group(1).strip()
+    start = text.find("{")
+    while start != -1:
+        end = _balanced_object_end(text, start)
+        if end != -1 and '"content"' in text[start : end + 1]:
+            return text[start : end + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
+def _extract_mathml(text: str) -> str:
+    """Return the <math>...</math> fragment embedded in `text`."""
+    start = text.find("<math")
+    if start == -1:
+        return text.strip()
+    end = text.find("</math>", start)
+    if end == -1:
+        return text[start:].strip()
+    return text[start : end + len("</math>")].strip()
+
+
+def document_from_llm_text(text: str, **kw) -> "Document":
+    """Route raw LLM output to JSON, MathML, or Markdown Document parsing."""
+    from .spec import Document, MathBlock
+
+    candidate = _extract_json_candidate(text)
+    if candidate is not None:
+        try:
+            return parse_spec_json(candidate, **kw)
+        except (ValueError, TypeError, KeyError):
+            pass
+    stripped = text.strip()
+    if stripped.startswith("<math") or "<math xmlns" in stripped:
+        title = kw.pop("title", "") or "Equation"
+        return Document(
+            title=title, content=[MathBlock(source=_extract_mathml(stripped))], **kw
+        )
+    return Document.from_markdown(text, **kw)
+
+
 def generate(
     prompt: str,
     *,
@@ -486,6 +845,8 @@ def generate(
     model: str | None = None,
     api_key: str | None = None,
     smart: bool = False,
+    structured: bool = True,
+    max_repair_rounds: int = 0,
     **doc_overrides,
 ) -> bytes:
     """Generate a PDF from a natural language prompt via LLM.
@@ -501,6 +862,8 @@ def generate(
         model: Model name (defaults to claude-sonnet-5 or gpt-4o)
         api_key: API key (or set ANTHROPIC_API_KEY / OPENAI_API_KEY env var)
         smart: Apply content intelligence to the parsed spec
+        structured: Use constrained decoding (forced tool-use / JSON schema mode)
+        max_repair_rounds: LLM correction rounds when validation fails
         **doc_overrides: Additional Document-level settings (legal, header, footer, etc.)
 
     Returns:
@@ -509,15 +872,44 @@ def generate(
     system = spec_prompt(style=style)
 
     if provider == "anthropic":
-        json_str = _call_anthropic(prompt, system, model or "claude-sonnet-5", api_key)
+        call, model = _call_anthropic, model or "claude-sonnet-5"
     elif provider == "openai":
-        json_str = _call_openai(prompt, system, model or "gpt-4o", api_key)
+        call, model = _call_openai, model or "gpt-4o"
     else:
         raise ValueError(
             f"Unknown provider: {provider!r}. Use 'anthropic' or 'openai'."
         )
 
-    doc = parse_spec_json(json_str, smart=smart, style=style, **doc_overrides)
+    strict = max_repair_rounds > 0
+    raw = call(prompt, system, model, api_key, structured=structured)
+    doc = None
+    for round_index in range(max_repair_rounds + 1):
+        try:
+            doc = _parse_llm_result(
+                raw, strict=strict, smart=smart, style=style, **doc_overrides
+            )
+            break
+        except ValueError as exc:
+            if round_index == max_repair_rounds:
+                raise
+            previous = raw if isinstance(raw, str) else json.dumps(raw)
+            correction = (
+                f"Your previous output failed validation: {exc}. "
+                "Return the corrected complete JSON."
+            )
+            history = [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": previous},
+            ]
+            raw = call(
+                correction,
+                system,
+                model,
+                api_key,
+                structured=structured,
+                history=history,
+            )
+
     pdf_bytes = doc.render()
 
     if output:
@@ -528,8 +920,25 @@ def generate(
     return pdf_bytes
 
 
-def _call_anthropic(prompt: str, system: str, model: str, api_key: str | None) -> str:
-    """Call the Anthropic Messages API."""
+def _parse_llm_result(
+    raw: str | dict, *, strict: bool, smart: bool, **overrides
+) -> "Document":
+    """Parse a provider result: dicts skip string parsing entirely."""
+    if isinstance(raw, dict):
+        return parse_spec_dict(raw, strict=strict, smart=smart, **overrides)
+    return parse_spec_json(raw, strict=strict, smart=smart, **overrides)
+
+
+def _call_anthropic(
+    prompt: str,
+    system: str,
+    model: str,
+    api_key: str | None,
+    *,
+    structured: bool = False,
+    history: list[dict] | None = None,
+) -> str | dict:
+    """Call the Anthropic Messages API, forcing tool-use when structured."""
     import os
 
     try:
@@ -540,18 +949,42 @@ def _call_anthropic(prompt: str, system: str, model: str, api_key: str | None) -
         ) from None
 
     client = Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+    messages = [*(history or []), {"role": "user", "content": prompt}]
+    if structured:
+        response = client.messages.create(
+            model=model,
+            max_tokens=8192,
+            system=system,
+            messages=messages,
+            tools=[
+                {
+                    "name": "emit_document",
+                    "description": "Emit the complete EmbossSpec document.",
+                    "input_schema": spec_schema(),
+                }
+            ],
+            tool_choice={"type": "tool", "name": "emit_document"},
+        )
+        return next(b.input for b in response.content if b.type == "tool_use")
     response = client.messages.create(
         model=model,
         max_tokens=8192,
         system=system,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
     )
-    text = next(b.text for b in response.content if b.type == "text")
-    return text
+    return next(b.text for b in response.content if b.type == "text")
 
 
-def _call_openai(prompt: str, system: str, model: str, api_key: str | None) -> str:
-    """Call the OpenAI Chat Completions API."""
+def _call_openai(
+    prompt: str,
+    system: str,
+    model: str,
+    api_key: str | None,
+    *,
+    structured: bool = False,
+    history: list[dict] | None = None,
+) -> str:
+    """Call the OpenAI Chat Completions API, in strict JSON-schema mode when structured."""
     import os
 
     try:
@@ -563,13 +996,25 @@ def _call_openai(prompt: str, system: str, model: str, api_key: str | None) -> s
         ) from None
 
     client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=8192,
-        temperature=0.3,
-    )
+    messages = [
+        {"role": "system", "content": system},
+        *(history or []),
+        {"role": "user", "content": prompt},
+    ]
+    kwargs: dict = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 8192,
+        "temperature": 0.3,
+    }
+    if structured:
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "emboss_spec",
+                "schema": _strict_schema(spec_schema()),
+                "strict": True,
+            },
+        }
+    response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content

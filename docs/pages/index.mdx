@@ -1,0 +1,77 @@
+---
+title: Introduction
+description: Precision PDF generation for Python
+---
+
+# Emboss
+
+Precision PDF generation for Python. Describe a document with a declarative spec; the engine handles typography, layout, accessibility tagging, and the complete PDF structure. Output is deterministic and byte-identical across runs.
+
+```python
+from emboss import Document
+
+doc = Document(title="Q3 Report", style="finance")
+doc.heading("Revenue Analysis", level=1)
+doc.paragraph("Revenue increased 12% year over year.")
+doc.table(headers=["Region", "Q3"], rows=[["North America", "$2.4M"]])
+doc.save("report.pdf")
+```
+
+No coordinates. No manual page-break handling. No separate accessibility pass.
+
+## Why
+
+Most PDF libraries are page-description tools: ink is placed at coordinates, and the resulting file has no idea that a given string was a heading. Emboss inverts that. The semantic document is the source of truth, and both the visual output and the structure tree are derived from it. They cannot drift apart, because they come from the same description.
+
+## Guarantees
+
+**Deterministic output.** The same document produces byte-identical PDFs across runs and machines. No timestamps, no random identifiers; the file `/ID` is derived from content. Output is hash-verifiable for filings and diffable in CI.
+
+```python
+assert doc.render() == doc.render()   # always true
+```
+
+**Structural correctness.** Cross-reference offsets are recorded as bytes are written, so the xref table cannot disagree with the file.
+
+**Content never overflows.** Everything is measured before anything is placed, so text running off the page is not a failure mode.
+
+**Tagged by default.** Every document ships with a complete PDF/UA structure tree. See [Accessibility](/accessibility).
+
+## Built for LLM output
+
+Emboss is designed as a rendering target for language models. An LLM produces EmbossSpec JSON or plain Markdown; Emboss turns it into a print-production PDF with optimal typesetting. The parser tolerates the failure modes of generated output: truncation, wrong type tags, markdown fences around JSON. See [LLM Integration](/llm-integration).
+
+## Render pipeline
+
+```
+Document (EmbossSpec)
+    |
+ConstraintValidator     validate + auto-fix
+    |
+LayoutEngine            measure (font metrics) -> paginate (Knuth-Plass)
+    |
+Renderer                content streams + PDF/UA structure tree
+    |
+PDFAssembler            byte-exact PDF with content-derived /ID
+```
+
+## Quick start
+
+```python
+from emboss import Document
+
+doc = Document(title="Quarterly Report", author="Finance Team", style="finance")
+doc.heading("Executive Summary", level=1)
+doc.paragraph("Revenue grew 12% year over year, driven by enterprise expansion.")
+doc.table(
+    headers=["Metric", "Q3 2025", "Q3 2024", "Change"],
+    rows=[
+        ["Revenue", "$24.1M", "$21.5M", "+12%"],
+        ["EBITDA",  "$8.2M",  "$6.9M",  "+19%"],
+    ],
+)
+doc.bullets(["North America: +15%", "EMEA: +8%", "APAC: +11%"])
+doc.save("quarterly_report.pdf")
+```
+
+Continue with [Installation](/installation), or jump to the [EmbossSpec Format](/spec-format) if you are generating documents from an LLM.

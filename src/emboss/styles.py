@@ -120,6 +120,8 @@ class StyleSheet:
     table_cell_padding_y: float = 4.5
     table_stripe_color: str = "f5f5f4"
     rule_color: str = "d6d3d1"
+    # Optional baseline grid pitch in points; None disables snapping.
+    baseline_grid: float | None = None
 
     def for_heading(self, level: int) -> Style:
         return getattr(self, f"h{level}")

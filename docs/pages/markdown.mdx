@@ -1,0 +1,60 @@
+---
+title: Markdown Input
+description: The Markdown surface accepted by Document.from_markdown
+---
+
+import { Callout } from 'nextra/components'
+
+# Markdown Input
+
+`Document.from_markdown` converts standard Markdown into Emboss elements, so natural LLM output renders as a high-quality PDF without schema wrangling:
+
+```python
+from emboss import Document
+
+doc = Document.from_markdown(md_text, style="corporate")
+doc.save("output.pdf")
+```
+
+Keyword arguments pass through to the Document constructor. If no `title` is given, the first level-1 heading becomes the title. `parse_markdown(text)` returns the element list directly.
+
+## Block constructs
+
+| Construct | Syntax | Maps to |
+|-----------|--------|---------|
+| Headings | `# ...` through `###### ...` (ATX), and setext (`===` / `---` underlines) | `Heading` 1-6 |
+| Paragraphs | consecutive lines | `Paragraph` |
+| Bullet lists | `-`, `*`, `+`, nested by indentation | `BulletList` (nested levels get distinct markers) |
+| Numbered lists | `1.` or `1)`, nested by indentation | `NumberedList` (nested levels switch to alpha markers) |
+| Task lists | `- [ ]` / `- [x]` | `BulletList` with drawn checkboxes |
+| Tables | pipe tables with a separator row | `Table`; `:---:` alignment respected, cells parsed inline |
+| Fenced code | ` ```lang ` | `CodeBlock` with the language tag |
+| Math blocks | `$$ ... $$` | `MathBlock` |
+| Blockquotes | `> ...` (lazy continuation lines included) | `BlockQuote` with accent bar |
+| Callouts | `> [!NOTE]`, `[!TIP]`, `[!WARNING]`, `[!CAUTION]`, `[!IMPORTANT]` | `Callout` |
+| Footnotes | `[^1]` references with `[^1]: ...` definitions | `Footnote`, emitted after the referencing block |
+| Images | `![alt](path)` on its own line | `Image` (alt text doubles as caption) |
+| Horizontal rules | `---`, `***`, `___` | `HorizontalRule` |
+| Page breaks | `\newpage` or `---pagebreak---` | `PageBreak` |
+
+Link and footnote definitions are pre-scanned out of the block flow, so reference-style links work regardless of where the definition appears (except inside code fences, which are left alone).
+
+## Inline constructs
+
+| Construct | Syntax |
+|-----------|--------|
+| Bold, italic, bold-italic | `**b**`, `*i*`, `***bi***` (also `_` delimiters) |
+| Code spans | `` `code` `` (set in Courier) |
+| Strikethrough | `~~text~~` |
+| Links | inline `[label](url)`, reference `[label][ref]`, autolinks `<https://...>` |
+| Backslash escapes | `\*`, `\_`, `` \` ``, `\$`, `\[`, `\]`, `\~`, and other markers |
+| Inline math | `$x^2$` (rendered italic; a paragraph that is only math is promoted to a `MathBlock`) |
+| Inline images | `![alt](path)` (reduced to the alt text) |
+
+Formatting nests: a bold span inside a link keeps both, and table cells accept the full inline syntax.
+
+<Callout type="info">
+Not supported, by design: multi-paragraph list items and raw HTML
+passthrough. Both are left as literal text rather than silently
+restructured.
+</Callout>

@@ -44,6 +44,7 @@ _ROLE_MAP = {
     "TR": "TR",
     "TH": "TH",
     "TD": "TD",
+    "BlockQuote": "BlockQuote",
     "Caption": "Caption",
     "Figure": "Figure",
     "Code": "Code",

@@ -1,0 +1,12 @@
+{
+  "index": "Introduction",
+  "installation": "Installation",
+  "llm-integration": "LLM Integration",
+  "spec-format": "EmbossSpec Format",
+  "typography": "Typography",
+  "math": "Math Notation",
+  "color": "Color and Print",
+  "accessibility": "Accessibility",
+  "markdown": "Markdown Input",
+  "api-reference": "API Reference"
+}

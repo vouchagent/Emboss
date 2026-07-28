@@ -1,8 +1,13 @@
 """Chart rendering directly to PDF content streams.
 
-Draws bar, line, and pie charts using primitive PDF operators — no
-external charting library required. Charts are vector graphics and
-render at any zoom level.
+Draws bar, line, pie, and scatter charts using primitive PDF operators —
+no external charting library required. Charts are vector graphics and
+render at any zoom level. Data is either a single unnamed series
+(``labels`` + ``values``) or a list of named series for grouped bars,
+multi-line, and scatter charts. Pie charts use the first series only.
+
+All color output goes through the mode-aware ``set_fill``/``set_stroke``
+funnel on ContentStream so CMYK documents emit k/K operators.
 """
 
 from __future__ import annotations
@@ -11,8 +16,9 @@ import math
 from dataclasses import dataclass
 
 from .pdf.streams import ContentStream
+from .typography.font_metrics import FontMetrics
 
-__all__ = ["ChartData", "ChartSpec", "render_chart"]
+__all__ = ["ChartData", "ChartSpec", "render_chart", "series_summary"]
 
 DEFAULT_COLORS = [
     "3b82f6",
@@ -28,26 +34,80 @@ DEFAULT_COLORS = [
 _AXIS_COLOR = "44403c"
 _GRID_COLOR = "e5e5e5"
 _LABEL_COLOR = "57534e"
+_MARKER_RADIUS = 2.0
+
+_label_metrics: FontMetrics | None = None
+
+
+def _measure_label(text: str, size: float) -> float:
+    """Measure a chart label in points using Helvetica base-14 metrics."""
+    global _label_metrics
+    if _label_metrics is None:
+        _label_metrics = FontMetrics.base14("Helvetica")
+    return _label_metrics.text_width(text, size)
 
 
 @dataclass
 class ChartData:
-    """Data for a chart."""
+    """Data for a chart.
+
+    ``series`` holds objects exposing ``label``/``values`` (emboss.Series);
+    when omitted, ``labels`` + ``values`` form one unnamed series.
+    """
 
     labels: list[str]
     values: list[float]
     colors: list[str] | None = None
     title: str | None = None
+    series: list | None = None
+    x_title: str | None = None
+    y_title: str | None = None
+    legend: bool = True
 
 
 @dataclass
 class ChartSpec:
     """Complete chart specification."""
 
-    chart_type: str  # "bar", "line", "pie"
+    chart_type: str  # "bar", "line", "pie", "scatter"
     data: ChartData
     width: float = 400.0
     height: float = 250.0
+
+
+def series_summary(chart) -> str:
+    """Return a deterministic alt-text summary naming each chart series."""
+    kind = getattr(chart, "chart_type", "chart")
+    title = getattr(chart, "title", None)
+    series = list(getattr(chart, "series", None) or [])
+    head = f"{kind} chart"
+    if title:
+        head += f": {title}"
+    parts = [head]
+    if series:
+        names = ", ".join(
+            getattr(s, "label", "") or f"series {i + 1}" for i, s in enumerate(series)
+        )
+        parts.append(f"{len(series)} series ({names})")
+    categories = list(getattr(chart, "labels", None) or [])
+    if categories:
+        parts.append(f"{len(categories)} categories")
+    return "; ".join(parts)
+
+
+def _normalized_series(data: ChartData) -> list[tuple[str, list[float]]]:
+    """Return chart data as (label, values) pairs; labels+values = one series."""
+    if data.series:
+        return [
+            (getattr(s, "label", "") or "", [float(v) for v in s.values])
+            for s in data.series
+        ]
+    return [("", [float(v) for v in data.values])]
+
+
+def _palette(data: ChartData) -> list[str]:
+    """Return the color cycle: explicit colors or the deterministic default."""
+    return list(data.colors) if data.colors else list(DEFAULT_COLORS)
 
 
 def render_chart(
@@ -62,65 +122,125 @@ def render_chart(
 
     The chart occupies the rectangle from (x, y - height) to (x + width, y).
     """
-    colors = chart.data.colors or DEFAULT_COLORS
-    while len(colors) < len(chart.data.values):
-        colors = colors + DEFAULT_COLORS
+    data = chart.data
+    series = _normalized_series(data)
+    width = chart.width
+    height = chart.height
 
     stream.save()
 
-    if chart.data.title:
+    if data.title:
         title_size = font_size + 2
         stream.text_line(
-            chart.data.title,
+            data.title,
             font_key,
             title_size,
-            x + (chart.width - len(chart.data.title) * title_size * 0.5) / 2,
+            x + (chart.width - len(data.title) * title_size * 0.5) / 2,
             y - title_size - 2,
             _AXIS_COLOR,
         )
         y -= title_size + 10
-        effective_height = chart.height - title_size - 10
-    else:
-        effective_height = chart.height
+        height -= title_size + 10
+
+    if chart.chart_type != "pie":
+        x, y, width, height = _draw_axis_titles(
+            stream, data, x, y, width, height, font_key, font_size
+        )
 
     if chart.chart_type == "bar":
-        _draw_bar_chart(
+        _draw_bar_chart(stream, data, series, x, y, width, height, font_key, font_size)
+    elif chart.chart_type in ("line", "scatter"):
+        _draw_point_chart(
             stream,
-            chart.data,
-            colors,
+            data,
+            series,
             x,
             y,
-            chart.width,
-            effective_height,
+            width,
+            height,
             font_key,
             font_size,
-        )
-    elif chart.chart_type == "line":
-        _draw_line_chart(
-            stream,
-            chart.data,
-            colors,
-            x,
-            y,
-            chart.width,
-            effective_height,
-            font_key,
-            font_size,
+            connect=chart.chart_type == "line",
         )
     elif chart.chart_type == "pie":
-        _draw_pie_chart(
-            stream,
-            chart.data,
-            colors,
-            x,
-            y,
-            chart.width,
-            effective_height,
-            font_key,
-            font_size,
-        )
+        _draw_pie_chart(stream, data, series, x, y, width, height, font_key, font_size)
+
+    if data.legend and any(label for label, _ in series):
+        _draw_legend(stream, data, series, x, y, width, font_key, font_size)
 
     stream.restore()
+
+
+# ---------------------------------------------------------------------------
+# Axis titles and legend
+# ---------------------------------------------------------------------------
+
+
+def _draw_axis_titles(
+    stream: ContentStream,
+    data: ChartData,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    font_key: str,
+    font_size: float,
+) -> tuple[float, float, float, float]:
+    """Draw x/y axis titles and return the reduced chart rectangle."""
+    size = font_size * 0.85
+    strip = size + 6.0
+    if data.y_title:
+        ty = y - height / 2 - _measure_label(data.y_title, size) / 2
+        stream.rotated_text(data.y_title, font_key, size, x + size, ty, _AXIS_COLOR, 90)
+        x += strip
+        width -= strip
+    if data.x_title:
+        tx = x + (width - _measure_label(data.x_title, size)) / 2
+        stream.text_line(data.x_title, font_key, size, tx, y - height + 2, _AXIS_COLOR)
+        height -= strip
+    return x, y, width, height
+
+
+def _draw_legend(
+    stream: ContentStream,
+    data: ChartData,
+    series: list[tuple[str, list[float]]],
+    x: float,
+    y: float,
+    width: float,
+    font_key: str,
+    font_size: float,
+) -> None:
+    """Draw swatch+label legend rows in the top-right of the chart area."""
+    palette = _palette(data)
+    entries = [
+        (label, palette[j % len(palette)])
+        for j, (label, _values) in enumerate(series)
+        if label
+    ]
+    if not entries:
+        return
+
+    size = font_size * 0.75
+    swatch = 6.0
+    pad = 4.0
+    row_h = size + 4.0
+    text_w = max(_measure_label(label, size) for label, _color in entries)
+    box_w = pad + swatch + 4.0 + text_w + pad
+
+    lx = x + width - box_w - 6.0
+    ly = y - 6.0
+    for k, (label, color) in enumerate(entries):
+        row_top = ly - k * row_h
+        stream.rect(lx + pad, row_top - swatch, swatch, swatch, fill=color)
+        stream.text_line(
+            label,
+            font_key,
+            size,
+            lx + pad + swatch + 4.0,
+            row_top - swatch + 1.0,
+            _AXIS_COLOR,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +251,7 @@ def render_chart(
 def _draw_bar_chart(
     stream: ContentStream,
     data: ChartData,
-    colors: list[str],
+    series: list[tuple[str, list[float]]],
     x: float,
     y: float,
     width: float,
@@ -139,8 +259,10 @@ def _draw_bar_chart(
     font_key: str,
     font_size: float,
 ) -> None:
-    n = len(data.values)
-    if n == 0:
+    labels = [str(label) for label in data.labels]
+    count = max([len(values) for _label, values in series] + [len(labels)])
+    all_values = [v for _label, values in series for v in values]
+    if count == 0 or not all_values:
         return
 
     margin_left = 50.0
@@ -153,7 +275,7 @@ def _draw_bar_chart(
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_bottom - margin_top
 
-    max_val = max(abs(v) for v in data.values) or 1
+    max_val = max(abs(v) for v in all_values) or 1
     max_val *= 1.1
 
     # Y-axis gridlines
@@ -170,53 +292,65 @@ def _draw_bar_chart(
     stream.line(plot_x, plot_y, plot_x + plot_w, plot_y, color=_AXIS_COLOR, width=0.8)
     stream.line(plot_x, plot_y, plot_x, plot_y + plot_h, color=_AXIS_COLOR, width=0.8)
 
-    # Bars
-    bar_zone = plot_w / n
-    bar_width = bar_zone * 0.65
-    gap = bar_zone * 0.175
+    # Bars: one group per label, series side by side within the group
+    palette = _palette(data)
+    single = len(series) == 1
+    zone = plot_w / count
+    group_w = zone * 0.65
+    gap = zone * 0.175
+    bar_w = group_w / len(series)
 
-    for i, (label, value) in enumerate(zip(data.labels, data.values)):
-        bar_h = abs(value) / max_val * plot_h
-        bx = plot_x + i * bar_zone + gap
-        by = plot_y
+    for i in range(count):
+        for j, (_label, values) in enumerate(series):
+            if i >= len(values):
+                continue
+            value = values[i]
+            bar_h = abs(value) / max_val * plot_h
+            bx = plot_x + i * zone + gap + j * bar_w
+            color = palette[i % len(palette)] if single else palette[j % len(palette)]
+            stream.rect(bx, plot_y, bar_w, bar_h, fill=color)
 
-        stream.rect(bx, by, bar_width, bar_h, fill=colors[i % len(colors)])
+            if single:
+                val_text = _format_value(value)
+                stream.text_line(
+                    val_text,
+                    font_key,
+                    font_size * 0.75,
+                    bx + bar_w * 0.15,
+                    plot_y + bar_h + 3,
+                    _AXIS_COLOR,
+                )
 
-        # Value label above bar
-        val_text = _format_value(value)
-        stream.text_line(
-            val_text,
-            font_key,
-            font_size * 0.75,
-            bx + bar_width * 0.15,
-            by + bar_h + 3,
-            _AXIS_COLOR,
-        )
-
-        # X-axis label
-        lx = bx + bar_width * 0.1
-        ly = plot_y - font_size - 2
-        stream.text_line(label[:10], font_key, font_size * 0.75, lx, ly, _LABEL_COLOR)
+        if i < len(labels):
+            lx = plot_x + i * zone + gap + group_w * 0.1
+            ly = plot_y - font_size - 2
+            stream.text_line(
+                labels[i][:10], font_key, font_size * 0.75, lx, ly, _LABEL_COLOR
+            )
 
 
 # ---------------------------------------------------------------------------
-# Line chart
+# Line and scatter charts
 # ---------------------------------------------------------------------------
 
 
-def _draw_line_chart(
+def _draw_point_chart(
     stream: ContentStream,
     data: ChartData,
-    colors: list[str],
+    series: list[tuple[str, list[float]]],
     x: float,
     y: float,
     width: float,
     height: float,
     font_key: str,
     font_size: float,
+    connect: bool,
 ) -> None:
-    n = len(data.values)
-    if n == 0:
+    """Draw a line chart (connect=True) or scatter chart (markers only)."""
+    labels = [str(label) for label in data.labels]
+    count = max([len(values) for _label, values in series] + [0])
+    all_values = [v for _label, values in series for v in values]
+    if count == 0 or not all_values:
         return
 
     margin_left = 50.0
@@ -229,8 +363,8 @@ def _draw_line_chart(
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_bottom - margin_top
 
-    max_val = max(abs(v) for v in data.values) or 1
-    min_val = min(data.values)
+    max_val = max(abs(v) for v in all_values) or 1
+    min_val = min(all_values)
     if min_val >= 0:
         min_val = 0
     val_range = (max_val - min_val) * 1.1 or 1
@@ -256,19 +390,12 @@ def _draw_line_chart(
     stream.line(plot_x, plot_y, plot_x + plot_w, plot_y, color=_AXIS_COLOR, width=0.8)
     stream.line(plot_x, plot_y, plot_x, plot_y + plot_h, color=_AXIS_COLOR, width=0.8)
 
-    # Line segments and data points
-    spacing = plot_w / max(n - 1, 1)
-    color = colors[0]
-    points = []
-
-    for i, (label, value) in enumerate(zip(data.labels, data.values)):
+    # X-axis labels
+    spacing = plot_w / max(count - 1, 1)
+    for i in range(min(count, len(labels))):
         px = plot_x + i * spacing
-        py = val_to_y(value)
-        points.append((px, py))
-
-        # X-axis label
         stream.text_line(
-            label[:8],
+            labels[i][:8],
             font_key,
             font_size * 0.7,
             px - font_size * 0.5,
@@ -276,41 +403,50 @@ def _draw_line_chart(
             _LABEL_COLOR,
         )
 
-    # Draw line segments
-    stream.set_stroke(color)
-    stream.set_line_width(1.5)
-    for i in range(len(points) - 1):
-        x1, y1 = points[i]
-        x2, y2 = points[i + 1]
-        stream.raw(
-            b" ".join(
-                [
-                    stream._num(x1),
-                    stream._num(y1),
-                    b"m",
-                    stream._num(x2),
-                    stream._num(y2),
-                    b"l",
-                    b"S",
-                ]
-            )
-        )
+    palette = _palette(data)
+    single = len(series) == 1
 
-    # Draw data points as filled circles (small rects as approximation)
-    dot_r = 3.0
-    for px, py in points:
-        stream.rect(px - dot_r, py - dot_r, dot_r * 2, dot_r * 2, fill=color)
+    for j, (_label, values) in enumerate(series):
+        color = palette[j % len(palette)]
+        points = [
+            (plot_x + i * spacing, val_to_y(value)) for i, value in enumerate(values)
+        ]
 
-    # Value labels
-    for i, ((px, py), value) in enumerate(zip(points, data.values)):
-        stream.text_line(
-            _format_value(value),
-            font_key,
-            font_size * 0.7,
-            px - font_size,
-            py + dot_r + 3,
-            _AXIS_COLOR,
-        )
+        if connect and len(points) > 1:
+            stream.set_stroke(color)
+            stream.set_line_width(1.5)
+            ops = [stream._num(points[0][0]), stream._num(points[0][1]), b"m"]
+            for px, py in points[1:]:
+                ops.extend([stream._num(px), stream._num(py), b"l"])
+            ops.append(b"S")
+            stream.raw(b" ".join(ops))
+
+        for px, py in points:
+            _draw_marker(stream, px, py, _MARKER_RADIUS, color)
+
+        if single and connect:
+            for (px, py), value in zip(points, values):
+                stream.text_line(
+                    _format_value(value),
+                    font_key,
+                    font_size * 0.7,
+                    px - font_size,
+                    py + _MARKER_RADIUS + 3,
+                    _AXIS_COLOR,
+                )
+
+
+def _draw_marker(
+    stream: ContentStream, cx: float, cy: float, r: float, color: str
+) -> None:
+    """Draw a filled circle marker from four cubic Bezier arc segments."""
+    stream.set_fill(color)
+    n = stream._num
+    ops = [n(cx + r), n(cy), b"m"]
+    for quadrant in range(4):
+        _arc_bezier(ops, stream, cx, cy, r, quadrant * 90.0, quadrant * 90.0 + 90.0)
+    ops.append(b"f")
+    stream.raw(b" ".join(ops))
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +457,7 @@ def _draw_line_chart(
 def _draw_pie_chart(
     stream: ContentStream,
     data: ChartData,
-    colors: list[str],
+    series: list[tuple[str, list[float]]],
     x: float,
     y: float,
     width: float,
@@ -329,18 +465,20 @@ def _draw_pie_chart(
     font_key: str,
     font_size: float,
 ) -> None:
-    n = len(data.values)
-    if n == 0:
+    """Draw a pie chart from the first series only."""
+    values = series[0][1] if series else []
+    if not values:
         return
 
-    total = sum(abs(v) for v in data.values) or 1
+    total = sum(abs(v) for v in values) or 1
+    colors = _palette(data)
 
     radius = min(width * 0.35, height * 0.4)
     cx = x + width * 0.4
     cy = y - height * 0.5
 
     angle = 0.0
-    for i, (label, value) in enumerate(zip(data.labels, data.values)):
+    for i, (label, value) in enumerate(zip(data.labels, values)):
         sweep = abs(value) / total * 360.0
         _draw_pie_wedge(
             stream, cx, cy, radius, angle, angle + sweep, colors[i % len(colors)]
@@ -352,7 +490,7 @@ def _draw_pie_chart(
         lx = cx + label_r * math.cos(mid_angle)
         ly = cy + label_r * math.sin(mid_angle)
         pct = abs(value) / total * 100
-        text = f"{label[:12]} ({pct:.0f}%)"
+        text = f"{str(label)[:12]} ({pct:.0f}%)"
         stream.text_line(
             text,
             font_key,

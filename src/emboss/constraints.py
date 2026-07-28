@@ -17,6 +17,7 @@ from typing import Literal
 
 from .spec import (
     BibliographyBlock,
+    BlockQuote,
     BulletList,
     Callout,
     Chart,
@@ -193,6 +194,7 @@ class ConstraintValidator:
         known = (
             Heading,
             Paragraph,
+            BlockQuote,
             BulletList,
             NumberedList,
             Table,

@@ -82,7 +82,6 @@ class TestPromptContract:
             "numbered_list",
             "math_block",
             "horizontal_rule",
-            "scatter",
         ):
             assert legacy not in prompt
 

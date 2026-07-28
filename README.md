@@ -40,6 +40,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 - [Code Blocks](#code-blocks)
 - [Charts](#charts)
 - [PDF/A Archival Output](#pdfa-archival-output)
+- [CMYK and Print Production](#cmyk-and-print-production)
 - [Digital Signatures](#digital-signatures)
 - [Validation](#validation)
 - [Adapters](#adapters)
@@ -89,6 +90,20 @@ pip install emboss-pdf[verify]    # pikepdf for PDF structural verification
 pip install emboss-pdf[signing]   # cryptography for digital signatures
 pip install emboss-pdf[dev]       # full dev environment (pytest, mypy, ruff)
 ```
+
+### Bundled Fonts
+
+An OFL-licensed font set ships with the package (Source Serif 4, Source Sans 3, Source Code Pro; ~2.7MB, Latin, Greek, and Cyrillic coverage). Registering it gives embedded fonts with full kerning and ligatures, no system font files required:
+
+```python
+from emboss import Document
+from emboss.bundled_fonts import register_bundled_fonts
+
+doc = Document(title="Report")
+register_bundled_fonts(doc.fonts)
+```
+
+The families are also available under the aliases `"emboss serif"`, `"emboss sans"`, and `"emboss mono"`.
 
 ---
 
@@ -172,6 +187,25 @@ doc.save("report.pdf")
 
 All three tiers produce identical PDF quality -- the typography engine (Knuth-Plass, optical margins, kerning) runs the same regardless of input format.
 
+**Robust parsing.** LLM output is messy; the parser is built for it:
+
+```python
+doc = Document.from_json(
+    text,
+    strict=False,      # default: repair instead of raising
+    smart=True,        # content intelligence: typography, tables, auto-style
+    on_warning=print,  # one message per repair performed
+)
+```
+
+- `spec_prompt()` teaches the exact vocabulary the validator accepts, so valid output is the common case
+- Synonym type tags and field spellings are normalized to the canonical vocabulary on both parse paths
+- Truncated JSON (cut off mid-generation) is repaired before parsing
+- When validation fails, recovery is per block: invalid blocks are coerced to paragraphs or dropped, the rest of the document renders
+- `strict=True` raises on any malformed input instead of repairing
+
+Specs can also request layout features directly: `"toc": true` inserts an auto-generated table of contents, and `"page": {"columns": 2, "column_gap": 18}` sets multi-column geometry.
+
 ---
 
 ## EmbossSpec Format
@@ -236,7 +270,7 @@ Paragraph(content=[
 
 ## Style Presets
 
-Five professionally designed stylesheets are built in. Each encodes type scale, leading, table rules, and spacing so output looks authored without choosing a single measurement.
+Seven professionally designed stylesheets are built in. Each encodes type scale, leading, table rules, and spacing so output looks authored without choosing a single measurement.
 
 | Preset | Body Font | Heading Font | Body Size | Alignment | Use Case |
 |--------|-----------|-------------|-----------|-----------|----------|
@@ -245,6 +279,8 @@ Five professionally designed stylesheets are built in. Each encodes type scale, 
 | `academic` | Times | Helvetica | 11.5pt | Justified | Papers, dissertations, theses |
 | `corporate` | Helvetica | Helvetica | 10.5pt | Left | Memos, policies, manuals |
 | `minimal` | Helvetica | Helvetica | 9.5pt | Left | Data exports, compact reports |
+| `journal` | Times | Times | 10.5pt | Justified | Journals, periodicals |
+| `brief` | Helvetica | Helvetica | 10.5pt | Left | Executive briefs, one-pagers |
 
 ```python
 # Use a preset by name
@@ -277,16 +313,20 @@ optimal  widths: [216, 224, 202, 198]        variance 110
 The algorithm:
 - Models text as Box (word), Glue (elastic space), and Penalty (breakpoint) items
 - Considers all legal breakpoints simultaneously
-- Penalizes consecutive hyphenation, abrupt spacing changes, and tight/loose lines
-- Falls back to greedy breaking only for pathological input (long URLs, extreme narrow columns)
+- Penalizes abrupt spacing changes and tight/loose lines
+- Flags hyphen breaks and caps hyphen ladders: a large demerit stops runs of more than 3 consecutive hyphenated lines
+- Splits any word wider than the measure into character-level pieces (long URLs, identifiers), so lines never overflow even in narrow columns
+- Falls back to greedy breaking only for pathological input
 
 ### Knuth-Liang Hyphenation
 
-Pattern-based hyphenation with a no-break list for domain terms (`Inc.`, `LLC`, `EBITDA`, `plaintiff`) that should never be split.
+The full Knuth-Liang en-US pattern set is bundled, plus a no-break list for domain terms (`Inc.`, `LLC`, `EBITDA`, `plaintiff`) that should never be split.
 
 ### Real Font Metrics
 
-Glyph advances and kerning come from the font file (via fonttools). Text is emitted with the PDF `TJ` operator so kerning pairs are actually applied between glyphs. Base-14 font metrics are built in, so valid PDFs are produced with no font files present.
+Glyph advances and kerning come from the font file (via fonttools). Text is emitted with the PDF `TJ` operator so kerning pairs are actually applied between glyphs. Kerning reads GPOS pair positioning in full: class-based (Format 2) pairs resolved lazily and memoized, Extension (LookupType 9) wrappers unwrapped, and Value2 adjustments summed.
+
+Base-14 font metrics are built in, so valid PDFs are produced with no font files present. The built-in AFM widths cover more than ASCII: en/em dashes, curly quotes, and accented Latin letters resolve to correct advances (accents via NFD decomposition to the base letter). For embedded fonts out of the box, see [Bundled Fonts](#bundled-fonts).
 
 ### Smart Typography
 
@@ -294,7 +334,7 @@ Automatic curly quotes, em/en dashes, fractions, ellipses, and non-breaking spac
 
 ### Ligature Support
 
-Automatic fi, fl, ffi, and ffl ligature substitution for fonts that support them.
+Automatic fi, fl, ff, ffi, and ffl ligature substitution on embedded fonts, gated per glyph on the font's cmap. Base-14 fonts carry no ligature glyphs and are left untouched.
 
 ---
 
@@ -339,14 +379,16 @@ Every document is tagged with a complete PDF/UA structure tree:
 - Paragraphs become `/P`
 - Tables become `/Table` with `/TH` and `/TD` cells; header cells carry `/Scope`
 - Lists become `/L` with `/LI`, `/Lbl`, and `/LBody`
-- Images get `/Figure` with alt text
+- Images, SVG blocks, and charts get `/Figure` with the alt text emitted as `/Alt` (a description is auto-derived when none is given)
+- Hyperlinks are written as `/Link` annotations and tagged as `/Link` structure elements with `OBJR` references, as PDF/UA requires
 - Running heads, page numbers, Bates stamps, and watermarks are marked `/Artifact`
+- Tagged documents declare the PDF/UA-1 identifier in their XMP metadata
 
 ```python
 from emboss.pdf.verify import verify_pdf
 
 result = verify_pdf(doc.render())
-print(result)  # VerifyResult(valid=True, structure_tree=True, ...)
+print(result)  # VerificationReport(ok=True, has_struct_tree=True, ...)
 ```
 
 ---
@@ -444,7 +486,9 @@ doc.table(
 doc.paragraph("As shown in @results-table, the value of x is 42.")
 ```
 
-The `@label` syntax resolves to "Table 1", "Figure 2", etc., with automatic counter tracking via `NumberingContext`.
+The `@label` syntax resolves to "Table 1", "Figure 2", etc., with automatic counter tracking via `NumberingContext`. Captions are numbered automatically ("Figure 1: ...", "Table 1: ..."), and each `@label` reference becomes a clickable in-document link (a GoTo action targeting the labeled element's page).
+
+Section numbering is available by setting `number_sections = True` on the document; headings are numbered hierarchically and `@label` references to sections resolve to the section number.
 
 ---
 
@@ -489,10 +533,15 @@ LaTeX-style math rendering with support for common commands:
 ```python
 doc.math(r"E = mc^2")
 doc.math(r"\int_{0}^{\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}")
-doc.math(r"\sum_{i=1}^{n} x_i = \frac{n(n+1)}{2}")
+doc.math(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}")
+doc.math(r"f(x) = \begin{cases} x^2 & x \ge 0 \\ -x & x < 0 \end{cases}")
 ```
 
 Supported: superscripts, subscripts, fractions (`\frac`), square roots (`\sqrt`), integrals, summations, Greek letters, `\text{}`, `\mathcal`, `\mathbb`, `\mathbf`, `\mathrm`, `\operatorname`, and more.
+
+Environments: `matrix`, `pmatrix`, `bmatrix`, `vmatrix`, `Bmatrix`, `cases`, `aligned`, `align`, `align*`, `split`, `gathered`, `gather`, `gather*`.
+
+Layout quality comes from real metrics, not approximations: glyph dimensions use the base-14 AFM tables (Times italic for variables, Times roman for text, Symbol for operators), inter-atom spacing follows the TeX spacing classes (thin, medium, thick), and in display mode `\sum`, `\prod`, `\int`, and `\lim` place their limits above and below the operator.
 
 ---
 
@@ -545,6 +594,30 @@ Includes XMP metadata, sRGB ICC output intent, and all required PDF/A catalog en
 
 ---
 
+## CMYK and Print Production
+
+Set `color_mode="cmyk"` and every draw path (text, rules, tables, charts, shapes) emits CMYK operators (`k`/`K`) instead of RGB:
+
+```python
+from emboss import Document, Paragraph, TextRun
+
+doc = Document(
+    title="Print Run",
+    color_mode="cmyk",
+    pdfa=True,   # output intent switches to a CMYK profile (N=4)
+)
+doc.paragraph([TextRun(text="Brand red", color="cmyk(0,100,95,0)")])
+doc.paragraph([TextRun(text="Spot ink", color="spot(PANTONE 485 C,0,100,95,0)")])
+doc.save("print_run.pdf")
+```
+
+- `cmyk(c,m,y,k)` color strings work anywhere a color is accepted; RGB colors are converted when the document is in CMYK mode
+- `spot(name,c,m,y,k)` defines a named spot color, emitted as a PDF Separation color space with a CMYK fallback
+- PDF/A output in CMYK mode uses a CMYK OutputIntent instead of sRGB
+- Redaction and signature appearances follow the document's color mode
+
+---
+
 ## Digital Signatures
 
 Sign PDFs with X.509 certificates:
@@ -588,23 +661,23 @@ Export to multiple formats from a single document spec:
 ```python
 from emboss.adapters.html_export import to_html
 from emboss.adapters.markdown_export import to_markdown
-from emboss.adapters.docx_export import to_docx
+from emboss.adapters.docx_export import to_office_dict
 
 html_str = to_html(doc)
 md_str = to_markdown(doc)
-docx_bytes = to_docx(doc)
+office_data = to_office_dict(doc)
 ```
 
 ### Pydantic Schema (LLM Integration)
 
 ```python
-from emboss.adapters.pydantic_schema import build_json_schema, parse_document
+from emboss.adapters.pydantic_schema import DocumentSpec, generate_json_schema
 
 # Get the JSON Schema for LLM structured output
-schema = build_json_schema()
+schema = generate_json_schema()
 
 # Parse an LLM-generated JSON document
-doc = parse_document(json_string)
+doc = DocumentSpec.model_validate_json(json_string).to_document()
 pdf_bytes = doc.render()
 ```
 
@@ -631,6 +704,7 @@ Document(
     legal=None,            # LegalFeatures (Bates, line numbers, watermark)
     pdfa=False,            # Generate PDF/A-2b compliant output
     toc=False,             # Generate table of contents
+    color_mode="rgb",      # "rgb" or "cmyk" (print production)
     signatures=None,       # Digital signature fields
 )
 ```

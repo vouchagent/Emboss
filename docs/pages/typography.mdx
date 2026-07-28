@@ -1,0 +1,86 @@
+---
+title: Typography
+description: Knuth-Plass line breaking, hyphenation, kerning, and micro-typography
+---
+
+import { Callout } from 'nextra/components'
+
+# Typography Engine
+
+## Knuth-Plass line breaking
+
+Paragraphs are broken with the Knuth-Plass algorithm (Knuth and Plass, 1981). Greedy breaking fills each line as full as possible and never reconsiders, which produces uneven spacing and rivers in justified text. Knuth-Plass treats the paragraph as a shortest-path problem over all legal breakpoints and minimizes total demerits, so a slightly worse early line is accepted when it makes every later line better.
+
+Text is modeled as the item list from the 1981 paper:
+
+- **Box**: unbreakable material (a word)
+- **Glue**: space that can stretch and shrink (elastic only in justified text)
+- **Penalty**: an optional breakpoint with a cost (a hyphen position)
+
+The breaker's parameters mirror TeX: `tolerance` caps how far a line may stretch, `line_penalty` discourages extra lines, `hyphen_penalty` discourages hyphenation, and flagged/fitness demerits penalize two hyphens in a row and abrupt looseness changes between adjacent lines (four fitness classes: tight, decent, loose, very loose).
+
+### Hyphen ladder control
+
+Runs of consecutive hyphenated lines are tracked per breakpoint node. Two hyphen breaks in a row cost a flagged demerit; once a run reaches the ladder limit (3 lines), the next hyphenated break costs a very large ladder demerit, which stops ladders of more than 3 consecutive hyphenated lines in practice.
+
+### Emergency breaking
+
+Any box wider than the narrowest measure (a long URL, an identifier) is split into character-level boxes joined by flagged penalties before optimization, so lines never overflow even in narrow columns. If no break sequence fits within tolerance, the breaker retries at 4x tolerance, then falls back to a greedy pass over the same exploded items as a last resort.
+
+### River avoidance
+
+After breaking, whitespace rivers (aligned spaces spanning 3 or more consecutive lines) are detected. If found, the paragraph is re-broken at 0.8x tolerance and the alternative is kept when it has fewer rivers.
+
+## Hyphenation
+
+Knuth-Liang pattern hyphenation (Liang, 1983): every inter-letter position is scored by pattern matching; odd scores permit a break, even scores forbid one. The **full en-US pattern set** (about 4,900 patterns plus exceptions) ships gzip-compressed inside the package and is lazily loaded on first `Hyphenator` construction; a reduced built-in set is the zero-IO fallback if the data file is absent.
+
+- Words shorter than 5 characters are never hyphenated.
+- A no-break list (`NO_BREAK_TERMS`) protects domain terms such as `Inc.`, `LLC`, `EBITDA`, and `plaintiff`.
+- Other languages: point `Hyphenator.from_pattern_file()` at any TeX `hyph-*.tex` pattern file (`.tex`, `.txt`, or `.gz`).
+
+## Kerning from real font metrics
+
+Glyph advances and kerning come from the font file via fonttools. Text is emitted with the PDF `TJ` operator, so kerning pairs are actually applied between glyphs.
+
+GPOS pair positioning is read in full:
+
+- The legacy `kern` table is read first and takes precedence, since hand-tuned kern values are typically more carefully adjusted for specific pairs.
+- GPOS PairPos **Format 1** (explicit pairs) is extracted eagerly.
+- GPOS PairPos **Format 2** (class-based pairs) is kept as lazy class tables, resolved on demand per codepoint pair and memoized (capped at 65,536 entries).
+- **Extension lookups** (LookupType 9) are unwrapped to their inner PairPos subtables.
+- Adjustments sum the `XAdvance` of both **Value1 and Value2** records.
+
+Base-14 font metrics are built in, so valid PDFs are produced with no font files present. The built-in AFM widths cover more than ASCII: en/em dashes, curly quotes, and accented Latin letters resolve to correct advances (accents via NFD decomposition to the base letter).
+
+## Ligatures
+
+Automatic `fi`, `fl`, `ff`, `ffi`, and `ffl` substitution on embedded fonts, gated per glyph on the font's cmap: only ligatures the font can actually render are applied. Ligatures never form across `-` or `_` boundaries (hyphenated compounds, snake_case), and hyphenation fragments are ligated independently, so a break falling inside a would-be ligature simply stays unligated. Base-14 fonts carry no ligature glyphs and are left untouched, keeping that path byte-identical.
+
+## Protrusion (optical margin alignment)
+
+Hanging punctuation in the spirit of microtype: a protrusion table maps characters to the fraction of their advance that may extend past the margin, so the text edge looks optically straight. Punctuation hangs substantially (hyphen 70%, period and comma 70% on the right, quotes 50%), and certain letter shapes (A, V, W, T, Y, F, J, and lowercase v, w, y) protrude a few percent so they do not create a visual indent. Protrusion is integrated into the line breaker as extra slack in the adjustment ratio, not painted on afterward. Enabled by default (`LineBreaker(protrusion=True)`).
+
+## Missing-glyph substitution
+
+Characters a font cannot render are replaced deterministically rather than dropped or shown as `.notdef` boxes:
+
+- A curated table maps characters LLMs emit freely onto printable ASCII: arrows (`→` to `->`), comparison operators (`≤` to `<=`), check and cross marks, checkboxes, bullets, superscript/subscript digits, vulgar fractions (`½` to `1/2`), primes, box-drawing characters, and typographic spaces.
+- Characters with an NFKD decomposition fall back piecewise; bare combining marks are stripped so accented letters keep their base letter.
+- Zero-width characters vanish entirely; structural whitespace is never touched.
+- The last resort is `?`.
+
+Entries whose character the font does support are never consulted for that font, so a WinAnsi `½` renders natively.
+
+## Smart typography
+
+The content-intelligence layer applies curly quotes, em/en dashes, fractions, ellipses, and non-breaking spaces before units during text processing, not as a post-process. See `SmartTypography` in the [API Reference](/api).
+
+## Small caps status
+
+<Callout type="warning">
+Small caps are partially implemented. `TextRun(small_caps=True)` exists in
+the spec and `FontMetrics.small_caps_width` can measure small-caps text, but
+the layout engine and renderer do not yet apply the flag: it currently has
+no visual effect on output. Track this before relying on it.
+</Callout>

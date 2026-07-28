@@ -1,0 +1,87 @@
+---
+title: Installation
+description: Installing emboss-pdf and its optional extras
+---
+
+import { Callout } from 'nextra/components'
+
+# Installation
+
+```bash
+pip install emboss-pdf
+```
+
+Requires Python 3.10+ and `fonttools`. That is the only required dependency.
+
+## Optional extras
+
+```bash
+pip install emboss-pdf[all]       # pydantic + pikepdf + cryptography
+pip install emboss-pdf[llm]       # pydantic schemas for LLM structured output
+pip install emboss-pdf[verify]    # pikepdf for PDF structural verification
+pip install emboss-pdf[signing]   # cryptography for digital signatures
+pip install emboss-pdf[dev]       # full dev environment (pytest, mypy, ruff)
+```
+
+| Extra | Installs | Enables |
+|-------|----------|---------|
+| `llm` | `pydantic>=2.0` | `DocumentSpec` validation, JSON Schema export, self-healing parse path |
+| `verify` | `pikepdf>=8.0` | deep structural verification in the test suite |
+| `signing` | `cryptography>=41.0` | `emboss.signing.sign_pdf` X.509 signatures |
+| `all` | all of the above | |
+
+<Callout type="info">
+Without `pydantic`, `Document.from_json` falls back to a manual parser that
+handles the core block types. The pydantic path adds validation, recovery,
+and schema generation.
+</Callout>
+
+## Bundled fonts
+
+An OFL-licensed font set ships with the package: Source Serif 4, Source Sans 3, and Source Code Pro (about 2.7 MB; Latin, Greek, and Cyrillic coverage). Registering it gives embedded fonts with full kerning and ligatures, no system font files required:
+
+```python
+from emboss import Document
+from emboss.bundled_fonts import register_bundled_fonts
+
+doc = Document(title="Report")
+register_bundled_fonts(doc.fonts)
+```
+
+The families are also available under the aliases `"emboss serif"`, `"emboss sans"`, and `"emboss mono"`. `register_bundled_fonts` registers every available weight and style (regular, bold, italic, bold italic; Source Code Pro ships regular and bold) under both the canonical names and the aliases.
+
+Two related helpers live in `emboss.bundled_fonts`:
+
+```python
+from emboss.bundled_fonts import bundled_font_path, BUNDLED_FAMILIES
+
+bundled_font_path("emboss serif", bold=True)   # path to SourceSerif4-Bold.ttf
+```
+
+Without registered fonts, Emboss falls back to built-in base-14 metrics (Helvetica, Times, Courier), which produce valid PDFs with no font files present but carry no ligature glyphs.
+
+## Command line
+
+Installing the package adds an `emboss` console script:
+
+```bash
+emboss render spec.json -o out.pdf   # render an EmbossSpec JSON file
+emboss schema                        # print the JSON Schema for LLM prompts
+emboss verify out.pdf                # structural verification
+emboss export spec.json              # export HTML/Markdown from a spec
+emboss analyze spec.json             # content intelligence report
+emboss validate spec.json            # constraint validation report
+```
+
+`render`, `export`, `analyze`, and `validate` accept `-` to read the spec from stdin.
+
+## Development setup
+
+```bash
+git clone https://github.com/GGChamp85/Emboss.git
+cd Emboss
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```

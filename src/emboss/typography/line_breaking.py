@@ -86,6 +86,7 @@ class Line:
     width: float
     is_last: bool = False
     hyphenated: bool = False
+    protrusion_credit: float = 0.0
 
     @property
     def text(self) -> str:
@@ -263,7 +264,7 @@ class LineBreaker:
 
     @staticmethod
     def _protrusion_slack(items: Sequence, start: int, end: int) -> float:
-        from .protrusion import left_protrusion, right_protrusion
+        from .protrusion import left_protrusion
 
         slack = 0.0
         for i in range(start, end):
@@ -274,15 +275,31 @@ class LineBreaker:
                     slack += it.width * factor * (1 / max(len(it.text), 1))
                 break
 
+        return slack + LineBreaker._right_credit(items, start, end)
+
+    @staticmethod
+    def _right_credit(items: Sequence, start: int, end: int) -> float:
+        """Width credit when the last visible character may hang right."""
+        from .protrusion import right_protrusion
+
+        break_item = items[end] if end < len(items) else None
+        if isinstance(break_item, Penalty) and break_item.width > 0:
+            # The line ends in a soft hyphen; that glyph already hangs
+            # via the engine's hyphen handling, so no extra credit.
+            return 0.0
         for i in range(end - 1, start - 1, -1):
             it = items[i]
-            if isinstance(it, Box) and it.text:
-                factor = right_protrusion(it.text[-1])
-                if factor > 0:
-                    slack += it.width * factor * (1 / max(len(it.text), 1))
-                break
-
-        return slack
+            if not isinstance(it, Box):
+                continue
+            if not it.text:
+                return 0.0
+            factor = right_protrusion(it.text[-1])
+            if factor <= 0:
+                return 0.0
+            if it.char_widths and len(it.char_widths) == len(it.text):
+                return it.char_widths[-1] * factor
+            return it.width * factor * (1 / max(len(it.text), 1))
+        return 0.0
 
     def _demerits(self, ratio: float, item, node: _Node, fitness: int) -> float:
         badness = 100.0 * abs(ratio) ** 3
@@ -412,6 +429,7 @@ class LineBreaker:
                 and break_item.width > 0
             )
             width = sum(it.width for it in segment if isinstance(it, (Box, Glue)))
+            credit = self._right_credit(items, start, end) if self.protrusion else 0.0
             lines.append(
                 Line(
                     items=segment,
@@ -421,6 +439,7 @@ class LineBreaker:
                     width=width,
                     is_last=(i == len(chain) - 1),
                     hyphenated=hyphenated,
+                    protrusion_credit=credit,
                 )
             )
         return lines

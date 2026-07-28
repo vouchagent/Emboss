@@ -1,0 +1,200 @@
+---
+title: API Reference
+description: The public surface of the emboss package
+---
+
+# API Reference
+
+Everything below imports from `emboss` unless a submodule is shown.
+
+## Document
+
+```python
+Document(
+    title="",              # PDF metadata and title block
+    author="",
+    subject="",
+    keywords="",           # comma-separated
+    language="en-US",      # BCP 47
+    style="corporate",     # preset name or StyleSheet
+    page=PageSpec(),       # geometry in points
+    content=[],            # block elements
+    header=None,           # HeaderFooter
+    footer=None,           # HeaderFooter
+    header_text=None,      # simple running header
+    footer_text=None,
+    page_numbers=True,
+    tagged=True,           # PDF/UA structure tree
+    legal=None,            # LegalFeatures
+    pdfa=False,            # PDF/A-2b conformance
+    toc=False,             # auto table of contents
+    color_mode="rgb",      # "rgb" or "cmyk"
+    redactions=None,
+    signatures=None,
+)
+```
+
+Methods:
+
+```python
+doc.add(element); doc.extend(elements)      # chainable
+doc.heading(text, level=1)
+doc.paragraph(content)
+doc.bullets(items)          # alias: bullet_list
+doc.numbered(items)         # alias: numbered_list
+doc.table(headers, rows)
+doc.image(source, ...)
+doc.chart(chart_type, labels, values, ...)
+doc.code_block(code, language="text", ...)
+doc.math(source, ...)
+doc.callout(content, variant="note", ...)
+doc.footnote(content, ...)
+doc.bibliography(citations, ...)
+doc.svg(source, ...)
+doc.rule(); doc.page_break()
+doc.render() -> bytes
+doc.save(path)
+doc.fonts                   # FontRegistry for embedded fonts
+
+Document.from_markdown(text, **document_kwargs)
+Document.from_json(json_str, strict=False, smart=False, on_warning=None, **overrides)
+```
+
+## Block elements
+
+`Heading`, `Paragraph`, `TextRun`, `BulletList`, `NumberedList`, `Table`, `TableCell`, `Image`, `Chart`, `Series`, `CodeBlock`, `MathBlock`, `Callout`, `Footnote`, `BibliographyBlock`, `Citation`, `SvgBlock`, `HorizontalRule`, `PageBreak`. Supporting types: `PageSpec` (with `PageSpec.letter()`, `.a4()`, `.legal()` constructors), `HeaderFooter`, `LegalFeatures`. See the [EmbossSpec Format](/spec-format) for fields.
+
+## Rendering
+
+```python
+from emboss import render_document, RenderResult
+
+result = render_document(doc)    # what doc.render() calls
+```
+
+## LLM integration
+
+```python
+from emboss import spec_prompt, generate, parse_spec_json
+```
+
+See [LLM Integration](/llm-integration). The pydantic layer lives in `emboss.adapters.pydantic_schema`: `DocumentSpec` (with `.to_document()`, `.render()`, `.save()`, `.analyze()`, `DocumentSpec.from_smart()`) and `generate_json_schema()`.
+
+## Markdown
+
+```python
+from emboss import parse_markdown    # Markdown -> list of block elements
+```
+
+## Styles
+
+```python
+from emboss import Style, StyleSheet, PRESETS, resolve_preset
+```
+
+`PRESETS` maps the seven preset names to `StyleSheet` instances; `resolve_preset(name)` fetches one; `Style`/`StyleSheet` build custom themes.
+
+## Typography
+
+```python
+from emboss import FontRegistry, FontMetrics, Hyphenator, LineBreaker
+from emboss.bundled_fonts import register_bundled_fonts, bundled_font_path
+```
+
+`FontRegistry.register(name, path, bold=, italic=)` embeds a TTF/OTF. `Hyphenator.from_pattern_file(path)` loads TeX pattern files for other languages. `LineBreaker` exposes the Knuth-Plass parameters (`tolerance`, `hyphen_penalty`, `ladder_limit`, `protrusion`, `avoid_rivers`).
+
+## Colors
+
+```python
+from emboss import (
+    resolve_color, PALETTES, ColorTheme,
+    CmykColor, SpotColor, rgb_to_cmyk, parse_cmyk,
+)
+```
+
+See [Color and Print](/color).
+
+## Math
+
+```python
+from emboss import parse_math, render_math, MathExpression
+```
+
+## Code highlighting
+
+```python
+from emboss import tokenize, colorize, CODE_THEMES, LANGUAGES
+```
+
+Built-in highlighters for Python, JavaScript, TypeScript, SQL, JSON, HTML, CSS, Rust, Go, Java, C, and more; themes `dark_modern`, `light_clean`, `night_owl`.
+
+## Cross-references and numbering
+
+```python
+from emboss import CrossReferenceIndex, NumberingContext
+```
+
+`@label` references in paragraph text resolve to "Table 1", "Figure 2", and so on, with automatic caption numbering and clickable in-document links.
+
+## Validation
+
+```python
+from emboss import ConstraintValidator, ValidationResult, ValidationError, Issue
+
+result = ConstraintValidator().validate(doc)
+for issue in result.issues:
+    print(issue)
+```
+
+Repairable issues are fixed automatically before rendering; genuine errors are reported.
+
+## Content intelligence
+
+```python
+from emboss import (
+    ContentAnalyzer, QualityScorer, SmartTypography,
+    TableIntelligence, DocumentTypeDetector,
+)
+```
+
+## Templates and slides
+
+```python
+from emboss import (
+    memo, report, letter, invoice,
+    academic_paper, legal_brief, slide_deck, data_sheet,
+    slide_document, SlideConfig, SLIDE_16_9, SLIDE_4_3,
+)
+```
+
+Templates are pre-configured `Document` factories.
+
+## Bibliography
+
+```python
+from emboss import format_citation, format_bibliography
+```
+
+## SVG
+
+```python
+from emboss import SvgImage, parse_svg, render_svg
+```
+
+## Submodules outside the top-level namespace
+
+```python
+from emboss.pdf.verify import verify_pdf            # -> VerificationReport
+from emboss.signing import sign_pdf                 # requires [signing]
+from emboss.mathml import parse_mathml              # presentation MathML -> math AST
+from emboss.adapters.html_export import to_html
+from emboss.adapters.markdown_export import to_markdown
+from emboss.adapters.docx_export import to_office_dict
+```
+
+## Version
+
+```python
+import emboss
+emboss.__version__   # "0.1.0"
+```

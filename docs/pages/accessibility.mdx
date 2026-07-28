@@ -1,0 +1,60 @@
+---
+title: Accessibility
+description: PDF/UA structure tree, alt text, link tagging, and deterministic output
+---
+
+# Accessibility (PDF/UA)
+
+Every document is tagged by default (`tagged=True`). The structure tree is derived from the same semantic spec as the visual output, so the two cannot disagree.
+
+## Structure tree mapping
+
+| Element | Structure tags |
+|---------|----------------|
+| Heading | `/H1` through `/H6` |
+| Paragraph | `/P` |
+| Table | `/Table` with `/TH` and `/TD` cells; header cells carry `/Scope` |
+| Bullet and numbered lists | `/L` with `/LI`, `/Lbl`, and `/LBody` |
+| Image, SVG, chart | `/Figure` with `/Alt` |
+| Code block | `/Code` |
+| Math block | `/Formula` |
+| Footnote | `/Note` |
+| Block quote | `/BlockQuote` |
+| Callout | `/Div` |
+| Hyperlink | `/Link` with an `OBJR` reference |
+| Running heads, page numbers, Bates stamps, watermarks, rules, page breaks | `/Artifact` |
+
+## Alt text
+
+Images, SVG blocks, and charts emit their `alt_text` as `/Alt` on the `/Figure` element. When none is given, a description is auto-derived (for charts, from the chart type and data) so no figure ships without one.
+
+## Link tagging
+
+Hyperlinks (`TextRun(link=...)`, Markdown links, autolinks) are written as `/Link` annotations and tagged as `/Link` structure elements with `OBJR` references connecting annotation and structure tree, as PDF/UA requires. Cross-reference `@label` links become in-document GoTo actions with the same treatment.
+
+## XMP identifiers
+
+- Tagged documents declare the **PDF/UA-1** identifier (`pdfuaid:part = 1`) in their XMP metadata.
+- With `pdfa=True`, the packet additionally declares **PDF/A-2b** (`pdfaid:part = 2`, `pdfaid:conformance = B`), and the file carries the required output intent and catalog entries. See [Color and Print](/color) for the RGB and CMYK output intents.
+
+The document `language` field (BCP 47, default `en-US`) is written to the catalog so assistive technology announces the correct language.
+
+## Deterministic output
+
+Accessibility metadata is subject to the same guarantee as everything else: no timestamps, no random identifiers, file `/ID` derived from content. Identical input produces byte-identical PDFs, which makes tagged output hash-verifiable and diffable in CI.
+
+## Verification
+
+```python
+from emboss.pdf.verify import verify_pdf
+
+report = verify_pdf(doc.render())
+print(report)
+# PDF structure: valid
+#   objects: 142
+#   pages: 10
+#   tagged: True
+#   language set: True
+```
+
+`verify_pdf` returns a `VerificationReport` with `ok`, `problems`, `object_count`, `page_count`, `has_struct_tree`, and `has_lang`. The `verify` extra (`pikepdf`) enables the deeper structural checks used in the test suite, and `emboss verify out.pdf` runs verification from the command line.

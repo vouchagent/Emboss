@@ -85,7 +85,7 @@ class TestAltText:
         doc = Document(title="Alt Chart Bare")
         doc.chart("pie", ["a", "b"], [1, 2])
         data = doc.render()
-        assert b"/Alt (pie chart)" in data
+        assert b"/Alt (pie chart; 2 categories)" in data
 
 
 class TestNoFakeFontExpansion:

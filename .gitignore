@@ -13,3 +13,6 @@ build/
 examples/output/
 CLAUDE.md
 .claude/
+node_modules/
+docs/.next/
+docs/out/
