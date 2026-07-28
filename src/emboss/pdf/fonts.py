@@ -89,6 +89,19 @@ def _subset_font(metrics) -> tuple:
     return data, sorted(codepoints)
 
 
+def _num_glyphs(data: bytes) -> int:
+    """Read numGlyphs from a subset font program for CIDSet sizing."""
+    from io import BytesIO
+
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(BytesIO(data), lazy=True, fontNumber=0)
+    try:
+        return int(font["maxp"].numGlyphs)
+    finally:
+        font.close()
+
+
 def _subset_tag(codepoints) -> str:
     """Deterministic six-letter subset prefix derived from content.
 
@@ -139,6 +152,20 @@ def _build_cid_widths(codepoints, metrics, gid_map) -> PdfArray:
     return w
 
 
+def _build_cid_set(num_glyphs: int) -> bytes:
+    """Build a CIDSet bitmap marking every CID present in the subset font.
+
+    PDF/A requires a CIDSet for subset CIDFonts; with CIDToGIDMap Identity
+    the CIDs are the glyph IDs 0..num_glyphs-1, all of which the program
+    contains after retain_gids subsetting.
+    """
+    full, remainder = divmod(max(num_glyphs, 0), 8)
+    data = bytearray(b"\xff" * full)
+    if remainder:
+        data.append((0xFF << (8 - remainder)) & 0xFF)
+    return bytes(data)
+
+
 def _build_embedded(assembler, metrics) -> PdfRef:
     data, codepoints = _subset_font(metrics)
     gid_map = metrics.gid_map or {}
@@ -148,6 +175,8 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     file_stream = PdfStream(data=data)
     file_stream.dictionary["Length1"] = len(data)
     file_ref = assembler.add(file_stream)
+
+    cid_set_ref = assembler.add(PdfStream(data=_build_cid_set(_num_glyphs(data))))
 
     descriptor = PdfDict()
     descriptor["Type"] = PdfName("FontDescriptor")
@@ -162,6 +191,7 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     descriptor["CapHeight"] = round(metrics.cap_height)
     descriptor["StemV"] = 80
     descriptor["FontFile2"] = file_ref
+    descriptor["CIDSet"] = cid_set_ref
     descriptor_ref = assembler.add(descriptor)
 
     cid_sys = PdfDict()

@@ -107,6 +107,8 @@ class Renderer:
 
     def __init__(self, document: Document, strict: bool = False) -> None:
         self.fonts = document.fonts
+        if document.pdfa:
+            self.fonts.enable_pdfa_embedding()
         self.validator = ConstraintValidator(fonts=self.fonts, strict=strict)
         self.source = document
         self.strict = strict

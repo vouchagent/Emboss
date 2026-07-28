@@ -825,7 +825,7 @@ class FontMetrics:
                 ascender=ascender,
                 descender=descender,
                 cap_height=cap_height,
-                flags=32,
+                flags=_compute_flags(font),
                 is_embedded=True,
                 font_path=path,
                 _widths=widths,
@@ -989,6 +989,93 @@ def _is_symbolic(font) -> bool:
         return font["OS/2"].usWidthClass == 0
     except Exception:
         return False
+
+
+# PDF FontDescriptor flag bits (PDF 32000-1 Table 123, 1-indexed positions).
+_FLAG_FIXED_PITCH = 1 << 0
+_FLAG_SERIF = 1 << 1
+_FLAG_SYMBOLIC = 1 << 2
+_FLAG_NONSYMBOLIC = 1 << 5
+_FLAG_ITALIC = 1 << 6
+
+
+def _compute_flags(font) -> int:
+    """Compute the PDF FontDescriptor Flags value from the font's tables.
+
+    Symbolic and Nonsymbolic are mutually exclusive as PDF/A requires, and
+    the fixed-pitch, serif, and italic bits come from real table data rather
+    than a hardcoded guess.
+    """
+    flags = 0
+    if _font_is_fixed_pitch(font):
+        flags |= _FLAG_FIXED_PITCH
+    if _font_is_serif(font):
+        flags |= _FLAG_SERIF
+    if _font_is_italic(font):
+        flags |= _FLAG_ITALIC
+    if _font_is_symbol(font):
+        flags |= _FLAG_SYMBOLIC
+    else:
+        flags |= _FLAG_NONSYMBOLIC
+    return flags
+
+
+def _font_is_fixed_pitch(font) -> bool:
+    try:
+        return bool(font["post"].isFixedPitch)
+    except Exception:
+        return False
+
+
+def _font_is_italic(font) -> bool:
+    try:
+        if font["head"].macStyle & 0x2:
+            return True
+    except Exception:
+        pass
+    try:
+        if font["OS/2"].fsSelection & 0x1:
+            return True
+    except Exception:
+        pass
+    try:
+        return float(font["post"].italicAngle) != 0.0
+    except Exception:
+        return False
+
+
+def _font_is_serif(font) -> bool:
+    """Classify a Latin-text font as serif via OS/2 class then PANOSE."""
+    try:
+        family_class = font["OS/2"].sFamilyClass >> 8
+    except Exception:
+        family_class = -1
+    if family_class in (1, 2, 3, 4, 5, 7):
+        return True
+    if family_class == 8:
+        return False
+    try:
+        panose = font["OS/2"].panose
+        if panose.bFamilyType == 2:
+            # PANOSE serif-style: 0/1 = any/no-fit, 11-15 = sans variants.
+            return panose.bSerifStyle not in (0, 1, 11, 12, 13, 14, 15)
+    except Exception:
+        pass
+    return False
+
+
+def _font_is_symbol(font) -> bool:
+    """True only for fonts exposing a symbol cmap and no Unicode cmap."""
+    try:
+        tables = font["cmap"].tables
+    except Exception:
+        return False
+    has_unicode = any(
+        (t.platformID == 3 and t.platEncID in (1, 10)) or t.platformID == 0
+        for t in tables
+    )
+    has_symbol = any(t.platformID == 3 and t.platEncID == 0 for t in tables)
+    return has_symbol and not has_unicode
 
 
 def _extract_kerning(font, scale: float, class_tables: list | None = None) -> dict:
@@ -1182,11 +1269,21 @@ class FontRegistry:
         ("symbol", False, False): "Symbol",
     }
 
+    #: base-14 family stem -> bundled OFL family used when embedding for PDF/A.
+    _PDFA_BUNDLED_FOR = {
+        "helvetica": "Source Sans 3",
+        "times": "Source Serif 4",
+        "courier": "Source Code Pro",
+        "symbol": "Source Sans 3",
+        "zapfdingbats": "Source Sans 3",
+    }
+
     def __init__(self) -> None:
         self._cache: dict = {}
         self._custom: dict = {}
         self._fallback_paths: list = []
         self._fallback_metrics: list | None = None
+        self._pdfa_embed: bool = False
 
     def register(
         self, family: str, path: str | Path, bold: bool = False, italic: bool = False
@@ -1217,8 +1314,27 @@ class FontRegistry:
                     )
             metrics = FontMetrics.base14(name)
 
+        if self._pdfa_embed and not metrics.is_embedded:
+            metrics = self._pdfa_bundled(metrics.name, bold, italic)
+
         self._cache[key] = metrics
         return metrics
+
+    def enable_pdfa_embedding(self) -> None:
+        """Register bundled OFL fonts and embed them in place of the base-14."""
+        from ..bundled_fonts import register_bundled_fonts
+
+        register_bundled_fonts(self)
+        self._pdfa_embed = True
+        self._cache.clear()
+
+    def _pdfa_bundled(self, base14_name: str, bold: bool, italic: bool) -> FontMetrics:
+        """Map a base-14 name to its bundled embeddable family for PDF/A."""
+        stem = base14_name.split("-", 1)[0].lower()
+        target = self._PDFA_BUNDLED_FOR.get(stem, "Source Sans 3")
+        if (target.lower(), bold, italic) not in self._custom:
+            return FontMetrics.base14(base14_name)
+        return self.resolve(target, bold=bold, italic=italic)
 
     def register_fallback(self, path: str | Path) -> None:
         """Append a fallback font tried, in order, for unsupported glyphs."""
