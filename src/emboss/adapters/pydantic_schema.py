@@ -33,12 +33,16 @@ if TYPE_CHECKING:
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..spec import (
+    Abstract,
+    Author,
+    Authors,
     BibliographyBlock,
     BlockQuote,
     BulletList,
     Callout,
     Chart,
     CodeBlock,
+    CoverPage,
     Document,
     Footnote,
     HeaderFooter,
@@ -51,10 +55,14 @@ from ..spec import (
     PageBreak,
     PageSpec,
     Paragraph,
+    PullQuote,
     Series,
+    Stat,
+    StatTiles,
     SvgBlock,
     Table,
     TableCell,
+    TableOfContents,
     TextRun,
 )
 from ..bibliography import Citation
@@ -77,6 +85,14 @@ __all__ = [
     "CalloutSpec",
     "BlockQuoteSpec",
     "SvgBlockSpec",
+    "CoverPageSpec",
+    "AbstractSpec",
+    "AuthorSpec",
+    "AuthorsSpec",
+    "PullQuoteSpec",
+    "StatSpec",
+    "StatTilesSpec",
+    "TableOfContentsSpec",
     "DiagramSpec",
     "DiagramNodeSpec",
     "DiagramEdgeSpec",
@@ -718,9 +734,25 @@ class MathBlockSpec(BaseModel):
     caption: str | None = Field(
         None, description="Optional caption below the equation."
     )
+    label: str | None = Field(
+        None, description="Cross-reference key, e.g. 'eq:energy' for @eq:energy."
+    )
+    number: bool = Field(
+        False, description="Right-flush an auto-assigned equation number."
+    )
+    tag: str | None = Field(
+        None, description="Override the equation number text, e.g. '(3a)'."
+    )
 
     def to_element(self) -> MathBlock:
-        return MathBlock(source=self.source, display=self.display, caption=self.caption)
+        return MathBlock(
+            source=self.source,
+            display=self.display,
+            caption=self.caption,
+            label=self.label,
+            number=self.number,
+            tag=self.tag,
+        )
 
 
 class CitationSpec(BaseModel):
@@ -932,6 +964,192 @@ class DiagramSpec(BaseModel):
         )
 
 
+class CoverPageSpec(BaseModel):
+    """A full-page cover: centered title, subtitle, authors, and accent rule."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Cover Page",
+            "examples": [
+                {
+                    "type": "cover_page",
+                    "title": "Annual Report",
+                    "subtitle": "Fiscal Year 2025",
+                    "authors": ["Jane Doe", "John Roe"],
+                    "date": "July 2026",
+                    "kicker": "Confidential",
+                }
+            ],
+        }
+    }
+
+    type: Literal["cover_page"] = "cover_page"
+    title: str = Field(..., min_length=1, description="Cover title.")
+    subtitle: str = Field("", description="Subtitle under the title.")
+    authors: list[str] = Field(default_factory=list, description="Author names.")
+    date: str = Field("", description="Date line.")
+    kicker: str = Field("", description="Small uppercase label above the title.")
+
+    def to_element(self) -> CoverPage:
+        return CoverPage(
+            title=self.title,
+            subtitle=self.subtitle,
+            authors=tuple(self.authors),
+            date=self.date,
+            kicker=self.kicker,
+        )
+
+
+class AbstractSpec(BaseModel):
+    """An indented abstract with a label and optional keywords line."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Abstract",
+            "examples": [
+                {
+                    "type": "abstract",
+                    "text": "We present a method for ...",
+                    "keywords": ["typography", "layout"],
+                }
+            ],
+        }
+    }
+
+    type: Literal["abstract"] = "abstract"
+    text: str = Field(..., min_length=1, description="Abstract body text.")
+    keywords: list[str] = Field(
+        default_factory=list, description="Optional keyword list."
+    )
+
+    def to_element(self) -> Abstract:
+        return Abstract(text=self.text, keywords=tuple(self.keywords))
+
+
+class AuthorSpec(BaseModel):
+    """One author entry for an author grid."""
+
+    name: str = Field(..., min_length=1, description="Author name.")
+    affiliation: str = Field("", description="Affiliation or organization.")
+    email: str = Field("", description="Contact email.")
+
+    def to_author(self) -> Author:
+        return Author(name=self.name, affiliation=self.affiliation, email=self.email)
+
+
+class AuthorsSpec(BaseModel):
+    """A centered grid of author entries."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Authors",
+            "examples": [
+                {
+                    "type": "authors",
+                    "authors": [
+                        {"name": "Ada Lovelace", "affiliation": "Analytical Engine"},
+                        {"name": "Alan Turing", "email": "alan@npl.uk"},
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["authors"] = "authors"
+    authors: list[AuthorSpec] = Field(..., min_length=1, description="Author entries.")
+
+    def to_element(self) -> Authors:
+        return Authors(authors=[a.to_author() for a in self.authors])
+
+
+class PullQuoteSpec(BaseModel):
+    """A large-type offset pull quote with optional attribution."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Pull Quote",
+            "examples": [
+                {
+                    "type": "pull_quote",
+                    "text": "The best way to predict the future is to invent it.",
+                    "attribution": "Alan Kay",
+                }
+            ],
+        }
+    }
+
+    type: Literal["pull_quote"] = "pull_quote"
+    text: str = Field(..., min_length=1, description="Quoted text.")
+    attribution: str = Field("", description="Source of the quote.")
+
+    def to_element(self) -> PullQuote:
+        return PullQuote(text=self.text, attribution=self.attribution)
+
+
+class StatSpec(BaseModel):
+    """One statistic tile: a value with a label and optional signed delta."""
+
+    label: str = Field(..., description="Short uppercase label.")
+    value: str = Field(..., description="Large headline value, e.g. '$4.5M'.")
+    delta: str | None = Field(
+        None, description="Signed change, e.g. '+12%' or '-3%'; colored by sign."
+    )
+
+    def to_stat(self) -> Stat:
+        return Stat(label=self.label, value=self.value, delta=self.delta)
+
+
+class StatTilesSpec(BaseModel):
+    """A row of bordered statistic tiles."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Stat Tiles",
+            "examples": [
+                {
+                    "type": "stat_tiles",
+                    "stats": [
+                        {"label": "Revenue", "value": "$4.5M", "delta": "+12%"},
+                        {"label": "Churn", "value": "2.1%", "delta": "-0.3%"},
+                        {"label": "NPS", "value": "61"},
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["stat_tiles"] = "stat_tiles"
+    stats: list[StatSpec] = Field(..., min_length=1, description="Tiles to render.")
+
+    def to_element(self) -> StatTiles:
+        return StatTiles(stats=[s.to_stat() for s in self.stats])
+
+
+class TableOfContentsSpec(BaseModel):
+    """A visible contents / figures / tables listing with dot leaders."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Table of Contents",
+            "examples": [
+                {"type": "toc", "title": "Contents", "depth": 3},
+                {"type": "toc", "title": "List of Figures", "source": "figures"},
+            ],
+        }
+    }
+
+    type: Literal["toc"] = "toc"
+    title: str = Field("Contents", description="Heading shown above the listing.")
+    depth: int = Field(3, ge=1, le=6, description="Deepest heading level to list.")
+    source: Literal["headings", "figures", "tables"] = Field(
+        "headings",
+        description="What to list: document headings, figures, or tables.",
+    )
+
+    def to_element(self) -> TableOfContents:
+        return TableOfContents(title=self.title, depth=self.depth, source=self.source)
+
+
 class HeaderFooterSpec(BaseModel):
     """Structured header or footer with left/center/right slots."""
 
@@ -988,6 +1206,12 @@ ContentBlock = Annotated[
         MathBlockSpec,
         BibliographySpec,
         SvgBlockSpec,
+        CoverPageSpec,
+        AbstractSpec,
+        AuthorsSpec,
+        PullQuoteSpec,
+        StatTilesSpec,
+        TableOfContentsSpec,
         DiagramSpec,
         PageBreakSpec,
         HorizontalRuleSpec,

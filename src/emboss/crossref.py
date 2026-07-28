@@ -38,6 +38,13 @@ class RefEntry:
     def label(self) -> str:
         return f"{self.kind} {self.display or self.number}"
 
+    @property
+    def ref_label(self) -> str:
+        """In-text reference label; equations resolve to a bare ``(n)``."""
+        if self.kind == "Equation":
+            return f"({self.display or self.number})"
+        return self.label
+
 
 class CrossReferenceIndex:
     """Builds and resolves cross-references for a document."""
@@ -111,13 +118,15 @@ class CrossReferenceIndex:
 
             elif isinstance(element, MathBlock):
                 caption = getattr(element, "caption", None)
-                if caption:
+                wants_number = getattr(element, "number", False)
+                explicit = getattr(element, "label", None)
+                if caption or wants_number or explicit:
                     num = self._next("Equation")
-                    label = getattr(element, "label", None) or f"eq:{num}"
+                    label = explicit or f"eq:{num}"
                     self._entries[label] = RefEntry(
                         kind="Equation",
                         number=num,
-                        text=caption,
+                        text=caption or "",
                         anchor=label,
                         element_index=idx,
                     )

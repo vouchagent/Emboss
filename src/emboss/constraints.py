@@ -16,12 +16,15 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .spec import (
+    Abstract,
+    Authors,
     BibliographyBlock,
     BlockQuote,
     BulletList,
     Callout,
     Chart,
     CodeBlock,
+    CoverPage,
     Document,
     Footnote,
     Heading,
@@ -31,8 +34,11 @@ from .spec import (
     NumberedList,
     PageBreak,
     Paragraph,
+    PullQuote,
+    StatTiles,
     SvgBlock,
     Table,
+    TableOfContents,
 )
 
 __all__ = ["Issue", "ValidationResult", "ConstraintValidator", "ValidationError"]
@@ -206,6 +212,12 @@ class ConstraintValidator:
             MathBlock,
             BibliographyBlock,
             SvgBlock,
+            CoverPage,
+            Abstract,
+            Authors,
+            PullQuote,
+            StatTiles,
+            TableOfContents,
             PageBreak,
             HorizontalRule,
         )

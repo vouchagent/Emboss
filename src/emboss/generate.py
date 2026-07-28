@@ -412,9 +412,9 @@ Languages: python, javascript, typescript, sql, json, html, css, rust, go, java,
 
 ### Math Block
 ```json
-{{"type": "math", "source": "E = mc^2"}}
+{{"type": "math", "source": "E = mc^2", "number": true, "label": "eq:energy"}}
 ```
-LaTeX syntax: superscripts (^), subscripts (_), \\frac, \\sqrt, \\sum, \\int, Greek letters.
+LaTeX syntax: superscripts (^), subscripts (_), \\frac, \\sqrt, \\sum, \\int, Greek letters. Set "number": true to right-flush an auto-assigned equation number; give a "label" so text can reference it with @eq:energy or \\eqref{{energy}} (resolves to "(3)" with a link). "tag" overrides the number text.
 
 ### Image
 ```json
@@ -453,6 +453,31 @@ Architecture and workflow graphs as node/edge lists; layout, arrow routing, and 
 {{"type": "diagram", "direction": "down", "nodes": [{{"id": "api", "label": "API Gateway"}}, {{"id": "auth", "label": "Auth Service"}}, {{"id": "db", "label": "User Store", "shape": "store"}}, {{"id": "ok", "label": "Response", "shape": "rounded"}}], "edges": [{{"src": "api", "dst": "auth", "label": "verify"}}, {{"src": "auth", "dst": "db"}}, {{"src": "db", "dst": "auth", "style": "dashed"}}, {{"src": "auth", "dst": "ok"}}], "caption": "Login flow"}}
 ```
 Node shapes: box, rounded, decision (diamond), store (database), start_end. Edge "style": "dashed" marks optional/async paths; "direction" is "down" or "right".
+
+### Front Matter & Executive Elements
+"cover_page" fills a page (no header/footer) and forces a page break:
+```json
+{{"type": "cover_page", "title": "Annual Report", "subtitle": "FY2025", "authors": ["Jane Doe"], "date": "July 2026", "kicker": "Confidential"}}
+```
+```json
+{{"type": "abstract", "text": "We present a layout engine.", "keywords": ["layout", "typography"]}}
+```
+```json
+{{"type": "authors", "authors": [{{"name": "Ada Lovelace", "affiliation": "Analytical Engine", "email": "ada@x.io"}}]}}
+```
+```json
+{{"type": "pull_quote", "text": "Simplicity is the ultimate sophistication.", "attribution": "da Vinci"}}
+```
+"stat_tiles" draws a row of bordered tiles; deltas are colored by sign:
+```json
+{{"type": "stat_tiles", "stats": [{{"label": "Revenue", "value": "$4.5M", "delta": "+12%"}}, {{"label": "Churn", "value": "2.1%", "delta": "-0.3%"}}]}}
+```
+
+### Table of Contents / Figures / Tables
+```json
+{{"type": "toc", "title": "Contents", "depth": 3, "source": "headings"}}
+```
+Renders a visible listing with dot leaders, real page numbers, and clickable links. "source" is "headings", "figures", or "tables".
 
 ## Rules
 1. Always output valid JSON — no comments, no trailing commas.
@@ -673,11 +698,15 @@ def _parse_spec_data(
 def _manual_parse(data: dict) -> "Document":
     """Fallback parser when pydantic is not installed."""
     from .spec import (
+        Abstract,
+        Author,
+        Authors,
         BlockQuote,
         BulletList,
         Callout,
         Chart,
         CodeBlock,
+        CoverPage,
         Document,
         Heading,
         HorizontalRule,
@@ -685,7 +714,11 @@ def _manual_parse(data: dict) -> "Document":
         MathBlock,
         NumberedList,
         PageBreak,
+        PullQuote,
+        Stat,
+        StatTiles,
         Table,
+        TableOfContents,
     )
 
     _normalize_spec(data)
@@ -717,7 +750,44 @@ def _manual_parse(data: dict) -> "Document":
             language=b.get("language", "text"),
             line_numbers=b.get("line_numbers", False),
         ),
-        "math": lambda b: MathBlock(source=b.get("source", "")),
+        "math": lambda b: MathBlock(
+            source=b.get("source", ""),
+            display=b.get("display", True),
+            caption=b.get("caption"),
+            label=b.get("label"),
+            number=b.get("number", False),
+            tag=b.get("tag"),
+        ),
+        "cover_page": lambda b: CoverPage(
+            title=b.get("title", ""),
+            subtitle=b.get("subtitle", ""),
+            authors=tuple(b.get("authors", ())),
+            date=b.get("date", ""),
+            kicker=b.get("kicker", ""),
+        ),
+        "abstract": lambda b: Abstract(
+            text=b.get("text", ""), keywords=tuple(b.get("keywords", ()))
+        ),
+        "authors": lambda b: Authors(
+            authors=[
+                Author(**a) if isinstance(a, dict) else Author(name=str(a))
+                for a in b.get("authors", [])
+            ]
+        ),
+        "pull_quote": lambda b: PullQuote(
+            text=b.get("text", ""), attribution=b.get("attribution", "")
+        ),
+        "stat_tiles": lambda b: StatTiles(
+            stats=[
+                Stat(**s) if isinstance(s, dict) else Stat(label="", value=str(s))
+                for s in b.get("stats", [])
+            ]
+        ),
+        "toc": lambda b: TableOfContents(
+            title=b.get("title", "Contents"),
+            depth=b.get("depth", 3),
+            source=b.get("source", "headings"),
+        ),
         "image": lambda b: Image(
             source=b.get("source", ""),
             alt_text=b.get("alt_text", ""),

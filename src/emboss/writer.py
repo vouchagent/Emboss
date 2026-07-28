@@ -23,12 +23,15 @@ from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
+    Abstract,
+    Authors,
     BibliographyBlock,
     BlockQuote,
     BulletList,
     Callout,
     Chart,
     CodeBlock,
+    CoverPage,
     Document,
     Footnote,
     Heading,
@@ -37,8 +40,11 @@ from .spec import (
     MathBlock,
     NumberedList,
     Paragraph,
+    PullQuote,
+    StatTiles,
     SvgBlock,
     Table,
+    TableOfContents,
 )
 from .styles import Style
 from .typography.hyphenation import Hyphenator
@@ -133,8 +139,16 @@ class Renderer:
         self._prepare_footnotes(sheet, content)
 
         width = document.page.content_width
-        measured = [engine.measure(el, width) for el in content]
-        pages = engine.paginate(measured, document.page)
+        toc_indices = [
+            i for i, el in enumerate(content) if isinstance(el, TableOfContents)
+        ]
+        if toc_indices:
+            pages = self._paginate_with_toc(
+                engine, document, content, width, toc_indices
+            )
+        else:
+            measured = [engine.measure(el, width) for el in content]
+            pages = engine.paginate(measured, document.page)
         self._section_titles = self._collect_section_titles(document, pages)
 
         assembler = PDFAssembler()
@@ -148,6 +162,8 @@ class Renderer:
     def _prepend_title_block(document, sheet, content: list) -> list:
         """Insert a title heading and author line before the first content."""
         if not document.title:
+            return content
+        if content and isinstance(content[0], CoverPage):
             return content
         first_is_heading = content and isinstance(content[0], Heading)
         if first_is_heading and content[0].text == document.title:
@@ -313,7 +329,7 @@ class Renderer:
 
     # -- cross-reference resolution --
 
-    _REF_PATTERN = re.compile(r"@([\w](?:[\w:.-]*[\w])?)")
+    _REF_PATTERN = re.compile(r"@([\w](?:[\w:.-]*[\w])?)|\\(?:eq)?ref\{([^}]+)\}")
 
     def _resolve_references(self, document, content: list) -> list:
         """Number captions, resolve @key tokens, and collect anchor keys."""
@@ -352,6 +368,8 @@ class Renderer:
                         element.title = f"{entry.label}: {element.title}"
                 elif auto_number and getattr(element, "caption", None):
                     element.caption = f"{entry.label}: {element.caption}"
+                if isinstance(element, MathBlock):
+                    element._assigned_number = entry.number
                 self._element_keys[id(element)] = entry.anchor
             elif isinstance(element, Paragraph):
                 resolved = self._resolve_runs(element.runs, index)
@@ -364,18 +382,22 @@ class Renderer:
         changed = False
         out: list = []
         for run in runs:
-            if run.link or "@" not in run.text:
+            text = run.text
+            if run.link or (
+                "@" not in text and "\\ref" not in text and "\\eqref" not in text
+            ):
                 out.append(run)
                 continue
             pieces: list = []
             cursor = 0
             for match in self._REF_PATTERN.finditer(run.text):
-                entry = index.get(match.group(1))
+                key = match.group(1) or match.group(2)
+                entry = index.get(key) or index.get(f"eq:{key}")
                 if entry is None:
                     continue
                 if match.start() > cursor:
                     pieces.append((run.text[cursor : match.start()], None))
-                pieces.append((entry.label, entry.anchor))
+                pieces.append((entry.ref_label, entry.anchor))
                 cursor = match.end()
             if not pieces:
                 out.append(run)
@@ -394,6 +416,86 @@ class Renderer:
             key = self._element_keys.get(id(placed.block.element))
             if key is not None and key not in self._anchor_map:
                 self._anchor_map[key] = (page_ref, round(placed.y, 2))
+
+    # -- visible table of contents --
+
+    TOC_MAX_PASSES = 3
+
+    def _toc_entries(self, content: list, toc_element) -> list:
+        """Collect (target, text, level, link_key) rows for one TOC block."""
+        entries: list = []
+        counter = 0
+        for element in content:
+            if toc_element.source == "headings":
+                if not isinstance(element, Heading):
+                    continue
+                if element.level > toc_element.depth:
+                    continue
+                text, level = element.text, element.level
+            elif toc_element.source == "figures":
+                if isinstance(element, Chart):
+                    text = element.title
+                elif isinstance(element, (Image, SvgBlock)):
+                    text = element.caption
+                else:
+                    continue
+                if not text:
+                    continue
+                level = 1
+            elif toc_element.source == "tables":
+                if not isinstance(element, Table) or not element.caption:
+                    continue
+                text, level = element.caption, 1
+            else:
+                continue
+            key = self._element_keys.get(id(element))
+            if key is None:
+                key = f"__toc{counter}"
+                counter += 1
+                self._element_keys[id(element)] = key
+            entries.append((element, text, level, key))
+        return entries
+
+    def _paginate_with_toc(
+        self, engine, document, content, width: float, toc_indices: list
+    ) -> list:
+        """Two-pass layout: fill real page numbers into visible TOC blocks."""
+        toc_index_set = set(toc_indices)
+        entries_by_toc = {
+            i: self._toc_entries(content, content[i]) for i in toc_indices
+        }
+        target_ids = {
+            id(target)
+            for entries in entries_by_toc.values()
+            for target, _t, _l, _k in entries
+        }
+
+        page_map: dict = {}
+        pages: list = []
+        for _ in range(self.TOC_MAX_PASSES):
+            measured = []
+            for i, element in enumerate(content):
+                if i in toc_index_set:
+                    rows = [
+                        (text, level, page_map.get(id(target), ""), key)
+                        for target, text, level, key in entries_by_toc[i]
+                    ]
+                    measured.append(engine.measure_toc(element, width, rows))
+                else:
+                    measured.append(engine.measure(element, width))
+            pages = engine.paginate(measured, document.page)
+            new_map = {}
+            for pidx, page in enumerate(pages):
+                for placed in page.blocks:
+                    eid = id(placed.block.element)
+                    if eid in target_ids and eid not in new_map:
+                        new_map[eid] = self._page_number_labels(
+                            document, pidx, len(pages)
+                        )[0]
+            if new_map == page_map:
+                break
+            page_map = new_map
+        return pages
 
     # -- assembly --
 
@@ -741,6 +843,20 @@ class Renderer:
                     font_registry,
                     document.page.content_width,
                 )
+            elif isinstance(element, CoverPage):
+                self._draw_cover(
+                    stream, placed, page_index, root, font_registry, document
+                )
+            elif isinstance(element, Abstract):
+                self._draw_abstract(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, Authors):
+                self._draw_authors(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, PullQuote):
+                self._draw_pullquote(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, StatTiles):
+                self._draw_stat_tiles(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, TableOfContents):
+                self._draw_toc(stream, placed, page_index, root, font_registry)
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, document, sheet)
 
@@ -799,6 +915,12 @@ class Renderer:
         key = self._font_key(metrics, registry)
         return metrics, size, key
 
+    @staticmethod
+    def _actual_text_bdc(text: str) -> bytes:
+        """Marked-content opener carrying ActualText (UTF-16BE) for extraction."""
+        hexed = text.encode("utf-16-be").hex().upper()
+        return b"/Span <</ActualText <FEFF" + hexed.encode("ascii") + b">>> BDC"
+
     def _draw_strikethrough(
         self, stream, metrics, size: float, x: float, baseline: float, text, color
     ) -> None:
@@ -851,6 +973,9 @@ class Renderer:
                 color = run.color or style.require("color")
                 x = placed.x + indent + offset + protrusion_shift
                 rise = getattr(run, "baseline_rise", 0.0)
+                sc_actual = getattr(run, "_sc_actual", None)
+                if sc_actual is not None:
+                    stream.raw(self._actual_text_bdc(sc_actual))
                 stream.text_line(
                     text,
                     key,
@@ -861,6 +986,8 @@ class Renderer:
                     kern_pairs=metrics.kern_pairs(text),
                     gid_map=metrics.gid_map,
                 )
+                if sc_actual is not None:
+                    stream.raw(b"EMC")
                 if run.strikethrough:
                     self._draw_strikethrough(
                         stream, metrics, size, x, baseline, text, color
@@ -1895,6 +2022,23 @@ class Renderer:
             mathalpha_metrics=mathalpha_metrics,
         )
 
+        if getattr(element, "number", False):
+            num_text = element.tag or f"({getattr(element, '_assigned_number', 1)})"
+            num_width = metrics.text_width(num_text, size)
+            num_x = placed.x + content_width - num_width
+            center = baseline_y + (layout.height - layout.depth) / 2
+            num_y = center - metrics.ascent(size) / 2
+            metrics.note_usage(num_text)
+            stream.text_line(
+                num_text,
+                key,
+                size,
+                num_x,
+                num_y,
+                color,
+                gid_map=metrics.gid_map,
+            )
+
         if element.caption:
             cap_size = size * 0.7
             cap_y = baseline_y - layout.depth - cap_size - 4.0
@@ -1971,6 +2115,245 @@ class Renderer:
                     )
                 y -= line.height
             stream.end_marked()
+
+    # -- front matter --
+
+    def _emit_lines(
+        self, stream, lines, x_base, y, registry, style, default_color
+    ) -> float:
+        """Draw laid-out lines from top `y`; returns the y after the block."""
+        for line in lines:
+            baseline = y - line.ascent
+            for text, run, offset in line.fragments:
+                metrics, size, key = self._resolve_font(style, run, registry)
+                sc = getattr(run, "_sc_actual", None)
+                if sc is not None:
+                    stream.raw(self._actual_text_bdc(sc))
+                stream.text_line(
+                    text,
+                    key,
+                    size,
+                    x_base + offset,
+                    baseline,
+                    run.color or default_color,
+                    kern_pairs=metrics.kern_pairs(text),
+                    gid_map=metrics.gid_map,
+                )
+                if sc is not None:
+                    stream.raw(b"EMC")
+            y -= line.height
+        return y
+
+    def _draw_cover(self, stream, placed, page_index, root, registry, document) -> None:
+        parts = placed.block.extras.get("cover", [])
+        style = placed.block.style
+        page = document.page
+        left = page.margin_left
+        width = placed.block.extras.get("width", page.content_width)
+        color = style.require("color")
+
+        total = 0.0
+        for part in parts:
+            if "lines" in part:
+                total += sum(line.height for line in part["lines"])
+            elif "rule" in part:
+                total += 2.0
+            total += part.get("gap", 0.0)
+
+        div = StructureElement(tag="Div")
+        root.children.append(div)
+
+        y = (page.height + total) / 2.0
+        for part in parts:
+            if "rule" in part:
+                rule_w = LayoutEngine.COVER_RULE_WIDTH
+                rx = left + (width - rule_w) / 2.0
+                stream.begin_artifact()
+                stream.line(
+                    rx, y - 1.0, rx + rule_w, y - 1.0, color=part["rule"], width=1.5
+                )
+                stream.end_marked()
+                y -= 2.0
+            else:
+                para = StructureElement(tag="P")
+                div.children.append(para)
+                mcid = stream.next_mcid()
+                para.add_mcid(page_index, mcid)
+                stream.begin_marked("P", mcid)
+                y = self._emit_lines(
+                    stream, part["lines"], left, y, registry, style, color
+                )
+                stream.end_marked()
+            y -= part.get("gap", 0.0)
+
+    def _draw_abstract(self, stream, placed, page_index, root, registry) -> None:
+        data = placed.block.extras["abstract"]
+        style = placed.block.style
+        color = style.require("color")
+        x = placed.x + data["indent"]
+        y = placed.y
+
+        div = StructureElement(tag="Div")
+        root.children.append(div)
+        for key in ("label", "body", "keywords"):
+            lines = data[key]
+            if not lines:
+                continue
+            para = StructureElement(tag="P")
+            div.children.append(para)
+            mcid = stream.next_mcid()
+            para.add_mcid(page_index, mcid)
+            stream.begin_marked("P", mcid)
+            y = self._emit_lines(stream, lines, x, y, registry, style, color)
+            stream.end_marked()
+            if key == "label":
+                y -= 2.0
+            elif key == "body" and data["keywords"]:
+                y -= 6.0
+
+    def _draw_authors(self, stream, placed, page_index, root, registry) -> None:
+        data = placed.block.extras["authors"]
+        style = placed.block.style
+        color = style.require("color")
+        col_w = data["col_w"]
+
+        div = StructureElement(tag="Div")
+        root.children.append(div)
+        y = placed.y
+        for row in data["rows"]:
+            row_h = max(sum(line.height for line in cell) for cell in row)
+            for ci, cell in enumerate(row):
+                cell_x = placed.x + ci * col_w + 6.0
+                para = StructureElement(tag="P")
+                div.children.append(para)
+                mcid = stream.next_mcid()
+                para.add_mcid(page_index, mcid)
+                stream.begin_marked("P", mcid)
+                self._emit_lines(stream, cell, cell_x, y, registry, style, color)
+                stream.end_marked()
+            y -= row_h + 10.0
+
+    def _draw_pullquote(self, stream, placed, page_index, root, registry) -> None:
+        data = placed.block.extras["pullquote"]
+        style = placed.block.style
+        color = style.require("color")
+        x = placed.x + data["indent"]
+        usable = data["usable"]
+
+        quote_el = StructureElement(tag="BlockQuote")
+        root.children.append(quote_el)
+
+        rule_w = min(48.0, usable * 0.25)
+        rule_x = x + (usable - rule_w) / 2.0
+        stream.begin_artifact()
+        stream.line(
+            rule_x,
+            placed.y - 4.0,
+            rule_x + rule_w,
+            placed.y - 4.0,
+            color=data["accent"],
+            width=2.0,
+        )
+        stream.end_marked()
+
+        mcid = stream.next_mcid()
+        quote_el.add_mcid(page_index, mcid)
+        stream.begin_marked("BlockQuote", mcid)
+        y = placed.y - 12.0
+        y = self._emit_lines(stream, data["lines"], x, y, registry, style, color)
+        if data["attr"]:
+            y -= 6.0
+            self._emit_lines(stream, data["attr"], x, y, registry, style, color)
+        stream.end_marked()
+
+    def _draw_stat_tiles(self, stream, placed, page_index, root, registry) -> None:
+        data = placed.block.extras["stattiles"]
+        style = placed.block.style
+        color = style.require("color")
+        tile_w = data["tile_w"]
+        gap = data["gap"]
+        pad = data["pad"]
+        tile_h = data["tile_h"]
+
+        div = StructureElement(tag="Div")
+        root.children.append(div)
+        top = placed.y
+        for i, tile in enumerate(data["tiles"]):
+            tx = placed.x + i * (tile_w + gap)
+            stream.begin_artifact()
+            stream.rect(
+                tx,
+                top - tile_h,
+                tile_w,
+                tile_h,
+                stroke=data["accent"],
+                line_width=0.8,
+            )
+            stream.end_marked()
+
+            tile_div = StructureElement(tag="Div")
+            div.children.append(tile_div)
+            mcid = stream.next_mcid()
+            tile_div.add_mcid(page_index, mcid)
+            stream.begin_marked("Div", mcid)
+            inner_x = tx + pad
+            y = top - pad
+            y = self._emit_lines(
+                stream, tile["value"], inner_x, y, registry, style, data["accent"]
+            )
+            y = self._emit_lines(
+                stream, tile["label"], inner_x, y, registry, style, color
+            )
+            if tile["delta"]:
+                self._emit_lines(
+                    stream,
+                    tile["delta"],
+                    inner_x,
+                    y,
+                    registry,
+                    style,
+                    tile["delta_color"],
+                )
+            stream.end_marked()
+
+    def _draw_toc(self, stream, placed, page_index, root, registry) -> None:
+        style = placed.block.style
+        color = style.require("color")
+
+        toc_el = StructureElement(tag="Div")
+        root.children.append(toc_el)
+
+        y = placed.y
+        for line in placed.lines:
+            baseline = y - line.ascent
+            para = StructureElement(tag="P")
+            toc_el.children.append(para)
+            mcid = stream.next_mcid()
+            para.add_mcid(page_index, mcid)
+            stream.begin_marked("P", mcid)
+            for text, run, offset in line.fragments:
+                metrics, size, key = self._resolve_font(style, run, registry)
+                x = placed.x + offset
+                stream.text_line(
+                    text,
+                    key,
+                    size,
+                    x,
+                    baseline,
+                    run.color or color,
+                    kern_pairs=metrics.kern_pairs(text),
+                    gid_map=metrics.gid_map,
+                )
+                if run.link:
+                    rect = [
+                        x,
+                        baseline + metrics.descent(size),
+                        x + metrics.text_width(text, size),
+                        baseline + metrics.ascent(size),
+                    ]
+                    self._link_records.append((page_index, rect, run.link, para))
+            stream.end_marked()
+            y -= line.height
 
     def _draw_svg(
         self,
@@ -2089,6 +2472,8 @@ class Renderer:
     def _draw_running_content(
         self, stream, document, sheet, page, page_index, total, registry
     ) -> None:
+        if getattr(page, "suppress_chrome", False):
+            return
         style = sheet.resolved(sheet.header_footer)
         metrics, size, key = self._resolve_font(style, None, registry)
         color = style.require("color")

@@ -702,6 +702,32 @@ _WINANSI_CODEPOINTS: frozenset = frozenset(
     ord(char) for char in bytes(range(0x20, 0x100)).decode("cp1252", "ignore")
 ) - {0x7F}
 
+#: Small-caps synthesis: lowercase letters render uppercased at this fraction
+#: of the run's size; uppercase and non-letters stay at full size.
+SMALL_CAPS_RATIO = 0.8
+
+
+def small_caps_segments(text: str, size: float) -> list:
+    """Split text for small-caps rendering into (text, size) segments.
+
+    Lowercase letters are uppercased and set at ``size * SMALL_CAPS_RATIO``;
+    uppercase letters and non-letters keep the full ``size``. Adjacent
+    characters at the same size are merged so measurement and rendering
+    consume identical segments and cannot diverge.
+    """
+    sc_size = size * SMALL_CAPS_RATIO
+    segments: list = []
+    for char in text:
+        if char.islower():
+            seg_text, seg_size = char.upper(), sc_size
+        else:
+            seg_text, seg_size = char, size
+        if segments and segments[-1][1] == seg_size:
+            segments[-1][0] += seg_text
+        else:
+            segments.append([seg_text, seg_size])
+    return [(seg_text, seg_size) for seg_text, seg_size in segments]
+
 
 @dataclass
 class FontMetrics:

@@ -14,12 +14,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from ..spec import (
+    Abstract,
+    Authors,
     BibliographyBlock,
     BlockQuote,
     BulletList,
     Callout,
     Chart,
     CodeBlock,
+    CoverPage,
     Footnote,
     Heading,
     HorizontalRule,
@@ -28,9 +31,13 @@ from ..spec import (
     NumberedList,
     PageBreak,
     Paragraph,
+    PullQuote,
+    StatTiles,
     SvgBlock,
     Table,
+    TextRun,
 )
+from ..typography.font_metrics import small_caps_segments
 from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
 from ..typography.substitutions import substitute_unsupported
 
@@ -87,6 +94,8 @@ class MeasuredBlock:
     list_items: list = field(default_factory=list)
     line_groups: list | None = None
     footnotes: list = field(default_factory=list)
+    full_page: bool = False
+    extras: dict = field(default_factory=dict)
 
     def height_of_lines(self, count: int) -> float:
         return sum(line.height for line in self.lines[:count])
@@ -134,6 +143,7 @@ class Page:
     cursor: float = 0.0
     spec: object = None
     footnotes: list = field(default_factory=list)
+    suppress_chrome: bool = False
 
     def remaining(self) -> float:
         return self.cursor - self.spec.content_bottom
@@ -280,6 +290,16 @@ class LayoutEngine:
             return self._measure_bibliography(element, width)
         if isinstance(element, SvgBlock):
             return self._measure_svg(element, width)
+        if isinstance(element, CoverPage):
+            return self._measure_cover(element, width)
+        if isinstance(element, Abstract):
+            return self._measure_abstract(element, width)
+        if isinstance(element, Authors):
+            return self._measure_authors(element, width)
+        if isinstance(element, PullQuote):
+            return self._measure_pullquote(element, width)
+        if isinstance(element, StatTiles):
+            return self._measure_stat_tiles(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
                 element=element,
@@ -287,6 +307,67 @@ class LayoutEngine:
                 style=self.sheet.resolved(self.sheet.body),
             )
         raise TypeError(f"cannot measure {type(element).__name__}")
+
+    def _accent_color(self) -> str:
+        """The stylesheet accent used for rules and emphasis marks."""
+        return getattr(self.sheet, "table_header_rule_color", "44403c")
+
+    def _muted_color(self) -> str:
+        """The stylesheet muted/secondary text color."""
+        return self.sheet.caption.color or "57534e"
+
+    def _styled_lines(
+        self,
+        text,
+        base_style,
+        width,
+        size,
+        *,
+        bold=False,
+        italic=False,
+        color=None,
+        align="center",
+    ) -> list:
+        """Lay out one string as lines whose run carries all its attributes.
+
+        Baking size/weight/color into the run means measurement and any
+        later render pass agree regardless of the block's base style.
+        """
+        run = TextRun(text, bold=bold, italic=italic, font_size=size, color=color)
+        st = base_style.with_(align=align, hyphenate=False)
+        lines = self._layout_runs([run], st, width)
+        self._metrics(st, run).note_usage(text)
+        return lines
+
+    def _expand_small_caps(self, runs, style) -> list:
+        """Replace small-caps runs with sized segments via the shared helper.
+
+        The same segment runs feed measurement and rendering, so widths
+        cannot diverge; each segment records its original casing in
+        ``_sc_actual`` for ActualText extraction.
+        """
+        if not any(getattr(r, "small_caps", False) and r.text for r in runs):
+            return runs
+        out: list = []
+        for run in runs:
+            if not getattr(run, "small_caps", False) or not run.text:
+                out.append(run)
+                continue
+            base = self._size(style, run)
+            segments = small_caps_segments(run.text, base)
+            originals: list = []
+            for ch in run.text:
+                low = ch.islower()
+                if originals and originals[-1][1] == low:
+                    originals[-1][0] += ch
+                else:
+                    originals.append([ch, low])
+            for (seg_text, seg_size), (orig_text, _low) in zip(segments, originals):
+                seg = replace(run, text=seg_text, font_size=seg_size, small_caps=False)
+                seg._sc_actual = orig_text
+                self._metrics(style, seg).note_usage(seg_text)
+                out.append(seg)
+        return out
 
     def _layout_runs(
         self,
@@ -298,6 +379,7 @@ class LayoutEngine:
     ) -> list:
         """Break runs into positioned lines within `width`."""
         runs = self._substituted_runs(runs, style)
+        runs = self._expand_small_caps(runs, style)
         align = style.require("align")
         justified = align == "justify"
         hyphenate = bool(style.hyphenate) and self.hyphenator is not None
@@ -729,6 +811,356 @@ class LayoutEngine:
             space_after=8.0,
         )
 
+    # -- front matter --
+
+    COVER_RULE_WIDTH = 64.0
+    ABSTRACT_INDENT = 40.0
+    PULLQUOTE_INDENT = 26.0
+    STAT_TILE_GAP = 12.0
+
+    def _measure_cover(self, element, width: float) -> MeasuredBlock:
+        sheet = self.sheet
+        body = sheet.resolved(sheet.body, element.style)
+        h1 = sheet.resolved(sheet.h1, element.style)
+        body_size = body.require("font_size")
+        accent = self._accent_color()
+        muted = self._muted_color()
+        heading_color = h1.require("color")
+        body_color = body.require("color")
+
+        parts: list = []
+
+        def add(text, size, color, gap, *, bold=False, italic=False):
+            if not text:
+                return
+            lines = self._styled_lines(
+                text, body, width, size, bold=bold, italic=italic, color=color
+            )
+            parts.append({"lines": lines, "gap": gap})
+
+        if element.kicker:
+            add(element.kicker.upper(), body_size * 0.95, accent, 14.0, bold=True)
+        add(
+            element.title,
+            h1.require("font_size") * 1.25,
+            heading_color,
+            12.0,
+            bold=True,
+        )
+        parts.append({"rule": accent, "gap": 16.0})
+        if element.subtitle:
+            add(element.subtitle, body_size * 1.3, muted, 22.0, italic=True)
+        authors = [str(a) for a in element.authors if str(a)]
+        if authors:
+            add("    ".join(authors), body_size * 1.05, body_color, 6.0)
+        if element.date:
+            add(element.date, body_size * 0.95, muted, 0.0)
+
+        return MeasuredBlock(
+            element=element,
+            height=0.0,
+            style=body,
+            full_page=True,
+            extras={"cover": parts, "width": width},
+        )
+
+    def _measure_abstract(self, element, width: float) -> MeasuredBlock:
+        sheet = self.sheet
+        style = sheet.resolved(sheet.body, element.style)
+        size = style.require("font_size")
+        indent = self.ABSTRACT_INDENT
+        usable = max(72.0, width - 2 * indent)
+        accent = self._accent_color()
+
+        label_lines = self._styled_lines(
+            "ABSTRACT",
+            style,
+            usable,
+            size * 0.82,
+            bold=True,
+            color=accent,
+            align="left",
+        )
+        body_lines = self._styled_lines(
+            element.text, style, usable, size * 0.95, align=style.require("align")
+        )
+        keyword_lines: list = []
+        keywords = [str(k) for k in element.keywords if str(k)]
+        if keywords:
+            kw_text = "Keywords: " + ", ".join(keywords)
+            keyword_lines = self._styled_lines(
+                kw_text, style, usable, size * 0.85, italic=True, align="left"
+            )
+
+        total = 4.0
+        total += sum(line.height for line in label_lines)
+        total += sum(line.height for line in body_lines)
+        if keyword_lines:
+            total += 6.0 + sum(line.height for line in keyword_lines)
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=10.0,
+            space_after=12.0,
+            extras={
+                "abstract": {
+                    "indent": indent,
+                    "label": label_lines,
+                    "body": body_lines,
+                    "keywords": keyword_lines,
+                }
+            },
+        )
+
+    def _measure_authors(self, element, width: float) -> MeasuredBlock:
+        sheet = self.sheet
+        style = sheet.resolved(sheet.body, element.style)
+        size = style.require("font_size")
+        muted = self._muted_color()
+        authors = element.author_list
+        if not authors:
+            return MeasuredBlock(element=element, height=0.0, style=style)
+
+        cols = min(len(authors), 3)
+        col_w = width / cols
+        cell_w = col_w - 12.0
+
+        cells: list = []
+        for author in authors:
+            lines: list = []
+            lines += self._styled_lines(
+                author.name, style, cell_w, size * 1.05, bold=True
+            )
+            if author.affiliation:
+                lines += self._styled_lines(
+                    author.affiliation, style, cell_w, size * 0.9, color=muted
+                )
+            if author.email:
+                lines += self._styled_lines(
+                    author.email, style, cell_w, size * 0.85, italic=True, color=muted
+                )
+            cells.append(lines)
+
+        rows = [cells[i : i + cols] for i in range(0, len(cells), cols)]
+        row_heights = [
+            max(sum(line.height for line in cell) for cell in row) for row in rows
+        ]
+        total = sum(row_heights) + 10.0 * (len(rows) - 1)
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=12.0,
+            extras={"authors": {"rows": rows, "cols": cols, "col_w": col_w}},
+        )
+
+    def _measure_pullquote(self, element, width: float) -> MeasuredBlock:
+        sheet = self.sheet
+        style = sheet.resolved(sheet.body, element.style)
+        size = style.require("font_size")
+        accent = self._accent_color()
+        indent = self.PULLQUOTE_INDENT
+        usable = max(72.0, width - 2 * indent)
+
+        lines = self._styled_lines(
+            element.text, style, usable, size * 1.5, italic=True, color=accent
+        )
+        attr_lines: list = []
+        if element.attribution:
+            attr_text = "— " + element.attribution
+            attr_lines = self._styled_lines(
+                attr_text, style, usable, size * 0.95, color=self._muted_color()
+            )
+
+        total = 12.0 + sum(line.height for line in lines)
+        if attr_lines:
+            total += 6.0 + sum(line.height for line in attr_lines)
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=14.0,
+            space_after=14.0,
+            extras={
+                "pullquote": {
+                    "indent": indent,
+                    "usable": usable,
+                    "lines": lines,
+                    "attr": attr_lines,
+                    "accent": accent,
+                }
+            },
+        )
+
+    def _measure_stat_tiles(self, element, width: float) -> MeasuredBlock:
+        sheet = self.sheet
+        style = sheet.resolved(sheet.body, element.style)
+        size = style.require("font_size")
+        accent = self._accent_color()
+        muted = self._muted_color()
+        stats = element.stat_list
+        if not stats:
+            return MeasuredBlock(element=element, height=0.0, style=style)
+
+        n = len(stats)
+        gap = self.STAT_TILE_GAP
+        tile_w = (width - gap * (n - 1)) / n
+        pad = 10.0
+        inner = tile_w - 2 * pad
+
+        tiles: list = []
+        content_h = 0.0
+        for stat in stats:
+            value_lines = self._styled_lines(
+                stat.value, style, inner, size * 1.9, bold=True, color=accent
+            )
+            label_lines = self._styled_lines(
+                stat.label.upper(), style, inner, size * 0.78, color=muted
+            )
+            delta_lines: list = []
+            delta_color = muted
+            if stat.delta:
+                delta_color = _delta_color(stat.delta, muted)
+                delta_lines = self._styled_lines(
+                    stat.delta, style, inner, size * 0.85, color=delta_color
+                )
+            tile_content = (
+                sum(line.height for line in value_lines)
+                + sum(line.height for line in label_lines)
+                + sum(line.height for line in delta_lines)
+            )
+            content_h = max(content_h, tile_content)
+            tiles.append(
+                {
+                    "value": value_lines,
+                    "label": label_lines,
+                    "delta": delta_lines,
+                    "delta_color": delta_color,
+                }
+            )
+
+        tile_h = content_h + 2 * pad + 6.0
+        return MeasuredBlock(
+            element=element,
+            height=tile_h,
+            style=style,
+            can_split=False,
+            space_before=10.0,
+            space_after=12.0,
+            extras={
+                "stattiles": {
+                    "tiles": tiles,
+                    "tile_w": tile_w,
+                    "gap": gap,
+                    "pad": pad,
+                    "tile_h": tile_h,
+                    "accent": accent,
+                }
+            },
+        )
+
+    # -- visible table of contents --
+
+    TOC_INDENT_STEP = 16.0
+    TOC_LEADER_GAP = 6.0
+
+    def measure_toc(self, element, width: float, rows: list) -> MeasuredBlock:
+        """Lay out a visible contents listing with dot leaders.
+
+        `rows` are (text, level, page_label, link_key) tuples; the caller
+        supplies real page labels after each pagination pass.
+        """
+        sheet = self.sheet
+        style = sheet.resolved(sheet.body, element.style)
+        size = style.require("font_size")
+        muted = self._muted_color()
+        title_style = sheet.resolved(sheet.h2, element.style)
+
+        lines: list = []
+        title_lines = self._styled_lines(
+            element.title,
+            style,
+            width,
+            title_style.require("font_size"),
+            bold=True,
+            color=title_style.require("color"),
+            align="left",
+        )
+        for line in title_lines:
+            line.height += 6.0
+        lines.extend(title_lines)
+
+        entry_metrics = self._metrics(style)
+        dot_w = entry_metrics.text_width(".", size)
+        for text, level, page_label, link_key in rows:
+            indent = (max(1, level) - 1) * self.TOC_INDENT_STEP
+            text_run = TextRun(text, link=f"#{link_key}" if link_key else None)
+            num_run = TextRun(page_label or "")
+            entry_metrics.note_usage(text)
+            entry_metrics.note_usage(page_label or "")
+            text_w = entry_metrics.text_width(text, size)
+            max_text_w = width - indent - 48.0
+            if text_w > max_text_w and max_text_w > 0:
+                text, text_w = self._truncate(text, entry_metrics, size, max_text_w)
+                text_run = TextRun(text, link=f"#{link_key}" if link_key else None)
+            num_w = entry_metrics.text_width(page_label or "", size)
+            num_x = width - num_w
+            text_x = indent
+            leader_start = text_x + text_w + self.TOC_LEADER_GAP
+            leader_end = num_x - self.TOC_LEADER_GAP
+            fragments = [(text, text_run, text_x)]
+            if dot_w > 0 and leader_end > leader_start:
+                dot_count = int((leader_end - leader_start) // dot_w)
+                if dot_count > 0:
+                    dots = "." * dot_count
+                    dot_x = num_x - self.TOC_LEADER_GAP - dot_count * dot_w
+                    fragments.append((dots, TextRun(dots, color=muted), dot_x))
+            if page_label:
+                fragments.append((page_label, num_run, num_x))
+            line_height = entry_metrics.line_height(size, style.require("line_height"))
+            lines.append(
+                LaidOutLine(
+                    fragments=fragments,
+                    width=width,
+                    height=line_height,
+                    ascent=entry_metrics.ascent(size),
+                )
+            )
+
+        return MeasuredBlock(
+            element=element,
+            height=sum(line.height for line in lines),
+            style=style,
+            lines=lines,
+            can_split=len(lines) > (self.MIN_WIDOW_LINES + self.MIN_ORPHAN_LINES),
+            space_before=10.0,
+            space_after=12.0,
+        )
+
+    @staticmethod
+    def _truncate(text, metrics, size, max_w) -> tuple:
+        """Trim text to fit `max_w`, appending an ellipsis; returns (text, w)."""
+        ell = "…"
+        ell_w = metrics.text_width(ell, size)
+        out = ""
+        w = 0.0
+        for ch in text:
+            cw = metrics.text_width(ch, size)
+            if w + cw + ell_w > max_w:
+                break
+            out += ch
+            w += cw
+        out = out.rstrip() + ell
+        return out, metrics.text_width(out, size)
+
     # -- tables --
 
     @staticmethod
@@ -1079,7 +1511,9 @@ class LayoutEngine:
         blocks = self._attach_footnotes(blocks)
         has_footnotes = any(block.footnotes for block in blocks)
         if page_spec.columns > 1:
-            return self._paginate_multicolumn(blocks, page_spec)
+            pages = self._paginate_multicolumn(blocks, page_spec)
+            self._mark_chrome_suppression(pages)
+            return pages
         pages = self._paginate_single(blocks, page_spec)
         # The two-pass optimizer reflows without grid awareness (and without
         # footnote-reservation awareness), so it is skipped in both cases.
@@ -1089,7 +1523,15 @@ class LayoutEngine:
             and not has_footnotes
         ):
             pages = self._optimize_pages(pages, page_spec)
+        self._mark_chrome_suppression(pages)
         return pages
+
+    @staticmethod
+    def _mark_chrome_suppression(pages: list) -> None:
+        """Suppress running header/footer on any page holding a cover."""
+        for page in pages:
+            if any(isinstance(pb.block.element, CoverPage) for pb in page.blocks):
+                page.suppress_chrome = True
 
     def _paginate_multicolumn(self, blocks: list, page_spec) -> list:
         cols = page_spec.columns
@@ -1187,6 +1629,22 @@ class LayoutEngine:
 
         for block in blocks:
             if isinstance(block.element, PageBreak):
+                _new_page()
+                continue
+
+            if block.full_page:
+                if current.blocks:
+                    _new_page()
+                current.suppress_chrome = True
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block,
+                        x=page_spec.margin_left,
+                        y=page_spec.content_top,
+                        height=page_spec.content_height,
+                        lines=block.lines,
+                    )
+                )
                 _new_page()
                 continue
 
@@ -1474,6 +1932,24 @@ class LayoutEngine:
         index = 0
         while index < len(blocks):
             block = blocks[index]
+
+            if block.full_page:
+                if current.blocks:
+                    _start_new_page()
+                current.suppress_chrome = True
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block,
+                        x=left,
+                        y=page_spec.content_top,
+                        height=content_height,
+                        lines=block.lines,
+                    )
+                )
+                current.cursor = page_spec.content_bottom
+                _start_new_page()
+                index += 1
+                continue
 
             if float_queue:
                 _force_overdue_floats()
@@ -1932,6 +2408,16 @@ class LayoutEngine:
             )
             cursor -= pb.height + pb.block.space_after
         page.cursor = cursor
+
+
+def _delta_color(delta: str, neutral: str) -> str:
+    """Color a signed delta: green for gains, red for losses, else neutral."""
+    text = delta.strip()
+    if text.startswith(("+", "▲", "↑")):
+        return "1a7f37"
+    if text.startswith(("-", "−", "▼", "↓")):
+        return "b91c1c"
+    return neutral
 
 
 def _snap_to_groups(groups: list, fitting: int) -> int:

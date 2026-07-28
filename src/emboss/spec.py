@@ -36,6 +36,16 @@ __all__ = [
     "SvgBlock",
     "BibliographyBlock",
     "Citation",
+    "CoverPage",
+    "Abstract",
+    "Author",
+    "Authors",
+    "PullQuote",
+    "Stat",
+    "StatTiles",
+    "TableOfContents",
+    "ListOfFigures",
+    "ListOfTables",
     "PageBreak",
     "HorizontalRule",
     "PageSpec",
@@ -470,6 +480,8 @@ class MathBlock:
     display: bool = True
     caption: str | None = None
     label: str | None = None
+    number: bool = False
+    tag: str | None = None
     style: Style | None = None
 
     @property
@@ -496,6 +508,143 @@ class SvgBlock:
         return "Figure"
 
 
+@dataclass
+class CoverPage:
+    """A full-page cover with centered title composition and accent rule."""
+
+    title: str
+    subtitle: str = ""
+    authors: Sequence = field(default_factory=tuple)
+    date: str = ""
+    kicker: str = ""
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+@dataclass
+class Abstract:
+    """An indented abstract block with a label and optional keywords line."""
+
+    text: str
+    keywords: Sequence = field(default_factory=tuple)
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+@dataclass
+class Author:
+    """One author's name, affiliation, and email for an author grid."""
+
+    name: str
+    affiliation: str = ""
+    email: str = ""
+
+
+@dataclass
+class Authors:
+    """A centered grid of author entries under a title."""
+
+    authors: Sequence = field(default_factory=list)
+    style: Style | None = None
+
+    @property
+    def author_list(self) -> list:
+        out = []
+        for entry in self.authors:
+            if isinstance(entry, Author):
+                out.append(entry)
+            elif isinstance(entry, dict):
+                out.append(Author(**entry))
+            else:
+                out.append(Author(name=str(entry)))
+        return out
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+@dataclass
+class PullQuote:
+    """A large-type offset quotation, tagged /BlockQuote."""
+
+    text: str
+    attribution: str = ""
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "BlockQuote"
+
+
+@dataclass
+class Stat:
+    """One statistic tile: a value with a label and optional signed delta."""
+
+    label: str
+    value: str
+    delta: str | None = None
+
+
+@dataclass
+class StatTiles:
+    """A row of bordered statistic tiles, drawn as vector graphics."""
+
+    stats: Sequence = field(default_factory=list)
+    style: Style | None = None
+
+    @property
+    def stat_list(self) -> list:
+        out = []
+        for entry in self.stats:
+            if isinstance(entry, Stat):
+                out.append(entry)
+            elif isinstance(entry, dict):
+                out.append(Stat(**entry))
+            else:
+                out.append(Stat(label="", value=str(entry)))
+        return out
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+@dataclass
+class TableOfContents:
+    """A visible contents / figures / tables listing with dot leaders.
+
+    ``source`` selects the entries: ``"headings"`` lists document headings
+    up to ``depth``; ``"figures"`` and ``"tables"`` list captioned figures
+    and tables from the cross-reference index.
+    """
+
+    title: str = "Contents"
+    depth: int = 3
+    source: Literal["headings", "figures", "tables"] = "headings"
+    style: Style | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+def ListOfFigures(title: str = "List of Figures", **kw) -> TableOfContents:
+    """A table-of-contents variant listing captioned figures."""
+    return TableOfContents(title=title, source="figures", **kw)
+
+
+def ListOfTables(title: str = "List of Tables", **kw) -> TableOfContents:
+    """A table-of-contents variant listing captioned tables."""
+    return TableOfContents(title=title, source="tables", **kw)
+
+
 from .bibliography import BibliographyBlock, Citation  # noqa: E402
 
 
@@ -514,6 +663,12 @@ BlockElement = Union[
     MathBlock,
     BibliographyBlock,
     SvgBlock,
+    CoverPage,
+    Abstract,
+    Authors,
+    PullQuote,
+    StatTiles,
+    TableOfContents,
     PageBreak,
     HorizontalRule,
 ]
@@ -731,6 +886,24 @@ class Document:
 
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))
+
+    def cover(self, title, **kw) -> "Document":
+        return self.add(CoverPage(title=title, **kw))
+
+    def abstract(self, text, **kw) -> "Document":
+        return self.add(Abstract(text=text, **kw))
+
+    def authors(self, authors, **kw) -> "Document":
+        return self.add(Authors(authors=authors, **kw))
+
+    def pull_quote(self, text, **kw) -> "Document":
+        return self.add(PullQuote(text=text, **kw))
+
+    def stat_tiles(self, stats, **kw) -> "Document":
+        return self.add(StatTiles(stats=stats, **kw))
+
+    def table_of_contents(self, **kw) -> "Document":
+        return self.add(TableOfContents(**kw))
 
     @property
     def stylesheet(self) -> StyleSheet:
