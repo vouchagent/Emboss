@@ -89,19 +89,6 @@ def _subset_font(metrics) -> tuple:
     return data, sorted(codepoints)
 
 
-def _num_glyphs(data: bytes) -> int:
-    """Read numGlyphs from a subset font program for CIDSet sizing."""
-    from io import BytesIO
-
-    from fontTools.ttLib import TTFont
-
-    font = TTFont(BytesIO(data), lazy=True, fontNumber=0)
-    try:
-        return int(font["maxp"].numGlyphs)
-    finally:
-        font.close()
-
-
 def _subset_tag(codepoints) -> str:
     """Deterministic six-letter subset prefix derived from content.
 
@@ -119,18 +106,42 @@ def _subset_tag(codepoints) -> str:
     return "".join(letters)
 
 
-def _build_cid_widths(codepoints, metrics, gid_map) -> PdfArray:
-    """Build the W (widths) array for a CIDFont.
+def _program_advances(data: bytes) -> tuple:
+    """Return (unitsPerEm, {gid: advance}) read from a font program's hmtx."""
+    import io as _io
 
-    Groups consecutive GIDs for compact representation:
-    [startGID [w1 w2 w3 ...] nextStartGID [w4] ...]
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(_io.BytesIO(data), lazy=True)
+    try:
+        upm = int(font["head"].unitsPerEm) or 1000
+        hmtx = font["hmtx"]
+        order = font.getGlyphOrder()
+        advances = {}
+        for gid, name in enumerate(order):
+            advances[gid] = hmtx[name][0]
+        return upm, advances
+    finally:
+        font.close()
+
+
+def _build_cid_widths(codepoints, gid_map, program_advances) -> PdfArray:
+    """Build the W array for a CIDFont from the embedded program's advances.
+
+    PDF/A clause 6.2.11.5 requires the widths in the font dictionary to
+    match the embedded program's hmtx, so the advances are read from the
+    subset program (scaled to the 1000-unit glyph space), not from metrics.
+    Groups consecutive GIDs: [startGID [w1 w2 ...] nextStartGID [w3] ...].
     """
+    upm, advances = program_advances
     entries = []
+    seen = set()
     for cp in codepoints:
         gid = gid_map.get(cp, 0)
-        if gid == 0:
+        if gid == 0 or gid in seen or gid not in advances:
             continue
-        width = round(metrics.width_of(cp), 2)
+        seen.add(gid)
+        width = round(advances[gid] * 1000 / upm)
         entries.append((gid, width))
     entries.sort()
 
@@ -176,7 +187,8 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     file_stream.dictionary["Length1"] = len(data)
     file_ref = assembler.add(file_stream)
 
-    cid_set_ref = assembler.add(PdfStream(data=_build_cid_set(_num_glyphs(data))))
+    advances = _program_advances(data)
+    cid_set_ref = assembler.add(PdfStream(data=_build_cid_set(len(advances[1]))))
 
     descriptor = PdfDict()
     descriptor["Type"] = PdfName("FontDescriptor")
@@ -199,7 +211,7 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     cid_sys["Ordering"] = "Identity"
     cid_sys["Supplement"] = 0
 
-    w_array = _build_cid_widths(codepoints, metrics, gid_map)
+    w_array = _build_cid_widths(codepoints, gid_map, advances)
 
     cid_font = PdfDict()
     cid_font["Type"] = PdfName("Font")
