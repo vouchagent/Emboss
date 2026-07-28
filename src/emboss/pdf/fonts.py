@@ -125,25 +125,29 @@ def _program_advances(data: bytes) -> tuple:
         font.close()
 
 
-def _build_cid_widths(codepoints, gid_map, program_advances) -> PdfArray:
+def _used_gids(codepoints, gid_map) -> list:
+    """Return the sorted GIDs actually used, always including .notdef (0)."""
+    used = {0}
+    for cp in codepoints:
+        gid = gid_map.get(cp, 0)
+        if gid:
+            used.add(gid)
+    return sorted(used)
+
+
+def _build_cid_widths(used_gids, program_advances) -> PdfArray:
     """Build the W array for a CIDFont from the embedded program's advances.
 
     PDF/A clause 6.2.11.5 requires the widths in the font dictionary to
-    match the embedded program's hmtx, so the advances are read from the
-    subset program (scaled to the 1000-unit glyph space), not from metrics.
+    match the embedded program's hmtx, so advances are read from the subset
+    program (scaled to the 1000-unit glyph space), and every GID declared
+    present in the CIDSet is given a width here so none falls back to DW.
     Groups consecutive GIDs: [startGID [w1 w2 ...] nextStartGID [w3] ...].
     """
     upm, advances = program_advances
-    entries = []
-    seen = set()
-    for cp in codepoints:
-        gid = gid_map.get(cp, 0)
-        if gid == 0 or gid in seen or gid not in advances:
-            continue
-        seen.add(gid)
-        width = round(advances[gid] * 1000 / upm)
-        entries.append((gid, width))
-    entries.sort()
+    entries = [
+        (gid, round(advances[gid] * 1000 / upm)) for gid in used_gids if gid in advances
+    ]
 
     if not entries:
         return PdfArray()
@@ -163,17 +167,19 @@ def _build_cid_widths(codepoints, gid_map, program_advances) -> PdfArray:
     return w
 
 
-def _build_cid_set(num_glyphs: int) -> bytes:
-    """Build a CIDSet bitmap marking every CID present in the subset font.
+def _build_cid_set(used_gids, num_glyphs: int) -> bytes:
+    """Build a CIDSet bitmap marking exactly the GIDs actually used.
 
-    PDF/A requires a CIDSet for subset CIDFonts; with CIDToGIDMap Identity
-    the CIDs are the glyph IDs 0..num_glyphs-1, all of which the program
-    contains after retain_gids subsetting.
+    PDF/A requires a CIDSet for subset CIDFonts and the widths of every
+    declared-present CID must match hmtx, so the set marks only the used
+    GIDs (which the W array also covers) rather than the whole glyph slot
+    range that retain_gids leaves in place.
     """
-    full, remainder = divmod(max(num_glyphs, 0), 8)
-    data = bytearray(b"\xff" * full)
-    if remainder:
-        data.append((0xFF << (8 - remainder)) & 0xFF)
+    size = (max(num_glyphs, 0) + 7) // 8
+    data = bytearray(size)
+    for gid in used_gids:
+        if 0 <= gid < num_glyphs:
+            data[gid // 8] |= 0x80 >> (gid % 8)
     return bytes(data)
 
 
@@ -188,7 +194,10 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     file_ref = assembler.add(file_stream)
 
     advances = _program_advances(data)
-    cid_set_ref = assembler.add(PdfStream(data=_build_cid_set(len(advances[1]))))
+    used_gids = _used_gids(codepoints, gid_map)
+    cid_set_ref = assembler.add(
+        PdfStream(data=_build_cid_set(used_gids, len(advances[1])))
+    )
 
     descriptor = PdfDict()
     descriptor["Type"] = PdfName("FontDescriptor")
@@ -211,7 +220,7 @@ def _build_embedded(assembler, metrics) -> PdfRef:
     cid_sys["Ordering"] = "Identity"
     cid_sys["Supplement"] = 0
 
-    w_array = _build_cid_widths(codepoints, gid_map, advances)
+    w_array = _build_cid_widths(used_gids, advances)
 
     cid_font = PdfDict()
     cid_font["Type"] = PdfName("Font")
