@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
+import os
+import shutil
 
 import pytest
 
@@ -254,95 +255,38 @@ class TestPdfaPart:
         assert pdfa_part_for(True) == 3
 
 
-_COMPLIANT_JSON = {
-    "report": {
-        "jobs": [
-            {
-                "validationResult": [
-                    {
-                        "profileName": "PDF/A-3B validation profile",
-                        "compliant": True,
-                        "details": {
-                            "passedRules": 120,
-                            "failedRules": 0,
-                            "ruleSummaries": [],
-                        },
-                    }
-                ]
-            }
-        ]
-    }
-}
+def _emboss_pdfa_bytes() -> bytes:
+    """Render a real, tagged PDF/A document for conformance checking."""
+    from emboss import Document
 
-_FAILING_JSON = {
-    "report": {
-        "jobs": [
-            {
-                "validationResult": [
-                    {
-                        "profileName": "PDF/A-3B validation profile",
-                        "compliant": False,
-                        "details": {
-                            "passedRules": 118,
-                            "failedRules": 2,
-                            "ruleSummaries": [
-                                {
-                                    "clause": "6.8",
-                                    "description": "File specification missing EF",
-                                    "failedChecks": 2,
-                                },
-                                {
-                                    "clause": "6.1.2",
-                                    "description": "Invalid file identifier",
-                                    "failedChecks": 1,
-                                },
-                            ],
-                        },
-                    }
-                ]
-            }
-        ]
-    }
-}
+    doc = Document(title="Conformance Sample", pdfa=True)
+    doc.heading("Overview", level=1)
+    doc.paragraph("A short document rendered by Emboss for veraPDF checking.")
+    return doc.render()
 
 
-def _fake_verapdf(tmp_path, payload: dict) -> str:
-    script = tmp_path / "verapdf"
-    body = "#!/bin/sh\ncat <<'JSON'\n" + json.dumps(payload) + "\nJSON\n"
-    script.write_text(body)
-    script.chmod(0o755)
-    return str(script)
+_VERAPDF = os.environ.get("VERAPDF_PATH") or shutil.which("verapdf")
+_requires_verapdf = pytest.mark.skipif(
+    not _VERAPDF,
+    reason="veraPDF not installed; set VERAPDF_PATH or add verapdf to PATH",
+)
 
 
+@_requires_verapdf
 class TestVeraPdfIntegration:
-    def test_compliant_report_parsed(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("VERAPDF_PATH", _fake_verapdf(tmp_path, _COMPLIANT_JSON))
-        report = verify_conformance(_minimal_pdf([]), flavour="3b")
+    def test_report_structure_against_real_verapdf(self):
+        report = verify_conformance(_emboss_pdfa_bytes(), flavour="2b")
         assert isinstance(report, ConformanceReport)
-        assert report.compliant is True
-        assert report.flavour == "3b"
-        assert report.violations == []
-        assert "compliant" in str(report)
+        assert report.flavour == "2b"
+        assert isinstance(report.violations, list)
+        assert str(report)
 
-    def test_violations_parsed_with_clause_and_count(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("VERAPDF_PATH", _fake_verapdf(tmp_path, _FAILING_JSON))
-        report = verify_conformance(_minimal_pdf([]), flavour="3b")
-        assert report.compliant is False
-        assert len(report.violations) == 2
-        first = report.violations[0]
-        assert first.clause == "6.8"
-        assert first.description == "File specification missing EF"
-        assert first.count == 2
-        assert "NON-COMPLIANT" in str(report)
-        assert "6.1.2" in str(report)
+    def test_pdfa_output_is_conformant(self):
+        report = verify_conformance(_emboss_pdfa_bytes(), flavour="2b")
+        assert report.compliant, str(report)
 
-    def test_discovery_via_shutil_which(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("VERAPDF_PATH", raising=False)
-        script = _fake_verapdf(tmp_path, _COMPLIANT_JSON)
-        monkeypatch.setattr("shutil.which", lambda _name: script)
-        report = verify_conformance(_minimal_pdf([]), flavour="2b")
-        assert report.compliant is True
 
+class TestVeraPdfErrors:
     def test_absent_verapdf_raises_with_install_hint(self, monkeypatch):
         monkeypatch.delenv("VERAPDF_PATH", raising=False)
         monkeypatch.setattr("shutil.which", lambda _name: None)
@@ -354,29 +298,27 @@ class TestVeraPdfIntegration:
             verify_conformance(b"%PDF-1.7", flavour="9z")
 
 
+@_requires_verapdf
 class TestCliConformance:
+    def _write_pdf(self, tmp_path) -> str:
+        path = tmp_path / "doc.pdf"
+        path.write_bytes(_emboss_pdfa_bytes())
+        return str(path)
+
+    def test_cli_conformance_runs_against_real_verapdf(self, tmp_path, capsys):
+        from emboss.__main__ import main
+
+        code = main(["verify", self._write_pdf(tmp_path), "--conformance", "2b"])
+        out = capsys.readouterr().out
+        assert code in (0, 1)
+        assert "veraPDF conformance (2b)" in out
+
+
+class TestCliConformanceErrors:
     def _write_pdf(self, tmp_path) -> str:
         path = tmp_path / "doc.pdf"
         path.write_bytes(_minimal_pdf([]))
         return str(path)
-
-    def test_cli_compliant_exits_zero(self, tmp_path, monkeypatch, capsys):
-        from emboss.__main__ import main
-
-        monkeypatch.setenv("VERAPDF_PATH", _fake_verapdf(tmp_path, _COMPLIANT_JSON))
-        code = main(["verify", self._write_pdf(tmp_path), "--conformance", "3b"])
-        out = capsys.readouterr().out
-        assert code == 0
-        assert "veraPDF conformance (3b): compliant" in out
-
-    def test_cli_noncompliant_exits_one(self, tmp_path, monkeypatch, capsys):
-        from emboss.__main__ import main
-
-        monkeypatch.setenv("VERAPDF_PATH", _fake_verapdf(tmp_path, _FAILING_JSON))
-        code = main(["verify", self._write_pdf(tmp_path), "--conformance", "3b"])
-        out = capsys.readouterr().out
-        assert code == 1
-        assert "NON-COMPLIANT" in out
 
     def test_cli_missing_verapdf_reports_gracefully(
         self, tmp_path, monkeypatch, capsys

@@ -43,3 +43,45 @@ jobs:
       - name: Mypy
         run: mypy src/emboss/
         continue-on-error: true
+
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Install veraPDF
+        run: |
+          set -eux
+          curl -L -o verapdf-installer.zip https://software.verapdf.org/releases/verapdf-installer.zip
+          unzip -q verapdf-installer.zip
+          DIR=$(find . -maxdepth 1 -type d -name 'verapdf-*' | head -1)
+          cat > auto-install.xml <<XML
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <AutomatedInstallation langpack="eng">
+            <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
+            <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+              <installpath>${HOME}/verapdf</installpath>
+            </com.izforge.izpack.panels.target.TargetPanel>
+            <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
+              <pack index="0" name="veraPDF Mac and *nix Startup Scripts" selected="true"/>
+              <pack index="1" name="veraPDF Validation model" selected="true"/>
+              <pack index="2" name="veraPDF GUI" selected="true"/>
+            </com.izforge.izpack.panels.packs.PacksPanel>
+            <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+            <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+          </AutomatedInstallation>
+          XML
+          "$DIR"/verapdf-install auto-install.xml
+          echo "VERAPDF_PATH=$HOME/verapdf/verapdf" >> "$GITHUB_ENV"
+      - name: Verify veraPDF runs
+        run: "$HOME/verapdf/verapdf --version"
+      - name: Run conformance tests
+        run: pytest tests/test_attachments.py -v -k "VeraPdf or Conformance"
