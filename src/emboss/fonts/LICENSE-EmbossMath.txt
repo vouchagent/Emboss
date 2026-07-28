@@ -7,7 +7,8 @@ Modifications, as required to be noted under the OFL:
   - Subset to the Mathematical Alphanumeric Symbols block (U+1D400-1D7FF),
     the letterlike double-struck, script, and fraktur codepoints
     (U+2102, U+210A-210D, U+2110-2112, U+2115, U+2119-211D, U+2124,
-    U+2128, U+212C-212D, U+212F-2131, U+2133-2134), and U+0020.
+    U+2128, U+212C-212D, U+212F-2131, U+2133-2134), Basic Latin
+    (U+0020-007E), and U+00E9, U+03A9, U+0416, U+2014.
   - Renamed to "Emboss Math" per OFL section 2 (the original font name is
     not used for this modified version).
 

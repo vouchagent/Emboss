@@ -1,7 +1,8 @@
-"""PDF/A-2b conformance utilities.
+"""PDF/A-2b and PDF/A-3b conformance utilities.
 
 Adds the metadata and output intent entries that upgrade a standard PDF
-to PDF/A-2b (ISO 19005-2, level B). Level B requires:
+to PDF/A-2b (ISO 19005-2) or PDF/A-3b (ISO 19005-3, which additionally
+permits arbitrary embedded files). Level B requires:
 
   - XMP metadata with pdfaid:part=2, conformance=B
   - An output intent with /DestOutputProfile (sRGB for RGB documents,
@@ -22,9 +23,23 @@ __all__ = [
     "build_xmp_stream",
     "build_output_intent",
     "pdfa_catalog_entries",
+    "pdfa_part_for",
 ]
 
 _FIXED_DATE = "2024-01-01T00:00:00Z"
+
+_VALID_PARTS = (2, 3)
+
+
+def pdfa_part_for(has_attachments: bool) -> int:
+    """Return the PDF/A part to declare: 3 when files are attached, else 2."""
+    return 3 if has_attachments else 2
+
+
+def _validate_part(part: int) -> None:
+    """Reject PDF/A parts this library cannot declare."""
+    if part not in _VALID_PARTS:
+        raise ValueError(f"unsupported PDF/A part {part!r}; must be one of 2, 3")
 
 
 def build_xmp_metadata(
@@ -37,14 +52,17 @@ def build_xmp_metadata(
     language: str,
     pdfa: bool = True,
     tagged: bool = True,
+    part: int = 2,
 ) -> bytes:
-    """Generate an XMP metadata packet for PDF/A-2b and PDF/UA-1.
+    """Generate an XMP metadata packet for PDF/A (2b or 3b) and PDF/UA-1.
 
     The packet is a well-formed XML document with all required namespaces.
-    ``pdfa`` controls the pdfaid part/conformance declaration; ``tagged``
-    controls the pdfuaid part declaration (PDF/UA-1 for tagged output).
-    Dates are deterministic for reproducible output.
+    ``pdfa`` controls the pdfaid part/conformance declaration and ``part``
+    selects PDF/A-2 or PDF/A-3 (level B either way); ``tagged`` controls
+    the pdfuaid part declaration (PDF/UA-1 for tagged output). Dates are
+    deterministic for reproducible output.
     """
+    _validate_part(part)
     keyword_tags = ""
     if keywords:
         items = [kw.strip() for kw in keywords.split(",") if kw.strip()]
@@ -56,8 +74,8 @@ def build_xmp_metadata(
     pdfa_props = ""
     if pdfa:
         pdfa_ns = '\n      xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"'
-        pdfa_props = """
-      <pdfaid:part>2</pdfaid:part>
+        pdfa_props = f"""
+      <pdfaid:part>{part}</pdfaid:part>
       <pdfaid:conformance>B</pdfaid:conformance>
 """
     pdfua_ns = ""
@@ -432,7 +450,7 @@ def build_output_intent(assembler, color_mode: str = "rgb") -> PdfRef:
     return assembler.add(intent)
 
 
-def build_xmp_stream(assembler, document, pdfa: bool = True) -> PdfRef:
+def build_xmp_stream(assembler, document, pdfa: bool = True, part: int = 2) -> PdfRef:
     """Add an XMP metadata stream for *document* and return its reference.
 
     Usable for non-PDF/A documents too (``pdfa=False`` drops the pdfaid
@@ -449,6 +467,7 @@ def build_xmp_stream(assembler, document, pdfa: bool = True) -> PdfRef:
         language=document.language,
         pdfa=pdfa,
         tagged=getattr(document, "tagged", True),
+        part=part,
     )
 
     xmp_stream = PdfStream(data=xmp_bytes, compress=False)
@@ -457,13 +476,15 @@ def build_xmp_stream(assembler, document, pdfa: bool = True) -> PdfRef:
     return assembler.add(xmp_stream)
 
 
-def pdfa_catalog_entries(assembler, document) -> dict:
-    """Return entries to add to the PDF catalog for PDF/A-2b compliance.
+def pdfa_catalog_entries(assembler, document, part: int = 2) -> dict:
+    """Return entries to add to the PDF catalog for PDF/A conformance.
 
-    The caller should merge the returned dict into the catalog PdfDict
-    before finalizing the document.
+    ``part`` selects PDF/A-2b (default) or PDF/A-3b; part 3 is required
+    when arbitrary files are attached (use ``pdfa_part_for``). The caller
+    merges the returned dict into the catalog PdfDict before finalizing.
     """
-    metadata_ref = build_xmp_stream(assembler, document, pdfa=True)
+    _validate_part(part)
+    metadata_ref = build_xmp_stream(assembler, document, pdfa=True, part=part)
     intent_ref = build_output_intent(assembler, getattr(document, "color_mode", "rgb"))
 
     return {

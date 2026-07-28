@@ -38,6 +38,7 @@ __all__ = [
     "LaidOutLine",
     "MeasuredBlock",
     "PlacedBlock",
+    "PlacedFootnote",
     "Page",
     "LayoutEngine",
     "TableLayout",
@@ -66,6 +67,8 @@ class TableLayout:
     row_heights: list
     header_lines: list  # per column: list[LaidOutLine]
     row_lines: list  # per row, per column: list[LaidOutLine]
+    header_spans: list | None = None  # per column: colspan, 0 when covered
+    row_spans: list | None = None  # per row, per column: colspan, 0 when covered
 
 
 @dataclass
@@ -83,6 +86,7 @@ class MeasuredBlock:
     table: TableLayout | None = None
     list_items: list = field(default_factory=list)
     line_groups: list | None = None
+    footnotes: list = field(default_factory=list)
 
     def height_of_lines(self, count: int) -> float:
         return sum(line.height for line in self.lines[:count])
@@ -110,6 +114,17 @@ class PlacedBlock:
     include_table_header: bool = True
 
 
+@dataclass(slots=True)
+class PlacedFootnote:
+    """A footnote positioned in a page's bottom note area."""
+
+    block: MeasuredBlock
+    x: float
+    y: float  # top edge, PDF coordinates
+    width: float  # measure of the region, for the separator rule
+    separator: bool = False
+
+
 @dataclass
 class Page:
     """One output page."""
@@ -118,6 +133,7 @@ class Page:
     blocks: list = field(default_factory=list)
     cursor: float = 0.0
     spec: object = None
+    footnotes: list = field(default_factory=list)
 
     def remaining(self) -> float:
         return self.cursor - self.spec.content_bottom
@@ -149,6 +165,7 @@ class LayoutEngine:
 
     NESTED_LIST_INDENT = 14.0
     BLOCKQUOTE_INDENT = 14.0
+    FOOTNOTE_SEPARATION = 8.0
 
     def __init__(
         self, fonts, sheet, hyphenator=None, breaker=None, optimize_layout=True
@@ -472,7 +489,7 @@ class LayoutEngine:
 
     def _measure_footnote(self, element, width: float) -> MeasuredBlock:
         style = self.sheet.resolved(self.sheet.body, element.style)
-        fn_style = style.with_(font_size=style.require("font_size") * 0.82)
+        fn_style = style.with_(font_size=style.require("font_size") * 0.85)
         marker_text = element.marker or "*"
         marker_width = self._metrics(fn_style).text_width(
             marker_text + " ", self._size(fn_style)
@@ -714,25 +731,125 @@ class LayoutEngine:
 
     # -- tables --
 
+    @staticmethod
+    def _grid_column_count(element) -> int:
+        """Number of grid columns once colspans are expanded."""
+        counts = [sum(max(1, cell.colspan) for cell in element.header_cells)]
+        for row in element.body_rows:
+            counts.append(sum(max(1, cell.colspan) for cell in row))
+        return max(counts) if counts else 0
+
+    @staticmethod
+    def _grid_cells(cells: list, columns: int) -> tuple:
+        """Place row cells on the grid: (cells by column, span-per-column).
+
+        Spans are the cell's colspan at its start column, 0 for columns a
+        span covers, and 1 for columns the row simply does not reach.
+        """
+        grid: list = [None] * columns
+        spans: list = [1] * columns
+        col = 0
+        for cell in cells:
+            if col >= columns:
+                break
+            span = min(max(1, int(cell.colspan)), columns - col)
+            grid[col] = cell
+            spans[col] = span
+            for covered in range(col + 1, col + span):
+                spans[covered] = 0
+            col += span
+        return grid, spans
+
+    def _decimal_widths(self, cell, style) -> tuple:
+        """Widths of a cell's integer and fraction parts, split at the last dot."""
+        text = "".join(run.text for run in cell.runs)
+        cut = text.rfind(".")
+        if cut < 0:
+            cut = len(text)
+        int_w = frac_w = 0.0
+        pos = 0
+        for run in cell.runs:
+            metrics = self._metrics(style, run)
+            size = self._size(style, run)
+            end = pos + len(run.text)
+            if end <= cut:
+                int_w += metrics.text_width(run.text, size)
+            elif pos >= cut:
+                frac_w += metrics.text_width(run.text, size)
+            else:
+                split = cut - pos
+                int_w += metrics.text_width(run.text[:split], size)
+                frac_w += metrics.text_width(run.text[split:], size)
+            pos = end
+        return int_w, frac_w
+
+    def _decimal_column_extents(self, element, style, columns: int) -> tuple:
+        """Per-column max integer- and fraction-part widths of decimal cells."""
+        header_aligns: list = [None] * columns
+        if element.header_cells:
+            grid, spans = self._grid_cells(element.header_cells, columns)
+            for index in range(columns):
+                cell = grid[index]
+                if cell is None:
+                    continue
+                for col in range(index, index + max(1, spans[index])):
+                    if col < columns and header_aligns[col] is None:
+                        header_aligns[col] = cell.align
+        int_max = [0.0] * columns
+        frac_max = [0.0] * columns
+        for row in element.body_rows:
+            grid, spans = self._grid_cells(row, columns)
+            for index in range(columns):
+                cell = grid[index]
+                if cell is None or spans[index] == 0:
+                    continue
+                effective = (
+                    cell.align if cell.align is not None else header_aligns[index]
+                )
+                if effective != "decimal":
+                    continue
+                int_w, frac_w = self._decimal_widths(cell, style)
+                int_max[index] = max(int_max[index], int_w)
+                frac_max[index] = max(frac_max[index], frac_w)
+        return int_max, frac_max
+
+    def _caption_allowance(self, style) -> float:
+        """Vertical space a table caption occupies below the last rule."""
+        return self._size(style) * 0.85 + 8.0
+
     def _measure_table(self, element, width: float) -> MeasuredBlock:
         style = self.sheet.resolved(self.sheet.table_cell, element.style)
         header_style = self.sheet.resolved(self.sheet.table_header)
         pad_x = self.sheet.table_cell_padding_x
         pad_y = self.sheet.table_cell_padding_y
 
-        columns = element.column_count
+        columns = self._grid_column_count(element)
         if columns == 0:
             return MeasuredBlock(element=element, height=0.0, style=style)
 
         widths = self._solve_columns(element, style, header_style, width, pad_x)
+        _int_max, frac_max = self._decimal_column_extents(element, style, columns)
 
         header_cells = element.header_cells
-        header_lines, header_height = [], 0.0
-        col_aligns: list[str | None] = [None] * columns
+        header_lines: list = []
+        header_spans: list | None = None
+        header_height = 0.0
+        col_aligns: list = [None] * columns
         if header_cells:
-            for index, cell in enumerate(header_cells):
-                available = widths[index] - 2 * pad_x
-                col_aligns[index] = cell.align
+            grid, spans = self._grid_cells(header_cells, columns)
+            count = columns
+            while count and grid[count - 1] is None and spans[count - 1] == 1:
+                count -= 1
+            header_spans = spans[:count]
+            for index in range(count):
+                cell = grid[index]
+                if cell is None:
+                    header_lines.append([])
+                    continue
+                span = spans[index]
+                available = sum(widths[index : index + span]) - 2 * pad_x
+                for col in range(index, index + span):
+                    col_aligns[col] = cell.align
                 cell_style = header_style.with_(align=_cell_align(cell.align, None))
                 lines = self._layout_runs(cell.runs, cell_style, available)
                 for run in cell.runs:
@@ -741,23 +858,41 @@ class LayoutEngine:
                 header_height = max(header_height, sum(line.height for line in lines))
             header_height += 2 * pad_y
 
-        row_lines, row_heights = [], []
+        row_lines, row_spans, row_heights = [], [], []
         for row in element.body_rows:
-            cells, height = [], 0.0
+            grid, spans = self._grid_cells(row, columns)
+            cells: list = []
+            height = 0.0
             for index in range(columns):
-                cell = row[index] if index < len(row) else None
+                cell = grid[index]
                 if cell is None:
                     cells.append([])
                     continue
-                available = widths[index] - 2 * pad_x
+                span = spans[index]
+                available = sum(widths[index : index + span]) - 2 * pad_x
                 header_align = col_aligns[index] if index < len(col_aligns) else None
-                cell_style = style.with_(align=_cell_align(cell.align, header_align))
+                effective = cell.align if cell.align is not None else header_align
+                if effective == "decimal":
+                    cell_style = style.with_(align="left")
+                else:
+                    cell_style = style.with_(
+                        align=_cell_align(cell.align, header_align)
+                    )
                 lines = self._layout_runs(cell.runs, cell_style, available)
+                if effective == "decimal":
+                    int_w, _frac_w = self._decimal_widths(cell, style)
+                    shift = max(0.0, available - frac_max[index] - int_w)
+                    if shift:
+                        for line in lines:
+                            line.fragments = [
+                                (t, r, x + shift) for t, r, x in line.fragments
+                            ]
                 for run in cell.runs:
                     self._metrics(cell_style, run).note_usage(run.text)
                 cells.append(lines)
                 height = max(height, sum(line.height for line in lines))
             row_lines.append(cells)
+            row_spans.append(spans)
             row_heights.append(height + 2 * pad_y)
 
         layout = TableLayout(
@@ -766,8 +901,12 @@ class LayoutEngine:
             row_heights=row_heights,
             header_lines=header_lines,
             row_lines=row_lines,
+            header_spans=header_spans,
+            row_spans=row_spans,
         )
         total = header_height + sum(row_heights)
+        if element.caption:
+            total += self._caption_allowance(style)
 
         return MeasuredBlock(
             element=element,
@@ -779,45 +918,80 @@ class LayoutEngine:
             table=layout,
         )
 
+    @staticmethod
+    def _raise_to(values: list, start: int, end: int, needed: float) -> None:
+        """Raise values[start:end] proportionally so their sum reaches needed."""
+        total = sum(values[start:end])
+        if end <= start or total >= needed:
+            return
+        deficit = needed - total
+        for index in range(start, end):
+            share = values[index] / total if total > 0 else 1.0 / (end - start)
+            values[index] += deficit * share
+
     def _solve_columns(
         self, element, style, header_style, width: float, pad_x: float
     ) -> list:
         """Compute column widths from actual content metrics.
 
         Minimum width is the widest single word (so text never overflows);
-        preferred width is the longest unwrapped cell. Available space is
-        distributed between the two.
+        preferred width is the longest unwrapped cell. A spanning cell
+        constrains the sum of its columns. Available space is distributed
+        between the minimum and preferred widths.
         """
-        columns = element.column_count
+        columns = self._grid_column_count(element)
         if element.column_widths:
             total = sum(element.column_widths)
             return [width * (w / total) for w in element.column_widths]
 
         minimums = [0.0] * columns
         preferred = [0.0] * columns
+        span_constraints: list = []
 
-        def consider(index: int, text: str, cell_style) -> None:
+        def consider(index: int, span: int, text: str, cell_style) -> None:
             if index >= columns:
                 return
             metrics = self._metrics(cell_style)
             size = self._size(cell_style)
             full = metrics.text_width(text, size) + 2 * pad_x
-            preferred[index] = max(preferred[index], full)
             widest_word = max(
                 (metrics.text_width(word, size) for word in text.split()),
                 default=0.0,
             )
+            if span > 1:
+                span_constraints.append((index, span, widest_word + 2 * pad_x, full))
+                return
+            preferred[index] = max(preferred[index], full)
             minimums[index] = max(minimums[index], widest_word + 2 * pad_x)
 
-        for index, cell in enumerate(element.header_cells):
-            consider(index, cell.plain_text, header_style)
+        grid, spans = self._grid_cells(element.header_cells, columns)
+        for index in range(columns):
+            if grid[index] is not None:
+                consider(index, spans[index], grid[index].plain_text, header_style)
         for row in element.body_rows:
-            for index, cell in enumerate(row):
-                consider(index, cell.plain_text, style)
+            grid, spans = self._grid_cells(row, columns)
+            for index in range(columns):
+                if grid[index] is not None:
+                    consider(index, spans[index], grid[index].plain_text, style)
+
+        int_max, frac_max = self._decimal_column_extents(element, style, columns)
+        for index in range(columns):
+            need = int_max[index] + frac_max[index]
+            if need > 0.0:
+                need += 2 * pad_x
+                preferred[index] = max(preferred[index], need)
+                minimums[index] = max(minimums[index], need)
 
         for index in range(columns):
             if preferred[index] == 0.0:
                 preferred[index] = minimums[index] = 36.0
+
+        for start, span, min_need, pref_need in span_constraints:
+            end = min(start + span, columns)
+            self._raise_to(minimums, start, end, min_need)
+            self._raise_to(preferred, start, end, pref_need)
+        for index in range(columns):
+            preferred[index] = max(preferred[index], minimums[index])
 
         total_preferred = sum(preferred)
         if total_preferred <= width:
@@ -870,13 +1044,50 @@ class LayoutEngine:
 
     # -- pagination --
 
+    def _attach_footnotes(self, blocks: list) -> list:
+        """Attach footnote blocks to their nearest preceding text block."""
+        if not any(isinstance(block.element, Footnote) for block in blocks):
+            return blocks
+        out: list = []
+        orphans: list = []
+        last_attachable: MeasuredBlock | None = None
+        for block in blocks:
+            if isinstance(block.element, Footnote):
+                if last_attachable is not None:
+                    last_attachable.footnotes.append(block)
+                else:
+                    orphans.append(block)
+                continue
+            attachable = (
+                not isinstance(block.element, PageBreak)
+                and self._get_float_type(block) is None
+            )
+            if attachable and orphans:
+                block.footnotes.extend(orphans)
+                orphans = []
+            if attachable:
+                last_attachable = block
+            out.append(block)
+        if last_attachable is None:
+            # Nothing to anchor to: keep the notes flowing in place.
+            return blocks
+        if orphans:
+            last_attachable.footnotes.extend(orphans)
+        return out
+
     def paginate(self, blocks: list, page_spec) -> list:
+        blocks = self._attach_footnotes(blocks)
+        has_footnotes = any(block.footnotes for block in blocks)
         if page_spec.columns > 1:
             return self._paginate_multicolumn(blocks, page_spec)
         pages = self._paginate_single(blocks, page_spec)
-        # The two-pass optimizer reflows without grid awareness, so it is
-        # skipped when a baseline grid is active to keep baselines snapped.
-        if self.optimize_layout and not getattr(self.sheet, "baseline_grid", None):
+        # The two-pass optimizer reflows without grid awareness (and without
+        # footnote-reservation awareness), so it is skipped in both cases.
+        if (
+            self.optimize_layout
+            and not getattr(self.sheet, "baseline_grid", None)
+            and not has_footnotes
+        ):
             pages = self._optimize_pages(pages, page_spec)
         return pages
 
@@ -890,6 +1101,8 @@ class LayoutEngine:
         current = Page(number=1, cursor=page_spec.content_top, spec=page_spec)
         col_cursors = [page_spec.content_top] * cols
         col_idx = 0
+        col_fn_pending: list = [[] for _ in range(cols)]
+        col_fn_reserved: list = [0.0] * cols
         # Column-flowed blocks on the current page, used to rebalance the
         # final page after the greedy pass.
         flow_blocks: list = []
@@ -898,6 +1111,39 @@ class LayoutEngine:
 
         def col_left(c: int) -> float:
             return page_spec.margin_left + c * (col_w + gap)
+
+        def _footnote_extra(block, c: int) -> float:
+            if not block.footnotes:
+                return 0.0
+            extra = sum(note.height for note in block.footnotes)
+            if not col_fn_pending[c]:
+                extra += self.FOOTNOTE_SEPARATION
+            return extra
+
+        def _register_footnotes(block, c: int, extra: float) -> None:
+            if block.footnotes:
+                col_fn_pending[c].extend(block.footnotes)
+                col_fn_reserved[c] += extra
+
+        def _flush_footnotes() -> None:
+            for c in range(cols):
+                pending = col_fn_pending[c]
+                if not pending:
+                    continue
+                y = page_spec.content_bottom + sum(note.height for note in pending)
+                for position, note in enumerate(pending):
+                    current.footnotes.append(
+                        PlacedFootnote(
+                            block=note,
+                            x=col_left(c),
+                            y=y,
+                            width=col_w,
+                            separator=position == 0,
+                        )
+                    )
+                    y -= note.height
+                col_fn_pending[c] = []
+                col_fn_reserved[c] = 0.0
 
         def _is_spanning(block) -> bool:
             style = getattr(block.element, "style", None)
@@ -910,6 +1156,7 @@ class LayoutEngine:
         def _new_page():
             nonlocal current, col_idx, col_cursors
             nonlocal flow_blocks, flow_placed, flow_top
+            _flush_footnotes()
             pages.append(current)
             current = Page(
                 number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
@@ -971,11 +1218,18 @@ class LayoutEngine:
             gap_before += self._grid_snap_delta(
                 block, col_cursors[col_idx] - gap_before, page_spec
             )
-            available = col_cursors[col_idx] - page_spec.content_bottom - gap_before
+            fn_extra = _footnote_extra(block, col_idx)
+            available = (
+                col_cursors[col_idx]
+                - page_spec.content_bottom
+                - gap_before
+                - col_fn_reserved[col_idx]
+            )
 
-            if block.height <= available:
+            if block.height + fn_extra <= available:
                 col_cursors[col_idx] -= gap_before
                 _flow_place(block, col_idx, col_cursors[col_idx])
+                _register_footnotes(block, col_idx, fn_extra)
                 col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
@@ -985,17 +1239,20 @@ class LayoutEngine:
                     block, col_cursors[col_idx], page_spec
                 )
                 _flow_place(block, col_idx, col_cursors[col_idx])
+                _register_footnotes(block, col_idx, _footnote_extra(block, col_idx))
                 col_cursors[col_idx] -= block.height + block.space_after
                 continue
 
             _new_page()
             col_cursors[0] -= self._grid_snap_delta(block, col_cursors[0], page_spec)
             _flow_place(block, 0, col_cursors[0])
+            _register_footnotes(block, 0, _footnote_extra(block, 0))
             col_cursors[0] -= block.height + block.space_after
 
+        _flush_footnotes()
         if current.blocks or not pages:
             pages.append(current)
-            if cols > 1 and len(flow_blocks) > 1:
+            if cols > 1 and len(flow_blocks) > 1 and not current.footnotes:
                 self._balance_last_page(
                     current,
                     flow_blocks,
@@ -1093,14 +1350,52 @@ class LayoutEngine:
         float_queue: list[_FloatEntry] = []
         bottom_floats: list[_FloatEntry] = []
         bottom_reserved: float = 0.0
+        fn_pending: list = []
+        fn_reserved: float = 0.0
+        measure_w = page_spec.content_width
 
         def _eff_remaining() -> float:
-            return current.cursor - (page_spec.content_bottom + bottom_reserved)
+            return current.cursor - (
+                page_spec.content_bottom + bottom_reserved + fn_reserved
+            )
+
+        def _footnote_extra(block) -> float:
+            if not block.footnotes:
+                return 0.0
+            extra = sum(note.height for note in block.footnotes)
+            if not fn_pending:
+                extra += self.FOOTNOTE_SEPARATION
+            return extra
+
+        def _register_footnotes(block, extra: float) -> None:
+            nonlocal fn_reserved
+            if block.footnotes:
+                fn_pending.extend(block.footnotes)
+                fn_reserved += extra
+
+        def _flush_footnotes() -> None:
+            nonlocal fn_pending, fn_reserved
+            if not fn_pending:
+                return
+            y = page_spec.content_bottom + sum(note.height for note in fn_pending)
+            for position, note in enumerate(fn_pending):
+                current.footnotes.append(
+                    PlacedFootnote(
+                        block=note,
+                        x=left,
+                        y=y,
+                        width=measure_w,
+                        separator=position == 0,
+                    )
+                )
+                y -= note.height
+            fn_pending = []
+            fn_reserved = 0.0
 
         def _place_bottom_floats() -> None:
             if not bottom_floats:
                 return
-            y = page_spec.content_bottom
+            y = page_spec.content_bottom + fn_reserved
             for entry in bottom_floats:
                 blk = entry.block
                 y += blk.height
@@ -1118,6 +1413,7 @@ class LayoutEngine:
         def _start_new_page() -> None:
             nonlocal current, bottom_floats, bottom_reserved
             _place_bottom_floats()
+            _flush_footnotes()
             pages.append(current)
             current = Page(
                 number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
@@ -1239,7 +1535,7 @@ class LayoutEngine:
                 _start_new_page()
 
             gap = block.space_before if current.blocks else 0.0
-            available = current.remaining() - gap
+            available = current.remaining() - gap - fn_reserved
 
             # Heading that would be stranded at the foot of a page.
             if block.keep_with_next and index + 1 < len(blocks):
@@ -1255,9 +1551,11 @@ class LayoutEngine:
             snap = self._grid_snap_delta(block, current.cursor - gap, page_spec)
             if snap:
                 gap += snap
-                available = current.remaining() - gap
+                available = current.remaining() - gap - fn_reserved
 
-            if block.height <= available:
+            fn_extra = _footnote_extra(block)
+
+            if block.height + fn_extra <= available:
                 current.cursor -= gap
                 current.blocks.append(
                     PlacedBlock(
@@ -1271,6 +1569,29 @@ class LayoutEngine:
                         else None,
                     )
                 )
+                _register_footnotes(block, fn_extra)
+                current.cursor -= block.height + block.space_after
+                index += 1
+                continue
+
+            # A block and its footnotes move to the next page as one unit.
+            if block.footnotes:
+                if current.blocks:
+                    _start_new_page()
+                    continue
+                current.blocks.append(
+                    PlacedBlock(
+                        block=block,
+                        x=left,
+                        y=current.cursor,
+                        height=block.height,
+                        lines=block.lines,
+                        table_rows=list(range(len(block.table.row_heights)))
+                        if block.table
+                        else None,
+                    )
+                )
+                _register_footnotes(block, fn_extra)
                 current.cursor -= block.height + block.space_after
                 index += 1
                 continue
@@ -1370,6 +1691,7 @@ class LayoutEngine:
             gap_f = blk.space_before if current.blocks else 0.0
             if blk.height + gap_f > _eff_remaining():
                 _place_bottom_floats()
+                _flush_footnotes()
                 pages.append(current)
                 current = Page(
                     number=len(pages) + 1, cursor=page_spec.content_top, spec=page_spec
@@ -1391,6 +1713,7 @@ class LayoutEngine:
 
         if bottom_floats:
             _place_bottom_floats()
+        _flush_footnotes()
 
         if current.blocks or not pages:
             pages.append(current)
@@ -1454,10 +1777,17 @@ class LayoutEngine:
             row_heights=[layout.row_heights[i] for i in remaining],
             header_lines=layout.header_lines if repeat else [],
             row_lines=[layout.row_lines[i] for i in remaining],
+            header_spans=layout.header_spans if repeat else None,
+            row_spans=[layout.row_spans[i] for i in remaining]
+            if layout.row_spans
+            else None,
         )
+        tail_height = tail_layout.header_height + sum(tail_layout.row_heights)
+        if getattr(block.element, "caption", None):
+            tail_height += self._caption_allowance(block.style)
         tail = MeasuredBlock(
             element=block.element,
-            height=tail_layout.header_height + sum(tail_layout.row_heights),
+            height=tail_height,
             style=block.style,
             can_split=len(remaining) > self.MIN_TABLE_ROWS_PER_PAGE,
             space_before=0.0,

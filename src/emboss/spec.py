@@ -14,7 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Sequence, Union
 
-from .styles import Style, StyleSheet, resolve_preset
+from .brandkit import BrandKit
+from .styles import Style, StyleSheet, apply_brand, resolve_preset
 
 __all__ = [
     "TextRun",
@@ -39,6 +40,7 @@ __all__ = [
     "HorizontalRule",
     "PageSpec",
     "Document",
+    "BrandKit",
     "LegalFeatures",
     "HeaderFooter",
     "BlockElement",
@@ -543,6 +545,17 @@ class PageSpec:
     def legal(cls, **kw) -> "PageSpec":
         return cls(width=612.0, height=1008.0, **kw)
 
+    @classmethod
+    def a5(cls, **kw) -> "PageSpec":
+        return cls(width=419.528, height=595.276, **kw)
+
+    @classmethod
+    def compact(cls, **kw) -> "PageSpec":
+        """A5 page with tight margins, tuned for phone and tablet PDF readers."""
+        for margin in ("margin_top", "margin_right", "margin_bottom", "margin_left"):
+            kw.setdefault(margin, 40.0)
+        return cls(width=419.528, height=595.276, **kw)
+
     @property
     def content_width(self) -> float:
         return self.width - self.margin_left - self.margin_right
@@ -615,6 +628,7 @@ class Document:
     keywords: str = ""
     language: str = "en-US"
     style: Union[str, StyleSheet] = "corporate"
+    brand: BrandKit | None = None
     page: PageSpec = field(default_factory=PageSpec)
     content: list = field(default_factory=list)
     header_text: str | None = None
@@ -705,25 +719,43 @@ class Document:
     def svg(self, source, **kw) -> "Document":
         return self.add(SvgBlock(source=source, **kw))
 
+    def diagram(
+        self, nodes, edges=(), direction="down", caption=None, **kw
+    ) -> "Document":
+        """Append an auto-laid-out node/edge diagram rendered as vector art."""
+        from .diagrams import diagram_svg_block
+
+        return self.add(
+            diagram_svg_block(nodes, edges, direction=direction, caption=caption, **kw)
+        )
+
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))
 
     @property
     def stylesheet(self) -> StyleSheet:
         if isinstance(self.style, StyleSheet):
-            return self.style
-        return resolve_preset(self.style)
+            base = self.style
+        else:
+            base = resolve_preset(self.style)
+        if self.brand is not None:
+            return apply_brand(base, self.brand)
+        return base
 
-    def render(self) -> bytes:
-        """Render this document to PDF bytes."""
+    def render(self, linearize: bool = False) -> bytes:
+        """Render to PDF bytes; linearize=True rewrites for Fast Web View."""
         from .writer import render_document
 
-        return render_document(self)
+        data = render_document(self)
+        if linearize:
+            data = _linearize_pdf(data)
+        return data
 
-    def save(self, path) -> None:
+    def save(self, path, linearize: bool = False) -> None:
+        """Render and write to path; linearize=True enables Fast Web View."""
         from pathlib import Path
 
-        Path(path).write_bytes(self.render())
+        Path(path).write_bytes(self.render(linearize=linearize))
 
     @classmethod
     def from_markdown(cls, text: str, **kw) -> "Document":
@@ -773,3 +805,21 @@ class Document:
         from .generate import parse_spec_json
 
         return parse_spec_json(json_str, **kw)
+
+
+def _linearize_pdf(data: bytes) -> bytes:
+    """Rewrite PDF bytes linearized (Fast Web View) via pikepdf, deterministically."""
+    import io
+
+    try:
+        import pikepdf
+    except ImportError as exc:
+        raise ImportError(
+            "pikepdf is required for linearized output.\n"
+            "  pip install emboss-pdf[verify]"
+        ) from exc
+
+    buffer = io.BytesIO()
+    with pikepdf.open(io.BytesIO(data)) as pdf:
+        pdf.save(buffer, linearize=True, deterministic_id=True)
+    return buffer.getvalue()

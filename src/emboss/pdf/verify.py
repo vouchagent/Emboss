@@ -8,10 +8,21 @@ check -- run veraPDF for PDF/UA and PDF/A validation.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 
-__all__ = ["VerificationReport", "verify_pdf"]
+__all__ = [
+    "VerificationReport",
+    "verify_pdf",
+    "RuleViolation",
+    "ConformanceReport",
+    "verify_conformance",
+]
 
 _XREF_ENTRY = re.compile(rb"^(\d{10}) (\d{5}) ([nf]) ?$")
 
@@ -89,6 +100,127 @@ def verify_pdf(data: bytes) -> VerificationReport:
         has_struct_tree=has_struct,
         has_lang=has_lang,
     )
+
+
+_VALID_FLAVOURS = frozenset({"ua1", "2b", "3b"})
+
+_INSTALL_HINT = (
+    "veraPDF not found: install it from https://verapdf.org/ and ensure "
+    "'verapdf' is on PATH, or set VERAPDF_PATH to the CLI executable"
+)
+
+
+@dataclass(frozen=True)
+class RuleViolation:
+    """One failed veraPDF rule: specification clause plus failure count."""
+
+    clause: str
+    description: str
+    count: int
+
+
+@dataclass
+class ConformanceReport:
+    """Structured result of a veraPDF conformance validation run."""
+
+    flavour: str
+    compliant: bool
+    violations: list = field(default_factory=list)
+
+    def __str__(self) -> str:
+        status = "compliant" if self.compliant else "NON-COMPLIANT"
+        lines = [f"veraPDF conformance ({self.flavour}): {status}"]
+        for violation in self.violations:
+            lines.append(
+                f"  clause {violation.clause} ({violation.count}x): "
+                f"{violation.description}"
+            )
+        return "\n".join(lines)
+
+
+def _find_verapdf() -> str | None:
+    """Locate the veraPDF CLI via VERAPDF_PATH or PATH lookup."""
+    env_path = os.environ.get("VERAPDF_PATH")
+    if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
+        return env_path
+    return shutil.which("verapdf")
+
+
+def _walk(node):
+    """Yield every dict nested anywhere inside a parsed JSON payload."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk(value)
+
+
+def _violation_count(summary: dict) -> int:
+    """Extract a failure count from a veraPDF rule summary, tolerantly."""
+    for key in ("failedChecks", "count", "occurrences"):
+        value = summary.get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, list):
+            return len(value)
+    return 1
+
+
+def _parse_verapdf_json(payload, flavour: str) -> ConformanceReport:
+    """Build a ConformanceReport from parsed veraPDF JSON output."""
+    results = [node for node in _walk(payload) if "compliant" in node]
+    if not results:
+        raise RuntimeError("could not find a validation result in veraPDF output")
+    compliant = all(bool(node["compliant"]) for node in results)
+    violations = [
+        RuleViolation(
+            clause=str(node["clause"]),
+            description=str(node.get("description", "")),
+            count=_violation_count(node),
+        )
+        for node in _walk(payload)
+        if "clause" in node
+    ]
+    return ConformanceReport(
+        flavour=flavour, compliant=compliant, violations=violations
+    )
+
+
+def verify_conformance(pdf_bytes: bytes, flavour: str = "2b") -> ConformanceReport:
+    """Validate *pdf_bytes* against an ISO flavour using the veraPDF CLI."""
+    if flavour not in _VALID_FLAVOURS:
+        allowed = ", ".join(sorted(_VALID_FLAVOURS))
+        raise ValueError(f"unknown flavour {flavour!r}; must be one of: {allowed}")
+
+    executable = _find_verapdf()
+    if executable is None:
+        raise RuntimeError(_INSTALL_HINT)
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as handle:
+        handle.write(pdf_bytes)
+        pdf_path = handle.name
+    try:
+        completed = subprocess.run(
+            [executable, "--flavour", flavour, "--format", "json", pdf_path],
+            capture_output=True,
+            timeout=300,
+        )
+    finally:
+        os.unlink(pdf_path)
+
+    stdout = completed.stdout.decode("utf-8", errors="replace").strip()
+    if not stdout:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            f"veraPDF produced no output (exit {completed.returncode}): {stderr}"
+        )
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"could not parse veraPDF JSON output: {exc}") from exc
+    return _parse_verapdf_json(payload, flavour)
 
 
 def _verify_xref(data: bytes, offset: int, problems: list) -> int:

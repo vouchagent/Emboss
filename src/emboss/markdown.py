@@ -12,8 +12,9 @@ Inline support: bold, italic, bold-italic, code spans, backslash escapes,
 links (inline, reference, and bare autolinks), strikethrough, inline math
 (rendered italic), and inline images (reduced to their alt text). Block
 support: headings (ATX and setext), paragraphs, nested bullet/numbered
-lists, task lists, tables (cells parsed inline), fenced code, math blocks,
-blockquotes, callouts, footnotes, images, rules, and page breaks.
+lists, task lists, tables (cells parsed inline), fenced code, fenced
+```diagram node/edge graphs, math blocks, blockquotes, callouts,
+footnotes, images, rules, and page breaks.
 
 Not supported (by design, see the project plan): multi-paragraph list
 items and raw HTML passthrough; both are left as literal text.
@@ -117,9 +118,7 @@ def parse_front_matter(text: str) -> FrontMatter:
     lines = text.split("\n")
     if not lines or lines[0].strip() != "---":
         return as_markdown
-    end = next(
-        (i for i in range(1, len(lines)) if lines[i].strip() == "---"), None
-    )
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
     if end is None:
         return as_markdown
 
@@ -517,7 +516,14 @@ def parse_markdown(text: str) -> list:
                 code_lines.append(lines[i])
                 i += 1
             i += 1
-            elements.append(CodeBlock(code="\n".join(code_lines), language=language))
+            if language == "diagram":
+                from .diagrams import diagram_block_from_source
+
+                elements.append(diagram_block_from_source("\n".join(code_lines)))
+            else:
+                elements.append(
+                    CodeBlock(code="\n".join(code_lines), language=language)
+                )
             continue
 
         if _MATH_BLOCK_RE.match(line.strip()):

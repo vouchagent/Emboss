@@ -20,6 +20,9 @@ ALL_FILES = sorted(
     {name for styles in BUNDLED_FAMILIES.values() for name in styles.values()}
 )
 
+MATH_FILES = sorted(BUNDLED_FAMILIES["Emboss Math"].values())
+TEXT_FILES = sorted(set(ALL_FILES) - set(MATH_FILES))
+
 
 class TestBundledFiles:
     def test_all_declared_files_exist(self):
@@ -32,12 +35,34 @@ class TestBundledFiles:
 
         font = TTFont(str(FONT_DIR / filename), lazy=True)
         try:
+            assert font.getBestCmap()
+        finally:
+            font.close()
+
+    @pytest.mark.parametrize("filename", TEXT_FILES)
+    def test_text_font_covers_latin_greek_cyrillic(self, filename):
+        from fontTools.ttLib import TTFont
+
+        font = TTFont(str(FONT_DIR / filename), lazy=True)
+        try:
             cmap = font.getBestCmap()
             assert ord("A") in cmap
             assert ord("é") in cmap  # e-acute
             assert ord("—") in cmap  # em dash
             assert ord("Ж") in cmap  # Cyrillic Zhe
             assert ord("Ω") in cmap  # Greek Omega
+        finally:
+            font.close()
+
+    @pytest.mark.parametrize("filename", MATH_FILES)
+    def test_math_font_covers_math_alphabets(self, filename):
+        from fontTools.ttLib import TTFont
+
+        font = TTFont(str(FONT_DIR / filename), lazy=True)
+        try:
+            cmap = font.getBestCmap()
+            assert 0x2102 in cmap  # double-struck capital C
+            assert 0x1D400 in cmap  # mathematical bold capital A
         finally:
             font.close()
 

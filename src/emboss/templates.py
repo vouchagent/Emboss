@@ -122,11 +122,31 @@ def legal_brief(
     )
 
 
-def slide_deck(*, title: str = "", author: str = "", **kw) -> Document:
-    """A landscape presentation deck."""
-    from .slides import slide_document
+def slide_deck(
+    *,
+    title: str = "",
+    author: str = "",
+    subtitle: str = "",
+    date: str = "",
+    theme: str = "boardroom",
+    aspect_ratio: str = "16:9",
+    slide_numbers: bool = True,
+) -> Document:
+    """A landscape presentation deck with a designed title slide."""
+    from .slides import SlideDeck
 
-    return slide_document(title=title, author=author, **kw)
+    deck = SlideDeck(
+        title=title,
+        presenter=author,
+        date=date,
+        theme=theme,
+        aspect_ratio=aspect_ratio,
+    )
+    deck.title_slide(subtitle=subtitle)
+    doc = deck.build()
+    if not slide_numbers:
+        doc.footer = None
+    return doc
 
 
 def data_sheet(*, title: str = "", author: str = "", **kw) -> Document:

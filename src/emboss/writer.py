@@ -114,6 +114,10 @@ class Renderer:
         self._used_spots: dict = {}
         # page index -> running section title for the {section} token
         self._section_titles: list = []
+        # page index -> {gstate name -> {ca, CA}} recorded by SVG rendering
+        self._svg_gstates_by_page: dict = {}
+        # SVG text resource key -> base-14 family name
+        self._svg_fonts: dict = {}
 
     def run(self) -> RenderResult:
         validation = self.validator.validate(self.source).raise_if_failed()
@@ -126,6 +130,7 @@ class Renderer:
         content = list(document.content)
         content = self._resolve_references(document, content)
         content = self._prepend_title_block(document, sheet, content)
+        self._prepare_footnotes(sheet, content)
 
         width = document.page.content_width
         measured = [engine.measure(el, width) for el in content]
@@ -135,7 +140,9 @@ class Renderer:
         assembler = PDFAssembler()
         data = self._assemble(assembler, document, sheet, pages)
 
-        return RenderResult(data=data, page_count=len(pages), issues=validation.issues)
+        issues = list(validation.issues)
+        issues.extend(engine.warnings)
+        return RenderResult(data=data, page_count=len(pages), issues=issues)
 
     @staticmethod
     def _prepend_title_block(document, sheet, content: list) -> list:
@@ -162,6 +169,67 @@ class Renderer:
             )
             prefix.append(Paragraph(document.author, style=author_style))
         return prefix + content
+
+    # -- footnotes --
+
+    FOOTNOTE_REF_SIZE = 0.65
+    FOOTNOTE_REF_RISE = 0.33
+
+    def _prepare_footnotes(self, sheet, content: list) -> None:
+        """Assign sequential markers and superscript in-text reference marks."""
+        notes = [el for el in content if isinstance(el, Footnote)]
+        if not notes:
+            return
+        counter = 0
+        for note in notes:
+            if not note.marker:
+                counter += 1
+                note.marker = str(counter)
+        tokens = sorted(
+            {f"[{note.marker}]" for note in notes}, key=lambda t: (-len(t), t)
+        )
+        pattern = re.compile("|".join(re.escape(token) for token in tokens))
+        for element in content:
+            if not isinstance(element, Paragraph):
+                continue
+            style = sheet.resolved(sheet.body, element.style)
+            base_size = style.require("font_size")
+            resolved = self._superscript_marks(element.runs, pattern, base_size)
+            if resolved is not None:
+                element.runs = resolved
+
+    def _superscript_marks(self, runs: list, pattern, base_size: float) -> list | None:
+        """Split runs so [marker] tokens become raised small runs, or None."""
+        changed = False
+        out: list = []
+        for run in runs:
+            if run.link or "[" not in run.text:
+                out.append(run)
+                continue
+            pieces: list = []
+            cursor = 0
+            for match in pattern.finditer(run.text):
+                if match.start() > cursor:
+                    pieces.append((run.text[cursor : match.start()], False))
+                pieces.append((match.group(0), True))
+                cursor = match.end()
+            if cursor == 0:
+                out.append(run)
+                continue
+            changed = True
+            if cursor < len(run.text):
+                pieces.append((run.text[cursor:], False))
+            size = run.font_size or base_size
+            for text, is_mark in pieces:
+                if is_mark:
+                    mark = replace(
+                        run, text=text, font_size=size * self.FOOTNOTE_REF_SIZE
+                    )
+                    mark.baseline_rise = size * self.FOOTNOTE_REF_RISE
+                    out.append(mark)
+                else:
+                    out.append(replace(run, text=text))
+        return out if changed else None
 
     # -- paged-media helpers --
 
@@ -353,6 +421,11 @@ class Renderer:
         annots_by_page = self._build_link_annots(assembler, document, len(pages))
 
         # Register fonts after rendering so usage is known for subsetting.
+        if self._svg_fonts:
+            from .typography.font_metrics import FontMetrics
+
+            for key in sorted(self._svg_fonts):
+                font_resources.setdefault(key, FontMetrics.base14(self._svg_fonts[key]))
         font_dict = PdfDict()
         for key, metrics in sorted(font_resources.items()):
             resource = build_font_resource(assembler, key, metrics)
@@ -385,9 +458,14 @@ class Renderer:
                 )
                 cs_dict[res_name] = cs_ref
             resources["ColorSpace"] = cs_dict
+        ext_states = None
         if document.legal and document.legal.watermark:
-            resources["ExtGState"] = self._watermark_gstate(assembler, document.legal)
+            ext_states = self._watermark_gstate(assembler, document.legal)
+            resources["ExtGState"] = ext_states
         resources_ref = assembler.add(resources)
+        page_resource_refs = self._build_svg_page_resources(
+            assembler, resources, ext_states
+        )
 
         struct_ref = None
         if document.tagged:
@@ -401,7 +479,7 @@ class Renderer:
             page_dict["MediaBox"] = PdfArray(
                 [0, 0, document.page.width, document.page.height]
             )
-            page_dict["Resources"] = resources_ref
+            page_dict["Resources"] = page_resource_refs.get(index, resources_ref)
             page_dict["Contents"] = content_refs[index]
             if document.tagged:
                 page_dict["StructParents"] = index
@@ -528,6 +606,38 @@ class Renderer:
             annots_by_page.setdefault(page_index, []).append(annot_ref)
         return annots_by_page
 
+    def _build_svg_page_resources(self, assembler, resources, ext_states) -> dict:
+        """Per-page Resources overriding ExtGState for pages with SVG opacity."""
+        page_resource_refs: dict = {}
+        if not self._svg_gstates_by_page:
+            return page_resource_refs
+        gstate_cache: dict = {}
+        for page_index in sorted(self._svg_gstates_by_page):
+            page_res = PdfDict()
+            for key, value in resources.entries.items():
+                if key != "ExtGState":
+                    page_res[key] = value
+            states = PdfDict()
+            if ext_states is not None:
+                for name, ref in ext_states.entries.items():
+                    states[name] = ref
+            page_states = self._svg_gstates_by_page[page_index]
+            for name in sorted(page_states):
+                params = page_states[name]
+                cache_key = (params["ca"], params["CA"])
+                ref = gstate_cache.get(cache_key)
+                if ref is None:
+                    gstate = PdfDict()
+                    gstate["Type"] = PdfName("ExtGState")
+                    gstate["ca"] = params["ca"]
+                    gstate["CA"] = params["CA"]
+                    ref = assembler.add(gstate)
+                    gstate_cache[cache_key] = ref
+                states[name] = ref
+            page_res["ExtGState"] = states
+            page_resource_refs[page_index] = assembler.add(page_res)
+        return page_resource_refs
+
     def _watermark_gstate(self, assembler, legal) -> PdfDict:
         gstate = PdfDict()
         gstate["Type"] = PdfName("ExtGState")
@@ -558,11 +668,15 @@ class Renderer:
             self._draw_watermark(stream, document, sheet, legal, font_registry)
 
         page_blocks = page.blocks
+        page_footnotes = list(getattr(page, "footnotes", []) or [])
         if self._is_mirrored(document, page_index):
             shift = document.page.margin_right - document.page.margin_left
             if shift:
                 page_blocks = [
                     replace(placed, x=placed.x + shift) for placed in page.blocks
+                ]
+                page_footnotes = [
+                    replace(note, x=note.x + shift) for note in page_footnotes
                 ]
 
         for placed in page_blocks:
@@ -630,6 +744,11 @@ class Renderer:
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, document, sheet)
 
+        for placed_note in page_footnotes:
+            self._draw_footnote_area(
+                stream, placed_note, page_index, root, font_registry
+            )
+
         if document.redactions:
             from .redaction import apply_redactions, RedactionMark
 
@@ -660,6 +779,13 @@ class Renderer:
         )
         for spot_name, spot in stream.used_spots.items():
             self._used_spots.setdefault(spot_name, spot)
+        svg_gstates = getattr(stream, "used_svg_gstates", None)
+        if svg_gstates:
+            self._svg_gstates_by_page[page_index] = dict(svg_gstates)
+        svg_fonts = getattr(stream, "used_svg_fonts", None)
+        if svg_fonts:
+            for key in sorted(svg_fonts):
+                self._svg_fonts.setdefault(key, svg_fonts[key])
         return stream.to_bytes(), root
 
     def _resolve_font(self, style, run, registry) -> tuple:
@@ -724,12 +850,13 @@ class Renderer:
                 metrics, size, key = self._resolve_font(style, run, registry)
                 color = run.color or style.require("color")
                 x = placed.x + indent + offset + protrusion_shift
+                rise = getattr(run, "baseline_rise", 0.0)
                 stream.text_line(
                     text,
                     key,
                     size,
                     x,
-                    baseline,
+                    baseline + rise if rise else baseline,
                     color,
                     kern_pairs=metrics.kern_pairs(text),
                     gid_map=metrics.gid_map,
@@ -1081,8 +1208,14 @@ class Renderer:
             head.children.append(row_el)
 
             header_style = sheet.resolved(sheet.table_header)
+            header_spans = layout.header_spans
             for column, lines in enumerate(layout.header_lines):
+                span = header_spans[column] if header_spans else 1
+                if span == 0:
+                    continue
                 cell_el = StructureElement(tag="TH", scope="Column")
+                if span > 1:
+                    cell_el.colspan = span
                 row_el.children.append(cell_el)
                 mcid = stream.next_mcid()
                 cell_el.add_mcid(page_index, mcid)
@@ -1094,7 +1227,7 @@ class Renderer:
                     y - pad_y,
                     header_style,
                     registry,
-                    widths[column] - 2 * pad_x,
+                    sum(widths[column : column + span]) - 2 * pad_x,
                 )
                 stream.end_marked()
 
@@ -1132,8 +1265,14 @@ class Renderer:
             row_el = StructureElement(tag="TR")
             body.children.append(row_el)
 
+            spans = layout.row_spans[row_index] if layout.row_spans else None
             for column, lines in enumerate(cells):
+                span = spans[column] if spans else 1
+                if span == 0:
+                    continue
                 cell_el = StructureElement(tag="TD")
+                if span > 1:
+                    cell_el.colspan = span
                 row_el.children.append(cell_el)
                 mcid = stream.next_mcid()
                 cell_el.add_mcid(page_index, mcid)
@@ -1145,7 +1284,7 @@ class Renderer:
                     y - pad_y,
                     block.style,
                     registry,
-                    widths[column] - 2 * pad_x,
+                    sum(widths[column : column + span]) - 2 * pad_x,
                 )
                 stream.end_marked()
 
@@ -1391,6 +1530,67 @@ class Renderer:
                 )
             y -= line.height
 
+        stream.end_marked()
+
+    def _draw_footnote_area(self, stream, placed, page_index, root, registry) -> None:
+        """Render one bottom-anchored footnote, with a separator when first."""
+        block = placed.block
+        element = block.element
+        style = block.style
+
+        if placed.separator:
+            rule_y = placed.y + 3.0
+            stream.begin_artifact()
+            stream.line(
+                placed.x,
+                rule_y,
+                placed.x + placed.width * 0.3,
+                rule_y,
+                color="d6d3d1",
+                width=0.5,
+            )
+            stream.end_marked()
+
+        note_el = StructureElement(tag="Note")
+        root.children.append(note_el)
+        mcid = stream.next_mcid()
+        note_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Note", mcid)
+
+        metrics, size, key = self._resolve_font(style, None, registry)
+        color = style.require("color")
+        marker = element.marker or "*"
+        marker_width = metrics.text_width(marker + " ", size)
+
+        y = placed.y
+        first_ascent = block.lines[0].ascent if block.lines else metrics.ascent(size)
+        stream.text_line(
+            marker,
+            key,
+            size,
+            placed.x,
+            y - first_ascent,
+            color,
+            gid_map=metrics.gid_map,
+        )
+
+        for line in block.lines:
+            baseline = y - line.ascent
+            for text, run, offset in line.fragments:
+                run_metrics, run_size, run_key = self._resolve_font(
+                    style, run, registry
+                )
+                stream.text_line(
+                    text,
+                    run_key,
+                    run_size,
+                    placed.x + marker_width + offset,
+                    baseline,
+                    run.color or color,
+                    kern_pairs=run_metrics.kern_pairs(text),
+                    gid_map=run_metrics.gid_map,
+                )
+            y -= line.height
         stream.end_marked()
 
     def _draw_callout(
@@ -1667,6 +1867,16 @@ class Renderer:
         engine = MathLayoutEngine(base_size=size)
         layout = engine.layout(node)
 
+        mathalpha_key = None
+        mathalpha_metrics = None
+        if any(box.alpha for box in layout.boxes):
+            from .bundled_fonts import bundled_font_path
+
+            if not self.fonts.is_available("Emboss Math"):
+                self.fonts.register("Emboss Math", bundled_font_path("Emboss Math"))
+            mathalpha_metrics = self.fonts.resolve("Emboss Math")
+            mathalpha_key = self._font_key(mathalpha_metrics, registry)
+
         x = placed.x
         if element.display:
             x = placed.x + (content_width - layout.width) / 2
@@ -1681,6 +1891,8 @@ class Renderer:
             color,
             italic_key=italic_key,
             symbol_key=symbol_key,
+            mathalpha_key=mathalpha_key,
+            mathalpha_metrics=mathalpha_metrics,
         )
 
         if element.caption:

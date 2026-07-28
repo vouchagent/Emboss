@@ -26,6 +26,8 @@ Supported syntax:
     with & column separators and \\\\ row breaks; \\begin{cases};
     \\begin{aligned}/align/align*/split; \\begin{gathered}/gather/gather*
   - Display-mode limits: \\sum_{i=1}^{n} places limits above/below
+  - Math alphabets: \\mathbb, \\mathcal, \\mathscr, \\mathfrak render real
+    double-struck/script/fraktur glyphs from the bundled Emboss Math font
 """
 
 from __future__ import annotations
@@ -40,6 +42,9 @@ __all__ = [
     "render_math",
     "GREEK_LETTERS",
     "MATH_SYMBOLS",
+    "MATH_ALPHABETS",
+    "math_alphabet_node",
+    "math_font_metrics",
     "MathLayoutEngine",
     "MathLayout",
     "MathBox",
@@ -253,7 +258,82 @@ _UNICODE_TO_SYMBOL: dict[int, int] = {
     0x2020: 0x86,  # dagger (use WinAnsi for this)
     0x2021: 0x87,  # double dagger
     0x2135: 0xC0,  # aleph
+    0x2111: 0xC1,  # black-letter capital I (\Im)
+    0x211C: 0xC2,  # black-letter capital R (\Re)
     0x221A: 0xD6,  # radical/sqrt
+}
+
+
+def _alphabet_table(
+    upper_base: int | None,
+    lower_base: int | None,
+    digit_base: int | None,
+    exceptions: dict[str, int],
+) -> dict[str, str]:
+    """Build a char map into a math alphanumeric range with letterlike gaps."""
+    table: dict[str, str] = {}
+    if upper_base is not None:
+        for i in range(26):
+            table[chr(ord("A") + i)] = chr(upper_base + i)
+    if lower_base is not None:
+        for i in range(26):
+            table[chr(ord("a") + i)] = chr(lower_base + i)
+    if digit_base is not None:
+        for i in range(10):
+            table[chr(ord("0") + i)] = chr(digit_base + i)
+    for char, codepoint in exceptions.items():
+        table[char] = chr(codepoint)
+    return table
+
+
+# ASCII letter/digit -> Mathematical Alphanumeric Symbols codepoint, with
+# the letterlike reserved codepoints (U+2100 block) filling the Unicode
+# gaps left in the U+1D400 block for pre-existing characters.
+MATH_ALPHABETS: dict[str, dict[str, str]] = {
+    "double-struck": _alphabet_table(
+        0x1D538,
+        0x1D552,
+        0x1D7D8,
+        {
+            "C": 0x2102,
+            "H": 0x210D,
+            "N": 0x2115,
+            "P": 0x2119,
+            "Q": 0x211A,
+            "R": 0x211D,
+            "Z": 0x2124,
+        },
+    ),
+    "script": _alphabet_table(
+        0x1D49C,
+        0x1D4B6,
+        None,
+        {
+            "B": 0x212C,
+            "E": 0x2130,
+            "F": 0x2131,
+            "H": 0x210B,
+            "I": 0x2110,
+            "L": 0x2112,
+            "M": 0x2133,
+            "R": 0x211B,
+            "e": 0x212F,
+            "g": 0x210A,
+            "o": 0x2134,
+        },
+    ),
+    "fraktur": _alphabet_table(
+        0x1D504,
+        0x1D51E,
+        None,
+        {
+            "C": 0x212D,
+            "H": 0x210C,
+            "I": 0x2111,
+            "R": 0x211C,
+            "Z": 0x2128,
+        },
+    ),
 }
 
 
@@ -297,6 +377,26 @@ class TextNode(MathNode):
     text: str
     italic: bool = True
     bold: bool = False
+    alpha: bool = False
+
+
+def math_alphabet_node(text: str, variant: str) -> MathNode:
+    """Map text through a math alphabet, splitting off unmapped characters."""
+    table = MATH_ALPHABETS[variant]
+    segments: list = []
+    for char in text:
+        mapped = table.get(char)
+        alpha = mapped is not None
+        out = mapped if mapped is not None else char
+        if segments and segments[-1].alpha == alpha:
+            segments[-1].text += out
+        else:
+            segments.append(TextNode(out, italic=False, alpha=alpha))
+    if not segments:
+        return TextNode("", italic=False)
+    if len(segments) == 1:
+        return segments[0]
+    return GroupNode(children=segments)
 
 
 @dataclass
@@ -631,7 +731,11 @@ class MathParser:
         elif name in ("mathcal", "mathscr"):
             content = self._parse_atom()
             text = self._flatten_to_text(content)
-            return TextNode(text, italic=True)
+            return math_alphabet_node(text, "script")
+        elif name == "mathfrak":
+            content = self._parse_atom()
+            text = self._flatten_to_text(content)
+            return math_alphabet_node(text, "fraktur")
         elif name == "mathrm":
             content = self._parse_atom()
             text = self._flatten_to_text(content)
@@ -643,7 +747,7 @@ class MathParser:
         elif name == "mathbb":
             content = self._parse_atom()
             text = self._flatten_to_text(content)
-            return TextNode(text, italic=False, bold=True)
+            return math_alphabet_node(text, "double-struck")
         elif name == "mathit":
             content = self._parse_atom()
             text = self._flatten_to_text(content)
@@ -709,6 +813,7 @@ class MathBox:
     italic: bool = False
     bold: bool = False
     symbol: bool = False
+    alpha: bool = False
 
 
 @dataclass
@@ -898,6 +1003,19 @@ def _base14(name: str) -> FontMetrics:
     return metrics
 
 
+_MATH_FONT_METRICS: FontMetrics | None = None
+
+
+def math_font_metrics() -> FontMetrics:
+    """Lazily loaded shared metrics for the bundled Emboss Math font."""
+    global _MATH_FONT_METRICS
+    if _MATH_FONT_METRICS is None:
+        from .bundled_fonts import bundled_font_path
+
+        _MATH_FONT_METRICS = FontMetrics.from_file(bundled_font_path("Emboss Math"))
+    return _MATH_FONT_METRICS
+
+
 class MathLayoutEngine:
     """Lay out math AST nodes into positioned boxes."""
 
@@ -976,7 +1094,10 @@ class MathLayoutEngine:
     def _layout_text(
         self, node: TextNode, x: float, y: float, size: float
     ) -> MathLayout:
-        metrics = self._text_metrics(node.italic)
+        if node.alpha:
+            metrics = math_font_metrics()
+        else:
+            metrics = self._text_metrics(node.italic)
         w = metrics.text_width(node.text, size)
         box = MathBox(
             text=node.text,
@@ -986,6 +1107,7 @@ class MathLayoutEngine:
             italic=node.italic,
             bold=node.bold,
             symbol=False,
+            alpha=node.alpha,
         )
         return MathLayout(boxes=[box], width=w, height=size, depth=0)
 
@@ -1423,6 +1545,8 @@ def render_math(
     color: str = "000000",
     italic_key: str | None = None,
     symbol_key: str | None = None,
+    mathalpha_key: str | None = None,
+    mathalpha_metrics: FontMetrics | None = None,
 ) -> float:
     """Render a math expression into a content stream.
 
@@ -1433,7 +1557,19 @@ def render_math(
     layout = engine.layout(node)
 
     for box in layout.boxes:
-        if box.symbol and symbol_key:
+        if box.alpha and mathalpha_key:
+            metrics = mathalpha_metrics or math_font_metrics()
+            metrics.note_usage(box.text)
+            stream.text_line(
+                box.text,
+                mathalpha_key,
+                box.size,
+                x + box.x,
+                y + box.y,
+                color,
+                gid_map=metrics.gid_map,
+            )
+        elif box.symbol and symbol_key:
             encoded = _symbol_encode(box.text)
             stream.raw(b"BT")
             stream.set_fill(color)

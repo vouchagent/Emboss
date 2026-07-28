@@ -341,6 +341,8 @@ def spec_prompt(
 
 "title" and "content" are required. Optional document fields: "author", "subject", "keywords", "toc" (true inserts an auto-generated table of contents), and "page" for geometry.
 
+Do not emit brand colors, fonts, or a logo: visual branding is applied programmatically by the integrator via a BrandKit, not by you.
+
 ## Available Styles
 - "legal" — serif, justified, generous leading (contracts, briefs)
 - "finance" — sans-serif, tight, tabular (reports, filings)
@@ -354,7 +356,8 @@ def spec_prompt(
 ```json
 {{"page": {{"preset": "a4", "columns": 2, "column_gap": 24}}, "toc": true}}
 ```
-Presets: letter, a4, legal. Use "columns": 2 for two-column layouts (newsletters, academic papers); "column_gap" is in points.
+Presets: letter, a4, a5, legal, compact. Use "columns": 2 for two-column layouts (newsletters, academic papers); "column_gap" is in points.
+The "compact" preset (A5 with tight margins) suits phone and tablet reading.
 
 ## Headers, Footers & Page Numbers
 ```json
@@ -443,6 +446,13 @@ Multi-series (grouped bars, multi-line, or scatter) with axis titles and legend:
 {{"type": "chart", "chart_type": "scatter", "labels": ["Q1", "Q2"], "series": [{{"label": "North", "values": [100, 150]}}, {{"label": "South", "values": [90, 120]}}], "x_title": "Quarter", "y_title": "Units"}}
 ```
 Types: bar, line, pie, scatter. Pie uses the first series only.
+
+### Diagram
+Architecture and workflow graphs as node/edge lists; layout, arrow routing, and alt text are automatic (cycles are fine):
+```json
+{{"type": "diagram", "direction": "down", "nodes": [{{"id": "api", "label": "API Gateway"}}, {{"id": "auth", "label": "Auth Service"}}, {{"id": "db", "label": "User Store", "shape": "store"}}, {{"id": "ok", "label": "Response", "shape": "rounded"}}], "edges": [{{"src": "api", "dst": "auth", "label": "verify"}}, {{"src": "auth", "dst": "db"}}, {{"src": "db", "dst": "auth", "style": "dashed"}}, {{"src": "auth", "dst": "ok"}}], "caption": "Login flow"}}
+```
+Node shapes: box, rounded, decision (diamond), store (database), start_end. Edge "style": "dashed" marks optional/async paths; "direction" is "down" or "right".
 
 ## Rules
 1. Always output valid JSON — no comments, no trailing commas.
@@ -731,6 +741,7 @@ def _manual_parse(data: dict) -> "Document":
         ),
         "rule": lambda b: HorizontalRule(),
         "page_break": lambda b: PageBreak(),
+        "diagram": lambda b: _parse_diagram(b),
     }
 
     for block in data.get("content", []):
@@ -742,6 +753,18 @@ def _manual_parse(data: dict) -> "Document":
             doc.add(builder(block))
 
     return doc
+
+
+def _parse_diagram(block: dict):
+    """Parse a diagram block in the no-pydantic fallback path."""
+    from .diagrams import diagram_svg_block
+
+    return diagram_svg_block(
+        block.get("nodes", []),
+        block.get("edges", []),
+        direction=block.get("direction", "down"),
+        caption=block.get("caption"),
+    )
 
 
 def _parse_paragraph(block: dict):

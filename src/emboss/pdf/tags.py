@@ -50,6 +50,7 @@ _ROLE_MAP = {
     "Code": "Code",
     "Document": "Document",
     "Link": "Link",
+    "Note": "Note",
 }
 
 
@@ -65,6 +66,7 @@ class StructureElement:
     actual_text: str | None = None
     title: str | None = None
     scope: str | None = None
+    colspan: int | None = None
     obj_id: int | None = None
     annot_ref: PdfRef | None = None
     struct_parent: int | None = None
@@ -163,6 +165,11 @@ class StructureTreeBuilder:
             node["T"] = element.title
         if element.scope:
             node["Scope"] = PdfName(element.scope)
+        if element.colspan and element.colspan > 1:
+            attrs = PdfDict()
+            attrs["O"] = PdfName("Table")
+            attrs["ColSpan"] = element.colspan
+            node["A"] = attrs
 
         self.assembler.add(node, obj_id=obj_id)
         return self_ref

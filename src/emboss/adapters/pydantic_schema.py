@@ -23,6 +23,7 @@ Usage with Claude structured output:
 
 from __future__ import annotations
 
+import base64
 import re
 from typing import TYPE_CHECKING, Annotated, Literal, Union
 
@@ -57,11 +58,13 @@ from ..spec import (
     TextRun,
 )
 from ..bibliography import Citation
+from ..brandkit import BrandKit
 from ..intelligence import ContentAnalyzer
 from ..styles import PRESETS, Style
 
 __all__ = [
     "DocumentSpec",
+    "BrandKitSpec",
     "HeadingSpec",
     "ParagraphSpec",
     "TableSpec",
@@ -74,6 +77,9 @@ __all__ = [
     "CalloutSpec",
     "BlockQuoteSpec",
     "SvgBlockSpec",
+    "DiagramSpec",
+    "DiagramNodeSpec",
+    "DiagramEdgeSpec",
     "HeaderFooterSpec",
     "TextRunSpec",
     "TableCellSpec",
@@ -831,6 +837,101 @@ class SvgBlockSpec(BaseModel):
         )
 
 
+class DiagramNodeSpec(BaseModel):
+    """One node in an architecture/workflow diagram."""
+
+    id: str = Field(..., min_length=1, description="Unique node identifier.")
+    label: str = Field(..., min_length=1, description="Text shown inside the node.")
+    shape: Literal["box", "decision", "store", "rounded", "start_end"] = Field(
+        "box",
+        description=(
+            "Node shape: box (component), decision (diamond), store "
+            "(database cylinder), rounded, start_end (stadium terminator)."
+        ),
+    )
+    group: str | None = Field(None, description="Optional logical grouping name.")
+
+
+class DiagramEdgeSpec(BaseModel):
+    """A directed connection between two diagram nodes."""
+
+    src: str = Field(..., min_length=1, description="Source node id.")
+    dst: str = Field(..., min_length=1, description="Destination node id.")
+    label: str | None = Field(None, description="Optional edge label.")
+    style: Literal["solid", "dashed"] = Field(
+        "solid", description="Line style; use dashed for optional/async paths."
+    )
+
+
+class DiagramSpec(BaseModel):
+    """A node/edge graph laid out automatically and rendered as vector art.
+
+    Describe systems and workflows as nodes and edges; the engine computes
+    a layered layout (cycles allowed), routes the arrows, and renders the
+    result as an accessible vector figure with generated alt text.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Diagram",
+            "examples": [
+                {
+                    "type": "diagram",
+                    "nodes": [
+                        {"id": "api", "label": "API Gateway"},
+                        {"id": "db", "label": "User Store", "shape": "store"},
+                    ],
+                    "edges": [{"src": "api", "dst": "db", "label": "query"}],
+                    "direction": "down",
+                }
+            ],
+        }
+    }
+
+    type: Literal["diagram"] = "diagram"
+    nodes: list[DiagramNodeSpec] = Field(
+        ..., min_length=1, description="Diagram nodes."
+    )
+    edges: list[DiagramEdgeSpec] = Field(
+        default_factory=list, description="Directed connections between node ids."
+    )
+    direction: Literal["down", "right"] = Field(
+        "down", description="Main flow direction of the layout."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_graph(self) -> "DiagramSpec":
+        ids: set[str] = set()
+        for node in self.nodes:
+            if node.id in ids:
+                raise ValueError(f"duplicate diagram node id: {node.id!r}")
+            ids.add(node.id)
+        for edge in self.edges:
+            for endpoint in (edge.src, edge.dst):
+                if endpoint not in ids:
+                    raise ValueError(
+                        f"diagram edge references unknown node id: {endpoint!r}"
+                    )
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import DiagramEdge, DiagramNode, diagram_svg_block
+
+        return diagram_svg_block(
+            [
+                DiagramNode(id=n.id, label=n.label, shape=n.shape, group=n.group)
+                for n in self.nodes
+            ],
+            [
+                DiagramEdge(src=e.src, dst=e.dst, label=e.label, style=e.style)
+                for e in self.edges
+            ],
+            direction=self.direction,
+            caption=self.caption,
+        )
+
+
 class HeaderFooterSpec(BaseModel):
     """Structured header or footer with left/center/right slots."""
 
@@ -887,6 +988,7 @@ ContentBlock = Annotated[
         MathBlockSpec,
         BibliographySpec,
         SvgBlockSpec,
+        DiagramSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],
@@ -907,8 +1009,12 @@ class PageConfig(BaseModel):
         }
     }
 
-    preset: Literal["letter", "a4", "legal"] | None = Field(
-        "letter", description="Page size preset."
+    preset: Literal["letter", "a4", "a5", "legal", "compact"] | None = Field(
+        "letter",
+        description=(
+            "Page size preset. 'compact' is A5 with tight margins, suited to "
+            "phone and tablet reading."
+        ),
     )
     width: float | None = Field(
         None, ge=72, description="Page width in points (overrides preset)."
@@ -954,7 +1060,9 @@ class PageConfig(BaseModel):
         factory = {
             "letter": PageSpec.letter,
             "a4": PageSpec.a4,
+            "a5": PageSpec.a5,
             "legal": PageSpec.legal,
+            "compact": PageSpec.compact,
         }.get(self.preset or "letter", PageSpec.letter)
         return factory(**overrides)
 
@@ -997,6 +1105,57 @@ class LegalConfig(BaseModel):
             bates_start=self.bates_start,
             bates_digits=self.bates_digits,
             bates_position=self.bates_position,
+        )
+
+
+_HEX = r"^[0-9a-fA-F]{6}$"
+
+
+class BrandKitSpec(BaseModel):
+    """A versioned brand applied programmatically over the document style.
+
+    Set by the integrator, not the LLM: colors, fonts, footer, and an
+    optional logo (a file path via 'logo', or base64 PNG bytes via 'logo_b64').
+    """
+
+    model_config = {"json_schema_extra": {"title": "Brand Kit"}}
+
+    name: str = Field(..., min_length=1, description="Brand name.")
+    version: str = Field("1.0", description="Brand version tag.")
+    primary: str = Field(
+        ..., pattern=_HEX, description="Primary brand color (headings)."
+    )
+    accent: str = Field(..., pattern=_HEX, description="Accent color (rules, marks).")
+    ink: str = Field("1a1a1a", pattern=_HEX, description="Body text color.")
+    muted: str = Field("6b7280", pattern=_HEX, description="Secondary/rule tint.")
+    palette: list[str] = Field(
+        default_factory=list, description="Chart series colors as hex strings."
+    )
+    heading_font: str | None = Field(None, description="Heading font family.")
+    body_font: str | None = Field(None, description="Body font family.")
+    mono_font: str | None = Field(None, description="Monospace font family.")
+    footer_text: str = Field("", description="Standard footer line.")
+    logo: str | None = Field(None, description="Logo file path.")
+    logo_b64: str | None = Field(None, description="Logo PNG bytes, base64-encoded.")
+
+    def to_brandkit(self) -> BrandKit:
+        if self.logo_b64:
+            logo: bytes | str | None = base64.b64decode(self.logo_b64)
+        else:
+            logo = self.logo
+        return BrandKit(
+            name=self.name,
+            version=self.version,
+            primary=self.primary,
+            accent=self.accent,
+            ink=self.ink,
+            muted=self.muted,
+            palette=tuple(self.palette),
+            heading_font=self.heading_font,
+            body_font=self.body_font,
+            mono_font=self.mono_font,
+            footer_text=self.footer_text,
+            logo=logo,
         )
 
 
@@ -1071,6 +1230,13 @@ class DocumentSpec(BaseModel):
     )
 
     page: PageConfig = Field(default_factory=PageConfig, description="Page geometry.")
+    brand: BrandKitSpec | None = Field(
+        None,
+        description=(
+            "Versioned brand (colors, fonts, footer, logo) applied over the "
+            "style. Set by the integrator, not the model."
+        ),
+    )
     content: list[ContentBlock] = Field(
         ...,
         min_length=1,
@@ -1147,6 +1313,7 @@ class DocumentSpec(BaseModel):
             keywords=self.keywords,
             language=self.language,
             style=self.style,
+            brand=self.brand.to_brandkit() if self.brand else None,
             page=self.page.to_page_spec(),
             header_text=self.header_text,
             footer_text=self.footer_text,

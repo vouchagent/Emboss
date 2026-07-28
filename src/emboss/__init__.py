@@ -44,6 +44,7 @@ from .spec import (
     TableCell,
     TextRun,
 )
+from .brandkit import BrandKit
 from .bibliography import format_citation, format_bibliography
 from .code_highlight import tokenize, colorize, THEMES as CODE_THEMES, LANGUAGES
 from .math_render import parse_math, MathExpression, render_math
@@ -57,9 +58,17 @@ from .colors import (
     parse_cmyk,
 )
 from .crossref import CrossReferenceIndex
+from .diagrams import (
+    DiagramEdge,
+    DiagramNode,
+    diagram_alt_text,
+    diagram_svg_block,
+    layout_diagram,
+    render_diagram_svg,
+)
 from .svg import SvgImage, parse_svg, render_svg
 from .numbering import NumberingContext
-from .styles import PRESETS, Style, StyleSheet, resolve_preset
+from .styles import PRESETS, Style, StyleSheet, apply_brand, resolve_preset
 from .typography.font_metrics import FontMetrics, FontRegistry
 from .typography.hyphenation import Hyphenator
 from .typography.line_breaking import LineBreaker
@@ -120,6 +129,12 @@ __all__ = [
     "SvgImage",
     "parse_svg",
     "render_svg",
+    "DiagramNode",
+    "DiagramEdge",
+    "layout_diagram",
+    "render_diagram_svg",
+    "diagram_alt_text",
+    "diagram_svg_block",
     "NumberingContext",
     "format_citation",
     "format_bibliography",
@@ -142,6 +157,8 @@ __all__ = [
     "StyleSheet",
     "PRESETS",
     "resolve_preset",
+    "apply_brand",
+    "BrandKit",
     "FontRegistry",
     "FontMetrics",
     "Hyphenator",

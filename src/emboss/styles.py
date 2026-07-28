@@ -13,9 +13,12 @@ a single measurement.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-__all__ = ["Style", "StyleSheet", "resolve_preset", "PRESETS"]
+if TYPE_CHECKING:
+    from .brandkit import BrandKit
+
+__all__ = ["Style", "StyleSheet", "resolve_preset", "PRESETS", "apply_brand"]
 
 Alignment = Literal["left", "center", "right", "justify"]
 
@@ -355,3 +358,44 @@ def resolve_preset(name: str) -> StyleSheet:
         raise KeyError(
             f"unknown style preset {name!r}; available: {available}"
         ) from None
+
+
+def apply_brand(sheet: StyleSheet, brand: "BrandKit") -> StyleSheet:
+    """Return a new StyleSheet with the brand's colors and fonts layered on.
+
+    Headings take the primary, table-header rules the accent, body the ink,
+    and secondary text and rule tints the muted color. Text roles whose brand
+    color fails 4.5:1 on white are darkened to a text-safe variant, while the
+    raw brand color is kept for fills and rules. The input sheet is not
+    mutated.
+    """
+    from .brandkit import darken_to_contrast, resolve_font
+
+    heading_color = darken_to_contrast(brand.primary)
+    body_color = darken_to_contrast(brand.ink)
+    muted_text = darken_to_contrast(brand.muted)
+    heading_font = resolve_font(brand.heading_font)
+    body_font = resolve_font(brand.body_font)
+
+    def restyle(style: Style, color: str | None, font: str | None) -> Style:
+        changes: dict = {"color": color}
+        if font is not None:
+            changes["font_family"] = font
+        return replace(style, **changes)
+
+    changes: dict = {
+        "name": f"{sheet.name}+{brand.name}",
+        "body": restyle(sheet.body, body_color, body_font),
+        "table_header": restyle(sheet.table_header, heading_color, heading_font),
+        "table_cell": restyle(sheet.table_cell, sheet.table_cell.color, body_font),
+        "caption": restyle(sheet.caption, muted_text, body_font),
+        "header_footer": restyle(sheet.header_footer, muted_text, body_font),
+        # Fills and rules keep the raw brand color; only text roles are guarded.
+        "table_header_rule_color": brand.accent,
+        "table_rule_color": brand.muted,
+        "rule_color": brand.muted,
+    }
+    for level in range(1, 7):
+        style = getattr(sheet, f"h{level}")
+        changes[f"h{level}"] = restyle(style, heading_color, heading_font)
+    return replace(sheet, **changes)

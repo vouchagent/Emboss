@@ -44,9 +44,7 @@ _PATH_TOKEN_RE = re.compile(
     r"[MmLlHhVvCcSsQqTtAaZz]"
     r"|[-+]?(?:[0-9]*\.[0-9]+|[0-9]+\.?)(?:[eE][-+]?[0-9]+)?"
 )
-_TRANSFORM_RE = re.compile(
-    r"(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)"
-)
+_TRANSFORM_RE = re.compile(r"(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)")
 _URL_RE = re.compile(r"url\(\s*#([^)\s]+)\s*\)")
 
 _NON_RENDERED = {
@@ -118,7 +116,12 @@ def parse_svg(source: str | bytes) -> SvgImage:
     if vb:
         parts = re.split(r"[\s,]+", vb.strip())
         if len(parts) == 4:
-            view_box = tuple(float(p) for p in parts)
+            view_box = (
+                float(parts[0]),
+                float(parts[1]),
+                float(parts[2]),
+                float(parts[3]),
+            )
 
     image = SvgImage(width=width, height=height, view_box=view_box)
     _collect(root, image.elements, image.defs)
@@ -647,7 +650,7 @@ def _frac(value: str) -> float:
 
 def _gradient_stops(el: SvgElement, defs: dict, depth: int) -> list:
     """Collect (offset, hex) stops, following href inheritance if empty."""
-    stops = []
+    stops: list[tuple[float, str]] = []
     for child in el.children:
         if child.tag != "stop":
             continue
@@ -770,7 +773,7 @@ def gradient_shading(
     cmyk = color_mode == "cmyk"
     stops = grad["stops"]
     comps = [_components(color, cmyk) for _, color in stops]
-    shading = {
+    shading: dict = {
         "ColorSpace": "DeviceCMYK" if cmyk else "DeviceRGB",
         "Function": _stitch_function([offset for offset, _ in stops], comps),
         "Extend": [True, True],
@@ -1091,17 +1094,25 @@ class _Renderer:
             if stroke:
                 stream.rect(rx, ry, rw, rh, fill=None)
         elif tag == "circle":
-            cx, cy = self._vmap(float(attrs.get("cx", "0")), float(attrs.get("cy", "0")))
+            cx, cy = self._vmap(
+                float(attrs.get("cx", "0")), float(attrs.get("cy", "0"))
+            )
             r = float(attrs.get("r", "0")) * min(self.sx, self.sy)
             _draw_circle(stream, cx, cy, r, fill, stroke, stroke_w, mode)
         elif tag == "ellipse":
-            cx, cy = self._vmap(float(attrs.get("cx", "0")), float(attrs.get("cy", "0")))
+            cx, cy = self._vmap(
+                float(attrs.get("cx", "0")), float(attrs.get("cy", "0"))
+            )
             erx = float(attrs.get("rx", "0")) * self.sx
             ery = float(attrs.get("ry", "0")) * self.sy
             _draw_ellipse(stream, cx, cy, erx, ery, fill, stroke, stroke_w, mode)
         elif tag == "line":
-            x1, y1 = self._vmap(float(attrs.get("x1", "0")), float(attrs.get("y1", "0")))
-            x2, y2 = self._vmap(float(attrs.get("x2", "0")), float(attrs.get("y2", "0")))
+            x1, y1 = self._vmap(
+                float(attrs.get("x1", "0")), float(attrs.get("y1", "0"))
+            )
+            x2, y2 = self._vmap(
+                float(attrs.get("x2", "0")), float(attrs.get("y2", "0"))
+            )
             color = stroke or "000000"
             width = stroke_w * min(self.sx, self.sy)
             stream.line(x1, y1, x2, y2, color=color, width=width)

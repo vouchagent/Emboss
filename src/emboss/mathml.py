@@ -18,6 +18,7 @@ from .math_render import (
     GREEK_LETTERS,
     MATH_SYMBOLS,
     AlignedNode,
+    math_alphabet_node,
     DelimiterNode,
     FractionNode,
     GroupNode,
@@ -43,6 +44,9 @@ for _name, _display in [*GREEK_LETTERS.items(), *MATH_SYMBOLS.items()]:
     _NAME_BY_DISPLAY.setdefault(_display, _name)
 
 _FENCE_PAIRS = {"(": ")", "[": "]", "{": "}", "|": "|"}
+
+# mathvariant values rendered with real glyphs from the bundled math font.
+_ALPHABET_VARIANTS = frozenset({"double-struck", "script", "fraktur"})
 
 _TOKEN_TRANSLATE: dict[int, str | None] = {
     0x2061: None,  # function application
@@ -140,6 +144,8 @@ def _mi(el: ET.Element) -> MathNode | None:
     if name is not None:
         return SymbolNode(symbol=name, display=text)
     variant = el.get("mathvariant", "")
+    if variant in _ALPHABET_VARIANTS:
+        return math_alphabet_node(text, variant)
     italic = len(text) == 1 and text.isalpha()
     if "italic" in variant:
         italic = True
@@ -168,10 +174,13 @@ def _mo(el: ET.Element) -> MathNode | None:
 
 
 def _mtext(el: ET.Element) -> MathNode | None:
-    """Literal text: upright."""
+    """Literal text: upright, with math-alphabet variants mapped to glyphs."""
     text = _token_text(el)
     if not text:
         return None
+    variant = el.get("mathvariant", "")
+    if variant in _ALPHABET_VARIANTS:
+        return math_alphabet_node(text, variant)
     return TextNode(text, italic=False)
 
 

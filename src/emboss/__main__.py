@@ -104,7 +104,20 @@ def _verify(args: argparse.Namespace) -> int:
     data = path.read_bytes()
     report = verify_pdf(data)
     print(report)
-    return 0 if report.ok else 1
+    exit_code = 0 if report.ok else 1
+
+    if args.conformance:
+        from .pdf.verify import verify_conformance
+
+        try:
+            conformance = verify_conformance(data, flavour=args.conformance)
+        except RuntimeError as exc:
+            print(f"conformance check unavailable: {exc}", file=sys.stderr)
+            return 1
+        print(conformance)
+        if not conformance.compliant:
+            exit_code = 1
+    return exit_code
 
 
 def _export(args: argparse.Namespace) -> int:
@@ -258,6 +271,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Verify an existing PDF's structural integrity",
     )
     verify_p.add_argument("input", help="PDF file path")
+    verify_p.add_argument(
+        "--conformance",
+        choices=["ua1", "2b", "3b"],
+        default=None,
+        help=(
+            "Also validate ISO conformance with veraPDF "
+            "(requires verapdf on PATH or VERAPDF_PATH set)"
+        ),
+    )
 
     export_p = sub.add_parser(
         "export",
