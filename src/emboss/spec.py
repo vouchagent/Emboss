@@ -105,6 +105,7 @@ class Heading:
     numbering: str | None = None
     anchor: str | None = None
     style: Style | None = None
+    id: str | None = None
 
     def __post_init__(self) -> None:
         if not 1 <= self.level <= 6:
@@ -127,6 +128,7 @@ class Paragraph:
     content: Union[str, TextRun, Sequence] = ""
     style: Style | None = None
     runs: list = field(default_factory=list, init=False)
+    id: str | None = None
 
     def __post_init__(self) -> None:
         self.runs = _as_runs(self.content)
@@ -168,6 +170,7 @@ class BulletList:
     bullet: str = "\u2022"
     checked: Sequence | None = None
     style: Style | None = None
+    id: str | None = None
 
     @property
     def flat_items(self) -> list:
@@ -194,6 +197,7 @@ class NumberedList:
     start: int = 1
     marker_style: Literal["decimal", "alpha"] = "decimal"
     style: Style | None = None
+    id: str | None = None
 
     @property
     def flat_items(self) -> list:
@@ -273,6 +277,7 @@ class Table:
     stripe: bool = False
     repeat_header: bool = True
     style: Style | None = None
+    id: str | None = None
 
     @property
     def header_cells(self) -> list:
@@ -300,6 +305,7 @@ class BlockQuote:
     attribution: str | None = None
     style: Style | None = None
     runs: list = field(default_factory=list, init=False)
+    id: str | None = None
 
     def __post_init__(self) -> None:
         self.runs = _as_runs(self.content)
@@ -326,6 +332,7 @@ class Image:
     align: Literal["left", "center", "right"] = "center"
     style: Style | None = None
     float: Literal["here", "top", "bottom", "auto"] | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -363,6 +370,7 @@ class Chart:
     x_title: str | None = None
     y_title: str | None = None
     legend: bool = True
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -377,6 +385,7 @@ class Footnote:
     marker: str | None = None
     style: Style | None = None
     runs: list = field(default_factory=list, init=False)
+    id: str | None = None
 
     def __post_init__(self) -> None:
         self.runs = _as_runs(self.content)
@@ -399,6 +408,7 @@ class Callout:
     border_radius: float = 4.0
     style: Style | None = None
     runs: list = field(default_factory=list, init=False)
+    id: str | None = None
 
     def __post_init__(self) -> None:
         self.runs = _as_runs(self.content)
@@ -441,6 +451,7 @@ _CALLOUT_ICONS = {
 class PageBreak:
     """Forces content after this point onto a new page."""
 
+    id: str | None = None
     structure_tag: str = field(default="Artifact", init=False)
 
 
@@ -450,6 +461,7 @@ class HorizontalRule:
     color: str = "cccccc"
     space_before: float = 6.0
     space_after: float = 6.0
+    id: str | None = None
     structure_tag: str = field(default="Artifact", init=False)
 
 
@@ -466,6 +478,7 @@ class CodeBlock:
     caption: str | None = None
     label: str | None = None
     style: Style | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -483,6 +496,7 @@ class MathBlock:
     number: bool = False
     tag: str | None = None
     style: Style | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -502,6 +516,7 @@ class SvgBlock:
     align: Literal["left", "center", "right"] = "center"
     style: Style | None = None
     float: Literal["here", "top", "bottom", "auto"] | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -518,6 +533,7 @@ class CoverPage:
     date: str = ""
     kicker: str = ""
     style: Style | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -531,6 +547,7 @@ class Abstract:
     text: str
     keywords: Sequence = field(default_factory=tuple)
     style: Style | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -552,6 +569,7 @@ class Authors:
 
     authors: Sequence = field(default_factory=list)
     style: Style | None = None
+    id: str | None = None
 
     @property
     def author_list(self) -> list:
@@ -577,6 +595,7 @@ class PullQuote:
     text: str
     attribution: str = ""
     style: Style | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -598,6 +617,7 @@ class StatTiles:
 
     stats: Sequence = field(default_factory=list)
     style: Style | None = None
+    id: str | None = None
 
     @property
     def stat_list(self) -> list:
@@ -629,6 +649,7 @@ class TableOfContents:
     depth: int = 3
     source: Literal["headings", "figures", "tables"] = "headings"
     style: Style | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:
@@ -929,6 +950,23 @@ class Document:
         from pathlib import Path
 
         Path(path).write_bytes(self.render(linearize=linearize))
+
+    def layout_map(self) -> dict:
+        """Return node id -> list of {page, x0, y0, x1, y1} placements.
+
+        Renders once and caches; call again to reuse the same map. The
+        cache is keyed to the current content so mutating the document and
+        calling again recomputes it.
+        """
+        from .writer import render_document
+
+        token = id(self.content), len(self.content)
+        cached = getattr(self, "_layout_map_cache", None)
+        if cached is not None and cached[0] == token:
+            return cached[1]
+        result = render_document(self, return_result=True)
+        self._layout_map_cache = (token, result.layout_map)
+        return result.layout_map
 
     @classmethod
     def from_markdown(cls, text: str, **kw) -> "Document":

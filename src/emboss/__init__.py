@@ -101,6 +101,7 @@ from .templates import (
     data_sheet,
 )
 from .markdown import parse_markdown, parse_front_matter, FrontMatter
+from .nodeid import assign_node_ids, derive_node_id, layout_map_json
 from .generate import (
     spec_prompt,
     generate,
@@ -204,6 +205,9 @@ __all__ = [
     "parse_markdown",
     "parse_front_matter",
     "FrontMatter",
+    "assign_node_ids",
+    "derive_node_id",
+    "layout_map_json",
     "spec_prompt",
     "generate",
     "parse_spec_json",

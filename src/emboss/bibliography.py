@@ -62,6 +62,7 @@ class BibliographyBlock:
     title: str | None = "References"
     heading_level: int = 2
     style: object | None = None
+    id: str | None = None
 
     @property
     def structure_tag(self) -> str:

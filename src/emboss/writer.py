@@ -17,6 +17,7 @@ from .constraints import ConstraintValidator
 from .crossref import CrossReferenceIndex
 from .numbering import NumberingContext
 from .layout.engine import LayoutEngine, PlacedBlock
+from .nodeid import assign_node_ids, round_bbox
 from .pdf.assembler import PDFAssembler
 from .pdf.fonts import build_font_resource
 from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
@@ -88,6 +89,7 @@ class RenderResult:
     data: bytes
     page_count: int
     issues: list = field(default_factory=list)
+    layout_map: dict = field(default_factory=dict)
 
     def __bytes__(self) -> bytes:
         return self.data
@@ -126,6 +128,8 @@ class Renderer:
         self._svg_gstates_by_page: dict = {}
         # SVG text resource key -> base-14 family name
         self._svg_fonts: dict = {}
+        # node id -> list of {page, x0, y0, x1, y1} placements
+        self._layout_map: dict = {}
 
     def run(self) -> RenderResult:
         validation = self.validator.validate(self.source).raise_if_failed()
@@ -139,6 +143,9 @@ class Renderer:
         content = self._resolve_references(document, content)
         content = self._prepend_title_block(document, sheet, content)
         self._prepare_footnotes(sheet, content)
+        # Stable ids are assigned on the validator's deep copy, before
+        # measurement, so the tag tree and layout map can key off them.
+        assign_node_ids(content)
 
         width = document.page.content_width
         toc_indices = [
@@ -158,7 +165,12 @@ class Renderer:
 
         issues = list(validation.issues)
         issues.extend(engine.warnings)
-        return RenderResult(data=data, page_count=len(pages), issues=issues)
+        return RenderResult(
+            data=data,
+            page_count=len(pages),
+            issues=issues,
+            layout_map=self._layout_map,
+        )
 
     @staticmethod
     def _prepend_title_block(document, sheet, content: list) -> list:
@@ -785,6 +797,8 @@ class Renderer:
 
         for placed in page_blocks:
             element = placed.block.element
+            struct_before = len(root.children)
+            self._record_layout(document, placed, page_index)
             if isinstance(element, Heading):
                 self._draw_text_block(
                     stream,
@@ -862,6 +876,12 @@ class Renderer:
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, document, sheet)
 
+            node_id = getattr(element, "id", None)
+            if node_id:
+                for child in root.children[struct_before:]:
+                    if child.node_id is None:
+                        child.node_id = node_id
+
         for placed_note in page_footnotes:
             self._draw_footnote_area(
                 stream, placed_note, page_index, root, font_registry
@@ -905,6 +925,39 @@ class Renderer:
             for key in sorted(svg_fonts):
                 self._svg_fonts.setdefault(key, svg_fonts[key])
         return stream.to_bytes(), root
+
+    def _block_width(self, placed, page_spec) -> float:
+        """Horizontal extent of a placed block for its layout-map bbox."""
+        if getattr(placed.block, "full_page", False):
+            return page_spec.content_width
+        cols = getattr(page_spec, "columns", 1)
+        if cols > 1:
+            gap = page_spec.column_gap
+            col_w = (page_spec.content_width - gap * (cols - 1)) / cols
+            near_left = abs(placed.x - page_spec.margin_left) < 0.5
+            if near_left and placed.height and page_spec.content_width - col_w > 0.5:
+                # Column-spanning blocks are placed at the left margin.
+                span = getattr(placed.block.element, "style", None)
+                if span is not None and getattr(span, "column_span", None):
+                    return page_spec.content_width
+            return col_w
+        return page_spec.content_width
+
+    def _record_layout(self, document, placed, page_index) -> None:
+        """Add one node-id -> page/bbox entry from a placed block's geometry."""
+        node_id = getattr(placed.block.element, "id", None)
+        if not node_id:
+            return
+        width = self._block_width(placed, document.page)
+        box = round_bbox(
+            placed.x,
+            placed.y - placed.height,
+            placed.x + width,
+            placed.y,
+        )
+        entry = {"page": page_index}
+        entry.update(box)
+        self._layout_map.setdefault(node_id, []).append(entry)
 
     def _resolve_font(self, style, run, registry) -> tuple:
         family = (
