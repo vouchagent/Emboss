@@ -61,6 +61,10 @@ def build() -> Document:
 
 if __name__ == "__main__":
     document = build()
-    output = Path(sys.argv[1] if len(sys.argv) > 1 else "legal_pleading.pdf")
+    output = Path(
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else Path(__file__).resolve().parent / "output" / "legal_pleading.pdf"
+    )
     document.save(output)
     print(f"wrote {output}")

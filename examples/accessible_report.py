@@ -58,6 +58,10 @@ if __name__ == "__main__":
     again = document.render()
     print(f"\ndeterministic: {again == result.data}")
 
-    output = Path(sys.argv[1] if len(sys.argv) > 1 else "accessible_report.pdf")
+    output = Path(
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else Path(__file__).resolve().parent / "output" / "accessible_report.pdf"
+    )
     output.write_bytes(result.data)
     print(f"wrote {output}")
