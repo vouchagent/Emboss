@@ -91,8 +91,8 @@ doc.table(
     caption="The numbers behind this table are embedded in the file.",
 )
 doc.paragraph(
-    "To view it in Acrobat: View then Show/Hide then Side panels then "
-    "Attachments (or click the paperclip icon), then open table-1-data.csv."
+    "To open it in Acrobat: View -> Show/Hide -> Side panels -> "
+    "Attachments, then double-click table-1-data.csv."
 )
 doc.callout(
     "For an enterprise this closes a real gap. The figure an executive "

@@ -24,6 +24,7 @@ __all__ = [
     "Token",
     "tokenize",
     "colorize",
+    "wrap_colored",
     "THEMES",
     "LANGUAGES",
 ]
@@ -694,3 +695,54 @@ LANGUAGES = sorted(
 def colorize(tokens: list[Token], theme: str = "dark_modern") -> list[tuple[str, str]]:
     colors = THEMES.get(theme, THEMES["dark_modern"])
     return [(t.text, colors.get(t.type, colors["plain"])) for t in tokens]
+
+
+def wrap_colored(colored, measure, max_width: float) -> list:
+    """Wrap colored tokens into visual rows that each fit ``max_width``.
+
+    ``measure(text)`` returns the rendered width of a string. Rows break
+    between tokens; a single token wider than the row is split at the
+    character level so nothing is ever dropped. Returns a list of rows,
+    each a list of ``(text, color)`` segments. Always at least one row.
+    """
+    rows: list = [[]]
+    cur_w = 0.0
+    if max_width <= 0:
+        return [[(t, c) for t, c in colored if t]]
+
+    for text, color in colored:
+        if not text:
+            continue
+        w = measure(text)
+        if w <= max_width:
+            if rows[-1] and cur_w + w > max_width:
+                rows.append([])
+                cur_w = 0.0
+            rows[-1].append((text, color))
+            cur_w += w
+            continue
+        remaining = text
+        while remaining:
+            avail = max_width - cur_w
+            if avail <= 0 and rows[-1]:
+                rows.append([])
+                cur_w = 0.0
+                avail = max_width
+            piece = ""
+            pw = 0.0
+            for ch in remaining:
+                cw = measure(ch)
+                if piece and pw + cw > max_width - cur_w:
+                    break
+                piece += ch
+                pw += cw
+            if not piece:
+                piece = remaining[0]
+                pw = measure(piece)
+            rows[-1].append((piece, color))
+            cur_w += pw
+            remaining = remaining[len(piece) :]
+            if remaining:
+                rows.append([])
+                cur_w = 0.0
+    return rows

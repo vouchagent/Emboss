@@ -746,6 +746,8 @@ class LayoutEngine:
         )
 
     def _measure_code_block(self, element, width: float) -> MeasuredBlock:
+        from ..code_highlight import colorize, tokenize, wrap_colored
+
         style = self.sheet.resolved(self.sheet.body, element.style)
         code_size = style.require("font_size") * 0.85
         metrics = self.fonts.resolve("Courier", bold=False, italic=False)
@@ -753,7 +755,21 @@ class LayoutEngine:
 
         lines = element.code.split("\n")
         padding = 10.0
-        total = 2 * padding + len(lines) * line_height
+        gutter_width = 0.0
+        if element.line_numbers:
+            max_num = str(element.start_line + len(lines) - 1)
+            gutter_width = metrics.text_width(max_num + "  ", code_size)
+        max_text_width = width - 2 * padding - gutter_width
+
+        def _mw(text: str) -> float:
+            return metrics.text_width(text, code_size)
+
+        visual_rows = 0
+        for line in lines:
+            colored = colorize(tokenize(line, element.language), element.theme)
+            rows = wrap_colored(colored, _mw, max_text_width)
+            visual_rows += max(1, len(rows))
+        total = 2 * padding + visual_rows * line_height
 
         if element.caption:
             total += code_size + 6.0

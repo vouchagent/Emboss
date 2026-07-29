@@ -2387,7 +2387,12 @@ class Renderer:
         registry,
         page_content_width: float = 468.0,
     ) -> None:
-        from .code_highlight import tokenize, colorize, THEME_BACKGROUNDS
+        from .code_highlight import (
+            THEME_BACKGROUNDS,
+            colorize,
+            tokenize,
+            wrap_colored,
+        )
 
         element = placed.block.element
         style = placed.block.style
@@ -2423,97 +2428,66 @@ class Renderer:
             gutter_width = metrics.text_width(max_num + "  ", code_size)
 
         max_text_width = content_width - 2 * padding - gutter_width
-        ellipsis_w = metrics.text_width("...", code_size)
+
+        def _mw(text: str) -> float:
+            return metrics.text_width(text, code_size)
 
         y = placed.y - padding
         for i, line_text in enumerate(lines):
             line_num = element.start_line + i
-            baseline = y - metrics.ascent(code_size)
+            colored = colorize(tokenize(line_text, element.language), element.theme)
+            rows = wrap_colored(colored, _mw, max_text_width) or [[]]
 
-            if element.highlight_lines and line_num in element.highlight_lines:
-                stream.save()
-                stream.rect(
-                    placed.x,
-                    y - line_height,
-                    content_width,
-                    line_height,
-                    fill="ffffff",
-                )
-                stream.restore()
+            for r, segments in enumerate(rows):
+                baseline = y - metrics.ascent(code_size)
 
-            if element.line_numbers:
-                num_str = str(line_num)
-                num_width = metrics.text_width(num_str, code_size)
-                num_x = (
-                    placed.x
-                    + padding
-                    + gutter_width
-                    - num_width
-                    - metrics.text_width("  ", code_size)
-                )
-                stream.text_line(
-                    num_str,
-                    key,
-                    code_size,
-                    num_x,
-                    baseline,
-                    "6a737d",
-                    gid_map=metrics.gid_map,
-                )
+                if element.highlight_lines and line_num in element.highlight_lines:
+                    stream.save()
+                    stream.rect(
+                        placed.x,
+                        y - line_height,
+                        content_width,
+                        line_height,
+                        fill="ffffff",
+                    )
+                    stream.restore()
 
-            tokens = tokenize(line_text, element.language)
-            colored = colorize(tokens, element.theme)
-
-            x = placed.x + padding + gutter_width
-            x_start = x
-            truncated = False
-            for text, color in colored:
-                if not text or truncated:
-                    continue
-                token_w = metrics.text_width(text, code_size)
-                if (x - x_start) + token_w > max_text_width - ellipsis_w:
-                    avail = max_text_width - ellipsis_w - (x - x_start)
-                    clipped = ""
-                    for ch in text:
-                        ch_w = metrics.text_width(ch, code_size)
-                        if avail < ch_w:
-                            break
-                        clipped += ch
-                        avail -= ch_w
-                    if clipped:
-                        stream.text_line(
-                            clipped,
-                            key,
-                            code_size,
-                            x,
-                            baseline,
-                            color,
-                            gid_map=metrics.gid_map,
-                        )
-                        x += metrics.text_width(clipped, code_size)
+                if element.line_numbers and r == 0:
+                    num_str = str(line_num)
+                    num_width = metrics.text_width(num_str, code_size)
+                    num_x = (
+                        placed.x
+                        + padding
+                        + gutter_width
+                        - num_width
+                        - metrics.text_width("  ", code_size)
+                    )
                     stream.text_line(
-                        "...",
+                        num_str,
                         key,
                         code_size,
-                        x,
+                        num_x,
                         baseline,
                         "6a737d",
                         gid_map=metrics.gid_map,
                     )
-                    truncated = True
-                    continue
-                stream.text_line(
-                    text,
-                    key,
-                    code_size,
-                    x,
-                    baseline,
-                    color,
-                    gid_map=metrics.gid_map,
-                )
-                x += token_w
 
-            y -= line_height
+                x = placed.x + padding + gutter_width
+                for text, color in segments:
+                    if not text:
+                        continue
+                    stream.text_line(
+                        text,
+                        key,
+                        code_size,
+                        x,
+                        baseline,
+                        color,
+                        gid_map=metrics.gid_map,
+                    )
+                    x += metrics.text_width(text, code_size)
+
+                y -= line_height
 
         stream.end_marked()
 
