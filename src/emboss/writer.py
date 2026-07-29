@@ -1271,6 +1271,16 @@ class Renderer:
         y = baseline + size * 0.28
         stream.line(x, y, x + width, y, color=color, width=max(size * 0.06, 0.4))
 
+    def _draw_underline(
+        self, stream, metrics, size: float, x: float, baseline: float, text, color
+    ) -> None:
+        """Underline a fragment with a rule below the baseline, in text color."""
+        width = metrics.text_width(text, size)
+        if width <= 0:
+            return
+        y = baseline - size * 0.12
+        stream.line(x, y, x + width, y, color=color, width=max(size * 0.06, 0.4))
+
     def _draw_text_block(
         self, stream, placed, page_index, root, registry, tag: str
     ) -> None:
@@ -1330,6 +1340,10 @@ class Renderer:
                     stream.raw(b"EMC")
                 if run.strikethrough:
                     self._draw_strikethrough(
+                        stream, metrics, size, x, baseline, text, color
+                    )
+                if run.underline:
+                    self._draw_underline(
                         stream, metrics, size, x, baseline, text, color
                     )
                 if run.link:
@@ -1495,6 +1509,16 @@ class Renderer:
                             text,
                             run.color or color,
                         )
+                    if run.underline:
+                        self._draw_underline(
+                            stream,
+                            run_metrics,
+                            run_size,
+                            x,
+                            baseline,
+                            text,
+                            run.color or color,
+                        )
                 y -= line.height
             stream.end_marked()
             y -= style.require("space_after")
@@ -1594,6 +1618,16 @@ class Renderer:
                             text,
                             run.color or color,
                         )
+                    if run.underline:
+                        self._draw_underline(
+                            stream,
+                            run_metrics,
+                            run_size,
+                            x,
+                            baseline,
+                            text,
+                            run.color or color,
+                        )
                 y -= line.height
             stream.end_marked()
             y -= style.require("space_after")
@@ -1645,6 +1679,10 @@ class Renderer:
                 )
                 if run.strikethrough:
                     self._draw_strikethrough(
+                        stream, metrics, size, x, baseline, text, run.color or color
+                    )
+                if run.underline:
+                    self._draw_underline(
                         stream, metrics, size, x, baseline, text, run.color or color
                     )
             y -= line.height

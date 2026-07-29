@@ -22,19 +22,25 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 
 ## Table of Contents
 
+- [Built for Enterprise](#built-for-enterprise)
 - [Why Emboss](#why-emboss)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [EmbossSpec Format](#embossspec-format)
 - [Document Elements](#document-elements)
 - [Style Presets](#style-presets)
+- [BrandKit](#brandkit)
 - [Typography Engine](#typography-engine)
 - [Layout System](#layout-system)
-- [Accessibility (PDF/UA)](#accessibility-pdfua)
+- [Accessibility and Conformance (PDF/UA)](#accessibility-and-conformance-pdfua)
+- [Self-Describing PDFs](#self-describing-pdfs)
+- [Document Diff and Redline](#document-diff-and-redline)
 - [Templates](#templates)
+- [Executive Decks](#executive-decks)
 - [Domain Features](#domain-features)
 - [Cross-References and Numbering](#cross-references-and-numbering)
 - [SVG Embedding](#svg-embedding)
+- [Diagrams](#diagrams)
 - [Multi-Column Layout](#multi-column-layout)
 - [Math Notation](#math-notation)
 - [Code Blocks](#code-blocks)
@@ -42,6 +48,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 - [PDF/A Archival Output](#pdfa-archival-output)
 - [CMYK and Print Production](#cmyk-and-print-production)
 - [Digital Signatures](#digital-signatures)
+- [Redaction](#redaction)
 - [Validation](#validation)
 - [Adapters](#adapters)
 - [API Reference](#api-reference)
@@ -50,6 +57,25 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 - [Architecture](#architecture)
 - [Roadmap](#roadmap)
 - [License](#license)
+
+---
+
+## Built for Enterprise
+
+Emboss is built around guarantees that matter once a PDF leaves a notebook and enters a filing, an audit trail, or a distribution pipeline -- not marketing claims, but specific, checkable code paths.
+
+- **Deterministic, hash-verifiable output.** The same `Document` always renders to the same bytes: no timestamps, no random identifiers, the file `/ID` derived from content. Two runs, two machines, one hash -- renders are byte-diffable in CI.
+- **PDF/UA tagged by default, with real conformance evidence.** Every document ships a complete structure tree, and `emboss verify out.pdf --conformance 2b` (also `ua1`, `3b`) shells out to the actual veraPDF CLI and reports its verdict. This is not a simulated check: the CI conformance job installs the real veraPDF binary and runs the test suite against it on every push (`.github/workflows/ci.yml`).
+- **Self-describing PDFs.** `doc.render(embed_spec=True)` embeds the document's own EmbossSpec JSON, its node-keyed layout map, and a reflowable Markdown twin as real `/AF` file attachments. `Document.from_pdf()` reconstructs an equivalent document from those attachments, and falls back to walking the PDF/UA structure tree -- recovering headings, paragraphs, tables, and lists in order -- if the attachments were stripped.
+- **Stable node ids and a queryable layout map.** Every block gets a deterministic id and a page/bounding-box entry in `doc.layout_map()`: the foundation for auditing, redlining, and programmatic review of what landed where on the page.
+- **Document diff and redline.** `diff_documents()` matches blocks between two documents by node id and classifies each as added, removed, or changed, with a word-level diff on text-bearing blocks; `render_redline()` turns that into a real PDF with struck-through deletions, underlined insertions, margin change-bars on added content, and a summary page. Also available as `emboss diff old.pdf new.pdf -o redline.pdf` from the command line.
+- **A reproducibility manifest.** `doc.render(manifest=True)` attaches a deterministic `emboss-manifest.json`: the spec's sha256, the Emboss version, every embedded font's sha256, and any non-default render options. `emboss.reproduce()` (and `emboss reproduce report.pdf`) closes the loop: recover the document, re-render it, and structurally verify the two PDFs agree.
+- **Redaction by construction.** `Document.redact(rules)` matches whole blocks by node id, regex, predicate, or type and removes or replaces them *before* layout, so redacted text never reaches a content stream -- not a black box painted over extractable text.
+- **DocMDP certification signatures.** `sign_pdf(..., certify=True, docmdp_permission=...)` produces an ISO 32000-1 certification signature declaring what changes (if any) are permitted after signing.
+- **BrandKit.** A single versioned brand object (palette, fonts, logo) applies across every document built from it, so a rebrand touches one object instead of every document.
+- **CMYK and PDF/A archival output** for print production and long-term retention pipelines.
+- **Long-form apparatus**: numbered appendices, an alphabetized back-of-book index with resolved page numbers, a glossary with auto-linked first occurrences, and a visible table of contents with real page numbers and dot leaders.
+- **`emboss strip`** removes embedded files, provenance-revealing metadata, and internal structure-tree node ids from a rendered PDF before it goes to an external party.
 
 ---
 
@@ -93,7 +119,7 @@ pip install emboss-pdf[dev]       # full dev environment (pytest, mypy, ruff)
 
 ### Bundled Fonts
 
-An OFL-licensed font set ships with the package (Source Serif 4, Source Sans 3, Source Code Pro; ~2.7MB, Latin, Greek, and Cyrillic coverage). Registering it gives embedded fonts with full kerning and ligatures, no system font files required:
+An OFL-licensed font set ships with the package (Source Serif 4, Source Sans 3, Source Code Pro; ~2.7MB, Latin, Greek, and Cyrillic coverage), plus Emboss Math, a modified subset of STIX Two Math carrying the mathematical alphanumeric glyphs used by `\mathbb`/`\mathcal`/`\mathfrak`. Registering the set gives embedded fonts with full kerning and ligatures, no system font files required:
 
 ```python
 from emboss import Document
@@ -103,7 +129,7 @@ doc = Document(title="Report")
 register_bundled_fonts(doc.fonts)
 ```
 
-The families are also available under the aliases `"emboss serif"`, `"emboss sans"`, and `"emboss mono"`.
+The three text families are also available under the aliases `"emboss serif"`, `"emboss sans"`, and `"emboss mono"`. Two lower-level helpers, `bundled_font_path(family, bold=, italic=)` and `BUNDLED_FAMILIES`, are available for callers that want the file paths directly.
 
 ---
 
@@ -249,7 +275,18 @@ The spec is the single source of truth. From it, Emboss derives:
 | `SvgBlock` | Inline SVG vector graphic | `source`, `width`, `height` |
 | `BibliographyBlock` | Formatted citation list | `citations` |
 | `HorizontalRule` | Visual separator | `thickness`, `color` |
-| `PageBreak` | Force a page break | -- |
+| `PageBreak` | Force a page break (optionally to a named `page_styles` geometry) | `page_style` |
+| `BlockQuote` | Quoted passage set off with an accent bar | `content`, `attribution` |
+| `CoverPage` | Full-page title composition, forces a page break | `title`, `subtitle`, `authors`, `date`, `kicker` |
+| `Abstract` | Indented abstract block with a keywords line | `text`, `keywords` |
+| `Authors` | Centered grid of author entries | `authors` (name, affiliation, email) |
+| `PullQuote` | Large-type offset quotation | `text`, `attribution` |
+| `StatTiles` | Row of bordered statistic tiles, colored deltas | `stats` (label, value, delta) |
+| `TableOfContents` | Visible listing with dot leaders and page numbers | `title`, `depth`, `source` (headings/figures/tables) |
+| `Appendix` | Lettered section (Appendix A, B, ...) with its own `A.1` numbering | `title`, `content` |
+| `Index` | Back-of-book index resolved from `index_terms` marks | `title` |
+| `Glossary` | Alphabetized term/definition list with auto-linked first occurrences | `entries`, `title` |
+| Diagram | Node/edge graph with automatic layout, via `doc.diagram(...)` | `nodes`, `edges`, `direction`, `caption` |
 
 ### Inline Formatting
 
@@ -296,6 +333,34 @@ custom = StyleSheet(
 )
 doc = Document(style=custom)
 ```
+
+---
+
+## BrandKit
+
+A `BrandKit` is an immutable, versioned brand object layered on top of any style preset at render time. Set it once on the document and colors, fonts, and footer text propagate everywhere, so a rebrand is a single-object change rather than a find-and-replace across every document.
+
+```python
+from emboss import Document, BrandKit
+
+brand = BrandKit(
+    name="Acme",
+    version="2.1",
+    primary="1f4e79",
+    accent="1f8a70",
+    ink="1a1a1a",
+    muted="6b7280",
+    heading_font="Emboss Serif",
+    body_font="Emboss Sans",
+    footer_text="Acme Corp -- Confidential",
+)
+
+doc = Document(title="Board Deck", style="corporate", brand=brand)
+```
+
+- Heading and table-header colors take the brand `primary`; body and secondary text take `ink`/`muted`. Any brand color that fails 4.5:1 contrast against white is automatically darkened for text use, while the raw brand color is kept for fills and rules.
+- `brand.series_palette(n)` returns a deterministic N-color chart palette derived from `primary` and `accent` (or the explicit `palette` tuple, padded with derived colors if it runs short) -- charts under a brand stay on-brand without hand-picked colors.
+- `brand.to_dict()` / `BrandKit.from_dict()` round-trip a brand kit through JSON (logo bytes travel as base64), for storing a brand centrally and loading it per render.
 
 ---
 
@@ -359,6 +424,26 @@ page = PageSpec(
 
 # Multi-column layout
 page = PageSpec.a4(columns=2, column_gap=18)
+
+# A4 landscape, tuned for wide tables and diagrams
+page = PageSpec.a4(landscape=True)
+```
+
+Also built in: `PageSpec.a5()` and the tight-margin `PageSpec.compact()` (A5, tuned for phone and tablet PDF readers).
+
+### Per-Section Page Geometry
+
+A document can switch page geometry mid-flow for one wide table or diagram, then switch back, via `page_styles` and `PageBreak.page_style`:
+
+```python
+doc = Document(
+    title="Annual Report",
+    page_styles={"wide": PageSpec.a4(landscape=True)},
+)
+doc.paragraph("Portrait content here.")
+doc.page_break(page_style="wide")   # subsequent pages use the wide geometry
+doc.table(headers=[...], rows=[...])
+doc.page_break()                    # no page_style: reverts to the document default
 ```
 
 ### Pagination Features
@@ -371,7 +456,7 @@ page = PageSpec.a4(columns=2, column_gap=18)
 
 ---
 
-## Accessibility (PDF/UA)
+## Accessibility and Conformance (PDF/UA)
 
 Every document is tagged with a complete PDF/UA structure tree:
 
@@ -389,6 +474,127 @@ from emboss.pdf.verify import verify_pdf
 
 result = verify_pdf(doc.render())
 print(result)  # VerificationReport(ok=True, has_struct_tree=True, ...)
+```
+
+`verify_pdf` is a structural check on the bytes Emboss just wrote (well-formed xref, matching object offsets, a present structure tree). It is not a conformance check by itself.
+
+### Real veraPDF Conformance
+
+For actual ISO conformance, `emboss.pdf.verify.verify_conformance` (and the `emboss verify --conformance` CLI flag) invoke the real veraPDF CLI as a subprocess and parse its JSON report -- this is not a simulation, and it is not optional in CI: the `conformance` job in `.github/workflows/ci.yml` installs the official veraPDF binary and runs the test suite against it on every push and pull request.
+
+```bash
+emboss verify report.pdf --conformance 2b     # PDF/A-2b
+emboss verify report.pdf --conformance ua1    # PDF/UA-1
+emboss verify report.pdf --conformance 3b     # PDF/A-3b (with attachments)
+```
+
+```python
+from emboss.pdf.verify import verify_conformance
+
+report = verify_conformance(doc.render(), flavour="ua1")
+print(report.compliant)    # bool
+print(report.violations)   # list[RuleViolation]: clause, description, count
+```
+
+Requires the `verapdf` executable on `PATH`, or `VERAPDF_PATH` pointing at it; otherwise `verify_conformance` raises with an install hint rather than silently skipping the check.
+
+---
+
+## Self-Describing PDFs
+
+A rendered PDF can carry enough of its own provenance to be reconstructed later, without a side channel or a database lookup.
+
+```python
+doc = Document(title="Q3 Report", style="finance")
+doc.heading("Revenue", level=1)
+doc.paragraph("Revenue increased 12% year over year.")
+
+pdf_bytes = doc.render(embed_spec=True)
+```
+
+`embed_spec=True` attaches three real `/AF` (associated file) attachments to the PDF:
+
+| Attachment | Contents | `/AFRelationship` |
+|------------|----------|--------------------|
+| `emboss-spec.json` | The canonical EmbossSpec JSON for exact reconstruction | `Source` |
+| `emboss-layout.json` | The node id -> page/bounding-box layout map | `Supplement` |
+| `emboss-doc.md` | A reflowable Markdown twin of the document | `Alternative` |
+
+```python
+from emboss import Document
+
+recovered = Document.from_pdf("report.pdf")
+```
+
+`Document.from_pdf` tries the embedded `emboss-spec.json` first, an exact reconstruction. If it is missing (or `strict=True` is not set and no attachment was ever embedded), it falls back to a degraded reconstruction by walking the PDF/UA structure tree and pulling text out of the content streams by marked-content id: headings, paragraphs, tables, lists, block quotes, footnotes, and code blocks come back with correct text and order (and their original stable node ids), even when styling and exact spec fields are lost. Pass `strict=True` to require the exact path and raise instead.
+
+```python
+layout = doc.layout_map()
+# {"n1a2b3c4": [{"page": 0, "x0": 72.0, "y0": 690.2, "x1": 540.0, "y1": 706.4}], ...}
+```
+
+Every top-level block gets a stable id -- an explicit one if you set it, otherwise a deterministic token derived from the element's type, position, and content, so the same document assigns the same ids on any machine and across runs. `doc.layout_map()` resolves every id to where it actually landed on the page, in PDF coordinates. Node ids and the layout map are the mechanism behind `from_pdf` recovery, the diff/redline tooling below, and any downstream annotation or programmatic-review workflow that needs to key off "this specific block, wherever it ends up."
+
+Before a PDF leaves the building, `emboss strip` removes all of this:
+
+```bash
+emboss strip report.pdf -o external.pdf
+```
+
+```python
+from emboss import strip_pdf
+
+clean_bytes = strip_pdf(pdf_bytes)
+```
+
+`strip_pdf` operates on already-rendered bytes: it drops the `/AF` attachments and the `/Names /EmbeddedFiles` tree, clears `/Producer` and `/Creator` plus the XMP `CreatorTool`/document-history fields, and removes the structure tree's `/IDTree` and per-element `/ID` node ids -- while keeping Title, Author, and date fields. Output stays deterministic.
+
+### Reproducibility Manifest
+
+Beyond recovering a document's content, `manifest=True` records what it takes to reproduce its exact rendered bytes:
+
+```python
+pdf_bytes = doc.render(manifest=True)   # attaches emboss-manifest.json
+```
+
+The manifest is a deterministic JSON summary: the spec's sha256, the running Emboss version, every embedded font's sha256, and any render options that differ from their defaults (`pdfa`, `color_mode`, `tagged`, `toc`, `page_number_format`, `page_numbers`, `front_matter_pages`). `doc.reproducibility_manifest(...)` builds the same dict without rendering.
+
+```bash
+emboss reproduce report.pdf
+```
+
+```python
+from emboss import reproduce
+
+report = reproduce("report.pdf")   # recover -> re-render -> structurally compare
+print(report.ok)                   # bool
+```
+
+`reproduce()` recovers the document from the PDF (via the embedded spec, or the degraded structure-tree path), re-renders it, and reports whether the two PDFs agree structurally -- same page count and same visible text per page, not a byte-for-byte match (attaching a manifest to the reproduction would itself shift bytes across the attachment boundary). A way to catch drift between what a PDF claims to be and what actually generated it.
+
+### Node-Scoped Patching
+
+`doc.patch(node_id, **changes)` returns a new `Document` with the one block carrying `node_id` replaced (`dataclasses.replace(block, **changes)` under the hood) -- everything else, and the original document, untouched. Useful when a caller (an LLM given one block's id and a small diff, or an editing UI) only needs to change a single block without regenerating the whole spec.
+
+---
+
+## Document Diff and Redline
+
+`diff_documents` matches blocks between two documents by their stable node id (assigning ids first if either side lacks them), and classifies each as added, removed, changed, or unchanged. A matched pair counts as "changed" only when both sides already carry the same id for that block -- typically because the id was assigned once (an explicit `id=`, a prior render) and the block was edited in place rather than replaced.
+
+```python
+from emboss import diff_documents, render_redline
+
+result = diff_documents(old_doc, new_doc)
+print(len(result.added), len(result.removed), len(result.changed))
+
+redline_bytes = render_redline(old_doc, new_doc, result)
+```
+
+`render_redline` renders the new document through the normal measure/paginate/render pipeline with revision marks baked in, not overlaid: deleted words struck through in crimson, inserted words underlined in forest green, added blocks marked with a real measured change-bar in the left margin, and a prepended summary page listing what was removed. Changed headings and pull quotes keep their new text with a redlined note paragraph underneath, since they carry no per-run styling to inline a word diff into.
+
+```bash
+emboss diff old.pdf new.pdf -o redline.pdf
 ```
 
 ---
@@ -416,6 +622,32 @@ doc.save("invoice.pdf")
 ```
 
 Available templates: `memo`, `report`, `letter`, `invoice`, `academic_paper`, `legal_brief`, `slide_deck`, `data_sheet`.
+
+---
+
+## Executive Decks
+
+`SlideDeck` builds a presentation deck from designed slide layouts, complete color themes, and a fit-to-slide guarantee: no slide ever spills onto a continuation page.
+
+```python
+from emboss.slides import SlideDeck
+
+deck = SlideDeck("Q3 Board Review", presenter="Ana Ruiz", date="Oct 2026", theme="boardroom")
+deck.title_slide(subtitle="Board update")
+deck.section_divider("Results")
+deck.stat_slide("Key metrics", [("ARR", "$12.4M", "+18%"), ("Churn", "2.1%", "-0.3%")])
+deck.bullet_slide("Highlights", ["Enterprise ARR up 22%", "Net retention at 118%"])
+deck.chart_slide("Growth", chart_element)
+deck.quote_slide("The window for category leadership is now.", attribution="CEO")
+deck.closing_slide("Thank you", contact="ana@acme.com")
+deck.save("board_deck.pdf")
+```
+
+- **Layouts**: `title_slide`, `section_divider`, `content_slide` (single or `layout="two-column"`), `bullet_slide`, `stat_slide`, `chart_slide`, `quote_slide`, `code_slide`, `closing_slide`.
+- **Four built-in themes**, each a complete, WCAG-contrast-checked color system: `boardroom` (navy and gold), `horizon` (dusk blue and coral), `carbon` (near-black and electric blue), `meadow` (forest and spring green). Aliases `default`, `dark`, `light`, `minimal` resolve to one of the four.
+- **Fit-to-slide**: every slide is measured after composition; if it would overflow, type and spacing scale down in steps (to a floor of 0.8x) until it fits one slide, or a clear error names which slide and by how much it overflowed rather than silently clipping content.
+- Charts dropped into a themed deck automatically pick up the theme's chart palette unless colors are set explicitly.
+- `deck.build()` returns the underlying `Document` for further customization before `.render()`/`.save()`.
 
 ---
 
@@ -494,7 +726,7 @@ Section numbering is available by setting `number_sections = True` on the docume
 
 ## SVG Embedding
 
-Embed SVG vector graphics as native PDF paths (no rasterization):
+Embed SVG vector graphics as native PDF paths, no rasterization:
 
 ```python
 doc.svg("""
@@ -505,7 +737,48 @@ doc.svg("""
 """, width=200, height=100)
 ```
 
-Supported elements: `rect`, `circle`, `ellipse`, `line`, `polygon`, `polyline`, `path` (M/L/H/V/C/Z commands).
+A substantial subset of static SVG is supported, using only the standard library:
+
+- **Shapes**: `rect`, `circle`, `ellipse`, `line`, `polygon`, `polyline`.
+- **Full path data**: `path` supports `M/L/H/V/C/S/Q/T/A/Z`, including relative lowercase forms and implicit command repetition -- elliptical arcs (`A`) are converted to cubic Bezier segments.
+- **Transforms**: `translate`, `scale`, `rotate` (with an optional pivot), `skewX`, `skewY`, and `matrix`, composed correctly through nested `<g>` groups.
+- **Gradients**: `linearGradient` and `radialGradient`, including `href` stop inheritance, rendered as banded fills; `gradient_shading` builds the equivalent true PDF type 2/3 `/Shading` dictionary for callers wiring page resources directly.
+- **Clipping**: `clipPath` compiles to a real PDF clip (`W n`).
+- **Opacity**: element and group `opacity`/`fill-opacity`/`stroke-opacity` emit real `ExtGState` (`gs`) operators, not simulated transparency.
+- **Text**: `<text>` with `text-anchor`, using base-14 metrics mapped from the requested `font-family`.
+- **`<use>`/`<defs>`**: reference-based reuse with a bounded reference depth to guard against cycles.
+- Excluded by design: filters, animation, masks, patterns, and CSS beyond the `style` attribute.
+
+---
+
+## Diagrams
+
+Node/edge graphs (architecture diagrams, flowcharts, state machines) with automatic layout: no coordinates to compute by hand.
+
+```python
+doc.diagram(
+    nodes=[
+        {"id": "api", "label": "API Gateway"},
+        {"id": "auth", "label": "Auth Service"},
+        {"id": "db", "label": "User Store", "shape": "store"},
+        {"id": "ok", "label": "Response", "shape": "rounded"},
+    ],
+    edges=[
+        {"src": "api", "dst": "auth", "label": "verify"},
+        {"src": "auth", "dst": "db"},
+        {"src": "db", "dst": "auth", "style": "dashed"},
+        {"src": "auth", "dst": "ok"},
+    ],
+    caption="Login flow",
+)
+```
+
+- **Layout is automatic**: a longest-path layering assigns nodes to layers, barycenter sweeps order nodes within each layer to reduce edge crossings, and cycles are handled by reversing back edges for layout purposes while rendering them along their true direction.
+- **Node shapes**: `box`, `rounded`, `decision` (diamond), `store` (database cylinder), `start_end` (pill).
+- **Edges**: solid or `style="dashed"`, with optional labels; self-loops render as a small loop back into the node.
+- Renders as native vector graphics (an `SvgBlock` under the hood), with a deterministic, auto-generated `/Alt` description summarizing the node and edge count -- no diagram ships without accessible alt text.
+- Also available as a fenced Markdown block: a ` ```diagram ` fence with `id: Label [shape]` node lines, `a -> b: label` (or `-->` for dashed) edge lines, and an optional `direction: right` line.
+- Lower-level API: `emboss.diagrams.layout_diagram`, `render_diagram_svg`, `diagram_alt_text`, and the `DiagramNode`/`DiagramEdge` dataclasses.
 
 ---
 
@@ -539,9 +812,36 @@ doc.math(r"f(x) = \begin{cases} x^2 & x \ge 0 \\ -x & x < 0 \end{cases}")
 
 Supported: superscripts, subscripts, fractions (`\frac`), square roots (`\sqrt`), integrals, summations, Greek letters, `\text{}`, `\mathcal`, `\mathbb`, `\mathbf`, `\mathrm`, `\operatorname`, and more.
 
-Environments: `matrix`, `pmatrix`, `bmatrix`, `vmatrix`, `Bmatrix`, `cases`, `aligned`, `align`, `align*`, `split`, `gathered`, `gather`, `gather*`.
+### Environments
 
-Layout quality comes from real metrics, not approximations: glyph dimensions use the base-14 AFM tables (Times italic for variables, Times roman for text, Symbol for operators), inter-atom spacing follows the TeX spacing classes (thin, medium, thick), and in display mode `\sum`, `\prod`, `\int`, and `\lim` place their limits above and below the operator.
+`\begin{...}` with `&` column separators and `\\` row breaks:
+
+- Matrices: `matrix`, `pmatrix`, `bmatrix`, `vmatrix`, `Bmatrix`
+- Piecewise: `cases`
+- Aligned equations: `aligned`, `align`, `align*`, `split`
+- Gathered equations: `gathered`, `gather`, `gather*`
+
+### Real Math Alphabets
+
+`\mathbb`, `\mathcal`/`\mathscr`, and `\mathfrak` render actual double-struck, script, and fraktur glyphs (Unicode Mathematical Alphanumeric Symbols, with the letterlike-symbol exceptions like `\mathbb{R}` and `\mathcal{H}` mapped to their reserved codepoints) from the bundled Emboss Math font, not a font-substitution approximation:
+
+```python
+doc.math(r"\mathbb{R}^n \to \mathcal{H}")
+```
+
+### MathML Input
+
+Presentation MathML is accepted alongside LaTeX. `parse_math` (and `MathBlock`/`doc.math`) auto-detects a source starting with `<math` and routes it through `emboss.mathml.parse_mathml` into the same AST the LaTeX parser produces, so layout and rendering are shared:
+
+```python
+doc.math('<math><mfrac><mi>a</mi><mi>b</mi></mfrac></math>')
+```
+
+Supported elements: `mi`/`mn`/`mo` tokens, `mrow`, `mfrac`, `msqrt`/`mroot`, `msup`/`msub`/`msubsup`, `munder`/`mover`/`munderover` (mapped onto the display-limit machinery), `mtable`/`mtr`/`mtd`, `mfenced`, `mtext`, `mspace`, `mstyle`, and `semantics` (annotations ignored). HTML5/MathML named entities are expanded and namespaces stripped, using only the standard library; malformed input raises `ValueError` rather than rendering garbage.
+
+### Layout Quality
+
+Layout comes from real metrics, not approximations: glyph dimensions use the base-14 AFM tables (Times italic for variables, Times roman for text, Symbol for operators), inter-atom spacing follows the TeX spacing classes (thin, medium, thick), and in display mode `\sum`, `\prod`, `\int`, and `\lim` place their limits above and below the operator.
 
 ---
 
@@ -620,21 +920,56 @@ doc.save("print_run.pdf")
 
 ## Digital Signatures
 
-Sign PDFs with X.509 certificates:
+Sign PDFs with X.509 certificates. A visual signature field is placed at render time; the PKCS#7 signature is injected afterward:
 
 ```python
+from emboss import Document, SignatureField
 from emboss.signing import sign_pdf
 
-signed_bytes = sign_pdf(
-    pdf_bytes,
-    cert_path="signer.pem",
-    key_path="signer-key.pem",
-    reason="Approved",
-    location="San Francisco",
+doc = Document(
+    title="Approval",
+    signatures=[
+        SignatureField(
+            page_index=0, x=360, y=60, signer_name="Jane Doe",
+            reason="Approved", location="San Francisco",
+        )
+    ],
 )
+pdf_bytes = doc.render()
+
+signed_bytes = sign_pdf(pdf_bytes, "signer-key.pem", "signer.pem")
 ```
 
 Requires `pip install emboss-pdf[signing]`.
+
+### DocMDP Certification Signatures
+
+`sign_pdf(..., certify=True, docmdp_permission=2)` produces an ISO 32000-1 12.8.2.3 certification signature: the /DocMDP entry it asserts states what changes (if any) are permitted after signing (`1` forbids any further changes, `2` -- the default -- permits form fill-in and further signing, `3` additionally permits annotations). A certifying signature must be the document's first signature field; `build_docmdp_reference`, `build_certifying_signature`, and `build_perms_dict` (in `emboss.signing`) build the underlying /Reference, signature field, and catalog /Perms entries for callers assembling the PDF at a lower level than `Document.render`.
+
+---
+
+## Redaction
+
+Two redaction models are available, and they are not equally honest. **Construction-time redaction** (`Document.redact`) is the one to use for anything that actually matters: it matches whole content blocks -- by stable node id, a regex or predicate over the block's plain text, or element type -- and removes or replaces them *before* layout or rendering, so the real text never reaches a content stream.
+
+```python
+from emboss import Callout, RedactionRule
+
+rules = [
+    RedactionRule(name="ssn", pattern=r"\d{3}-\d{2}-\d{4}"),
+    RedactionRule(name="internal-notes", element_type=Callout, mode="remove"),
+]
+redacted_doc = doc.redact(rules)
+pdf_bytes = redacted_doc.render()
+
+redacted_doc.redaction_log   # what was removed, by which rule, before removal -- an audit trail, never auto-attached to output
+```
+
+`mode="placeholder"` (the default) replaces a matched block with same-length filler text so the layout doesn't visibly reflow, then covers the filler's own rendered footprint with an opaque box -- the box conceals filler, never the original content. `mode="remove"` drops the block outright. Placeholder mode covers the common text-bearing block types (`Heading`, `Paragraph`, `BlockQuote`, `Callout`, `Footnote`, `PullQuote`, `BulletList`, `NumberedList`, `Table`, `CodeBlock`); match other element types with `mode="remove"`.
+
+The older `RedactionMark`/`Document.redactions` mechanism draws opaque rectangles directly onto an already-rendered page and is kept for callers masking content that never went through a `Document` at all (it is also what the [diff/redline](#document-diff-and-redline) change-bars use) -- the underlying text is still in the content stream underneath the box, so it is not a substitute for construction-time redaction of real secret text.
+
+For payloads that need to travel with the PDF but stay opaque to anyone without a password, `Document.attach_encrypted(name, data, password)` queues an AES-256-GCM-encrypted `/AF` attachment (`relationship="EncryptedPayload"`), decrypted later with `emboss.decrypt_attachment`.
 
 ---
 
@@ -695,14 +1030,16 @@ Document(
     keywords="",           # Comma-separated keywords
     language="en-US",      # BCP 47 language tag
     style="corporate",     # Preset name or StyleSheet instance
+    brand=None,            # BrandKit layered on top of `style`
     page=PageSpec(),       # Page dimensions and margins
+    page_styles={},        # Name -> PageSpec, switched via PageBreak.page_style
     content=[],            # List of block elements
     header=None,           # HeaderFooter for page headers
     footer=None,           # HeaderFooter for page footers
     page_numbers=True,     # Show page numbers
     tagged=True,           # Generate PDF/UA structure tree
     legal=None,            # LegalFeatures (Bates, line numbers, watermark)
-    pdfa=False,            # Generate PDF/A-2b compliant output
+    pdfa=False,            # Generate PDF/A-2b (or -3b with embed_spec) output
     toc=False,             # Generate table of contents
     color_mode="rgb",      # "rgb" or "cmyk" (print production)
     signatures=None,       # Digital signature fields
@@ -719,15 +1056,22 @@ doc.numbered(items)
 doc.table(headers, rows)
 doc.image(source, width=None, caption=None)
 doc.chart(chart_type, labels, values)
+doc.diagram(nodes, edges=(), direction="down", caption=None)
 doc.code_block(code, language="text")
 doc.math(source)
 doc.footnote(content)
 doc.callout(content, variant="note")
 doc.svg(source)
 doc.rule()
-doc.page_break()
-doc.render() -> bytes
-doc.save(path)
+doc.page_break(page_style=None)
+doc.cover(title); doc.abstract(text); doc.authors(authors); doc.pull_quote(text)
+doc.stat_tiles(stats); doc.table_of_contents(); doc.appendix(title, *blocks)
+doc.index(); doc.glossary(entries)
+doc.render(linearize=False, embed_spec=False) -> bytes
+doc.save(path, linearize=False, embed_spec=False)
+doc.layout_map() -> dict
+
+Document.from_pdf(source, strict=False)   # recover a Document from a rendered PDF
 ```
 
 ---
@@ -812,34 +1156,47 @@ src/emboss/
     line_breaking.py    # Knuth-Plass line breaker
     hyphenation.py      # Knuth-Liang hyphenation
     ligatures.py        # fi/fl/ffi/ffl substitution
+    numbers.py          # Deterministic display number formatting
   pdf/
     assembler.py        # Low-level PDF object writer
     fonts.py            # Font resource building + subsetting
     objects.py          # PDF object types (Dict, Array, Stream)
     streams.py          # Content stream operators (text, shapes)
     tags.py             # PDF/UA structure tree builder
-    verify.py           # Structural verification
+    verify.py           # Structural verification + real veraPDF conformance
+    attachments.py      # /AF embedded-file attachments (PDF/A-3)
   adapters/
     html_export.py      # HTML export
     markdown_export.py  # Markdown export
     docx_export.py      # DOCX export
     pydantic_schema.py  # JSON Schema / Pydantic models for LLM
-  math_render.py        # LaTeX math parser + renderer
+  math_render.py        # LaTeX math parser + renderer, math alphabets
+  mathml.py             # Presentation MathML parser
   code_highlight.py     # Syntax highlighting
   charts.py             # Chart rendering
+  chart_facts.py        # Chart fact extraction + caption verification
   images.py             # Image handling
-  svg.py                # SVG parser + renderer
+  svg.py                # SVG parser + renderer (paths, gradients, clipping)
+  diagrams.py           # Node/edge diagram layout + SVG rendering
   crossref.py           # Cross-reference resolution
   numbering.py          # Figure/table auto-numbering
   templates.py          # Document templates
   bibliography.py       # Citation formatting
   colors.py             # Color palettes + theming
+  brandkit.py           # Versioned brand object
+  bundled_fonts.py      # Bundled OFL font set + registration
   intelligence.py       # Content analysis + smart typography
   toc.py                # Table of contents generation
-  pdfa.py               # PDF/A-2b conformance
+  pdfa.py               # PDF/A-2b/A-3b conformance
   signing.py            # Digital signatures
   redaction.py          # Content redaction
-  slides.py             # Slide/presentation layout
+  slides.py             # SlideDeck + slide/presentation layout
+  nodeid.py             # Stable node ids + layout map
+  recovery.py           # Spec embedding, from_pdf recovery, strip_pdf
+  manifest.py           # Reproducibility manifest + reproduce()
+  diff.py               # Node-keyed document diff + redline rendering
+  generate.py           # LLM prompt, structured generation, spec parsing
+  markdown.py           # Markdown -> EmbossSpec parser
 ```
 
 ---
@@ -853,7 +1210,8 @@ src/emboss/
 | 3 | Images, SVG, TOC, multi-column, templates | Done |
 | 4 | PDF/A, redaction, digital signatures | Done |
 | 5 | Cross-references, custom headers/footers, numbered lists | Done |
-| 6 | Micro-typography, GPOS kerning, performance, CMYK | In progress |
+| 6 | Micro-typography, GPOS kerning, performance, CMYK | Done |
+| 7 | BrandKit, SlideDeck, diagrams, MathML, real veraPDF conformance, self-describing PDFs (`embed_spec`/`from_pdf`/`strip`), document diff and redline, reproducibility manifest, construction-time redaction, DocMDP certification signatures, encrypted attachments, node-scoped patching | Done |
 
 ---
 

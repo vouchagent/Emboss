@@ -121,9 +121,35 @@ from .recovery import (
     recover_from_structure_tree,
     strip_pdf,
 )
+from .diff import DiffResult, diff_documents, render_redline, word_diff
 from .writer import RenderResult, render_document
+from .manifest import MANIFEST_FILENAME, ReproductionReport, build_manifest, reproduce
+from .redaction import (
+    RedactionMark,
+    RedactionRule,
+    apply_redactions,
+    decrypt_attachment,
+    encrypt_attachment,
+    redact_document,
+)
+from .signing import (
+    SignatureField,
+    build_acroform,
+    build_certifying_signature,
+    build_docmdp_reference,
+    build_perms_dict,
+    build_sig_field_dict,
+    build_signature_appearance,
+    can_sign,
+    sign_pdf,
+)
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+    __version__ = _pkg_version("emboss-pdf")
+except (ImportError, PackageNotFoundError):
+    __version__ = "0.2.0"
 
 __all__ = [
     "Document",
@@ -241,5 +267,28 @@ __all__ = [
     "SmartTypography",
     "TableIntelligence",
     "DocumentTypeDetector",
+    "DiffResult",
+    "diff_documents",
+    "render_redline",
+    "word_diff",
+    "MANIFEST_FILENAME",
+    "ReproductionReport",
+    "build_manifest",
+    "reproduce",
+    "RedactionMark",
+    "RedactionRule",
+    "apply_redactions",
+    "decrypt_attachment",
+    "encrypt_attachment",
+    "redact_document",
+    "SignatureField",
+    "build_acroform",
+    "build_certifying_signature",
+    "build_docmdp_reference",
+    "build_perms_dict",
+    "build_sig_field_dict",
+    "build_signature_appearance",
+    "can_sign",
+    "sign_pdf",
     "__version__",
 ]

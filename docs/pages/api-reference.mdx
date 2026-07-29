@@ -17,16 +17,20 @@ Document(
     keywords="",           # comma-separated
     language="en-US",      # BCP 47
     style="corporate",     # preset name or StyleSheet
+    brand=None,            # BrandKit, layered on top of `style`
     page=PageSpec(),       # geometry in points
+    page_styles={},        # name -> PageSpec, switched via PageBreak.page_style
     content=[],            # block elements
     header=None,           # HeaderFooter
     footer=None,           # HeaderFooter
     header_text=None,      # simple running header
     footer_text=None,
     page_numbers=True,
+    page_number_format="arabic",  # "arabic", "roman", or "ROMAN"
+    front_matter_pages=0,  # front pages numbered i, ii, ...; body restarts at 1
     tagged=True,           # PDF/UA structure tree
     legal=None,            # LegalFeatures
-    pdfa=False,            # PDF/A-2b conformance
+    pdfa=False,            # PDF/A-2b (or -3b, see below) conformance
     toc=False,             # auto table of contents
     color_mode="rgb",      # "rgb" or "cmyk"
     redactions=None,
@@ -45,24 +49,32 @@ doc.numbered(items)         # alias: numbered_list
 doc.table(headers, rows)
 doc.image(source, ...)
 doc.chart(chart_type, labels, values, ...)
+doc.diagram(nodes, edges=(), direction="down", caption=None, ...)
 doc.code_block(code, language="text", ...)
 doc.math(source, ...)
 doc.callout(content, variant="note", ...)
 doc.footnote(content, ...)
 doc.bibliography(citations, ...)
 doc.svg(source, ...)
-doc.rule(); doc.page_break()
-doc.render() -> bytes
-doc.save(path)
+doc.rule(); doc.page_break(page_style=None)
+doc.cover(title, ...); doc.abstract(text, ...); doc.authors(authors, ...)
+doc.pull_quote(text, ...); doc.stat_tiles(stats, ...)
+doc.table_of_contents(...); doc.appendix(title, *blocks)
+doc.index(title="Index", ...); doc.glossary(entries, title="Glossary", ...)
+doc.render(linearize=False, embed_spec=False) -> bytes
+doc.save(path, linearize=False, embed_spec=False)
+doc.layout_map() -> dict          # node id -> [{page, x0, y0, x1, y1}, ...]
 doc.fonts                   # FontRegistry for embedded fonts
 
 Document.from_markdown(text, **document_kwargs)
 Document.from_json(json_str, strict=False, smart=False, on_warning=None, **overrides)
+Document.from_llm(text, **kwargs)              # auto-detects JSON / MathML / Markdown
+Document.from_pdf(source, strict=False)        # recover a Document from a rendered PDF
 ```
 
 ## Block elements
 
-`Heading`, `Paragraph`, `TextRun`, `BulletList`, `NumberedList`, `Table`, `TableCell`, `Image`, `Chart`, `Series`, `CodeBlock`, `MathBlock`, `Callout`, `Footnote`, `BibliographyBlock`, `Citation`, `SvgBlock`, `HorizontalRule`, `PageBreak`. Supporting types: `PageSpec` (with `PageSpec.letter()`, `.a4()`, `.legal()` constructors), `HeaderFooter`, `LegalFeatures`. See the [EmbossSpec Format](/spec-format) for fields.
+`Heading`, `Paragraph`, `TextRun`, `BulletList`, `NumberedList`, `Table`, `TableCell`, `Image`, `Chart`, `Series`, `CodeBlock`, `MathBlock`, `Callout`, `Footnote`, `BibliographyBlock`, `Citation`, `SvgBlock`, `HorizontalRule`, `PageBreak`. Front matter and long-form apparatus: `CoverPage`, `Abstract`, `Author`, `Authors`, `PullQuote`, `Stat`, `StatTiles`, `TableOfContents` (and the `ListOfFigures`/`ListOfTables` convenience constructors), `Appendix`, `Index`, `GlossaryEntry`, `Glossary`. Also available (JSON tag `blockquote`): `BlockQuote`. Supporting types: `PageSpec` (with `PageSpec.letter()`, `.a4()`, `.a5()`, `.legal()`, `.compact()` constructors), `HeaderFooter`, `LegalFeatures`, `BrandKit`. See the [EmbossSpec Format](/spec-format) for fields.
 
 ## Rendering
 
@@ -94,6 +106,14 @@ from emboss import Style, StyleSheet, PRESETS, resolve_preset
 
 `PRESETS` maps the seven preset names to `StyleSheet` instances; `resolve_preset(name)` fetches one; `Style`/`StyleSheet` build custom themes.
 
+## BrandKit
+
+```python
+from emboss import BrandKit, apply_brand
+```
+
+`BrandKit(name, version="1.0", primary=, accent=, ink=, muted=, palette=(), heading_font=None, body_font=None, mono_font=None, footer_text="", logo=None)` -- an immutable, versioned brand; pass it as `Document(brand=...)`. `apply_brand(stylesheet, brand)` is what `Document.stylesheet` calls internally to layer it onto a preset. `brand.series_palette(n)` / `brand.derived_palette(n)` build a deterministic chart palette from `primary`/`accent`; `brand.to_dict()`/`BrandKit.from_dict()` round-trip through JSON. See [Color and Print](/color) for the contrast-safe color derivation.
+
 ## Typography
 
 ```python
@@ -118,7 +138,10 @@ See [Color and Print](/color).
 
 ```python
 from emboss import parse_math, render_math, MathExpression
+from emboss.mathml import parse_mathml   # presentation MathML -> the same math AST
 ```
+
+`parse_math` auto-detects a source starting with `<math` and routes it through `parse_mathml`. See [Math Notation](/math) for the LaTeX-subset syntax, environments, real math alphabets, and MathML element coverage.
 
 ## Code highlighting
 
@@ -165,9 +188,10 @@ from emboss import (
     academic_paper, legal_brief, slide_deck, data_sheet,
     slide_document, SlideConfig, SLIDE_16_9, SLIDE_4_3,
 )
+from emboss.slides import SlideDeck, THEMES, resolve_theme
 ```
 
-Templates are pre-configured `Document` factories.
+Templates are pre-configured `Document` factories. `SlideDeck` is the full deck builder (designed layouts, color themes, fit-to-slide); `slide_document`/`SlideConfig` are the earlier single-preset API, kept for backward compatibility. See [Executive Decks](/decks).
 
 ## Bibliography
 
@@ -181,12 +205,61 @@ from emboss import format_citation, format_bibliography
 from emboss import SvgImage, parse_svg, render_svg
 ```
 
+Full static-SVG subset: shapes, complete path data including elliptical arcs, transform stacks, linear/radial gradients, clipping, opacity, and text, using only the standard library.
+
+## Diagrams
+
+```python
+from emboss import (
+    DiagramNode, DiagramEdge, layout_diagram,
+    render_diagram_svg, diagram_alt_text, diagram_svg_block,
+)
+```
+
+`doc.diagram(nodes, edges=(), direction="down", caption=None, **kw)` is the usual entry point. See [Diagrams](/diagrams).
+
+## Self-describing PDFs and diff
+
+```python
+from emboss import assign_node_ids, derive_node_id, layout_map_json
+from emboss import (
+    document_to_spec_dict, document_from_spec_dict,
+    recover_from_attachment, recover_from_structure_tree, strip_pdf,
+)
+from emboss import DiffResult, diff_documents, render_redline, word_diff
+from emboss import MANIFEST_FILENAME, ReproductionReport, build_manifest, reproduce
+```
+
+`Document.render(embed_spec=True, manifest=True)`, `Document.from_pdf(...)`, `doc.layout_map()`, `doc.patch(node_id, **changes)`, and `strip_pdf` are the usual entry points; the functions above are their building blocks (canonical spec serialization, node id assignment, structure-tree recovery, manifest construction). `diff_documents`/`render_redline` diff two documents by node id and render a redlined PDF; `reproduce()` (also `emboss reproduce report.pdf`) recovers, re-renders, and structurally compares a PDF against itself. See [Self-Describing PDFs](/provenance).
+
+## Redaction and encrypted attachments
+
+```python
+from emboss import RedactionRule, redact_document, RedactionMark, apply_redactions
+from emboss import encrypt_attachment, decrypt_attachment
+```
+
+`Document.redact(rules)` (construction-time, the honest kind) matches whole blocks by node id, regex/predicate, or element type and removes or replaces them before rendering. `RedactionMark`/`Document.redactions` is the older post-render masking mechanism, kept for callers without a `Document`. `Document.attach_encrypted(name, data, password)` queues an AES-256-GCM-encrypted `/AF` attachment; `decrypt_attachment` reverses it.
+
+## Signing
+
+```python
+from emboss import (
+    SignatureField, build_signature_appearance, build_sig_field_dict,
+    build_acroform, can_sign, sign_pdf,
+    build_docmdp_reference, build_certifying_signature, build_perms_dict,
+)
+```
+
+`Document(signatures=[SignatureField(...)])` renders the visual field and AcroForm entry at render time; `sign_pdf(pdf_bytes, private_key_path, cert_path, certify=False, docmdp_permission=2)` injects the PKCS#7 signature afterward, requires `pip install emboss-pdf[signing]`, and with `certify=True` produces a DocMDP certification signature (ISO 32000-1 12.8.2.3).
+
 ## Submodules outside the top-level namespace
 
 ```python
-from emboss.pdf.verify import verify_pdf            # -> VerificationReport
-from emboss.signing import sign_pdf                 # requires [signing]
-from emboss.mathml import parse_mathml              # presentation MathML -> math AST
+from emboss.pdf.verify import verify_pdf, verify_conformance   # -> VerificationReport / ConformanceReport
+from emboss.pdf.attachments import FileAttachment, VALID_RELATIONSHIPS
+from emboss.pdfa import pdfa_part_for
+from emboss.chart_facts import compute_facts, verify_caption, fact_sentence
 from emboss.adapters.html_export import to_html
 from emboss.adapters.markdown_export import to_markdown
 from emboss.adapters.docx_export import to_office_dict
@@ -196,5 +269,7 @@ from emboss.adapters.docx_export import to_office_dict
 
 ```python
 import emboss
-emboss.__version__   # "0.1.0"
+emboss.__version__
 ```
+
+Resolved from the installed package metadata (`importlib.metadata.version("emboss-pdf")`) when available, so it always reflects the installed distribution rather than a hardcoded string.

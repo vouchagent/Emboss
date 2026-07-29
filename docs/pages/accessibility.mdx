@@ -3,6 +3,8 @@ title: Accessibility
 description: PDF/UA structure tree, alt text, link tagging, and deterministic output
 ---
 
+import { Callout } from 'nextra/components'
+
 # Accessibility (PDF/UA)
 
 Every document is tagged by default (`tagged=True`). The structure tree is derived from the same semantic spec as the visual output, so the two cannot disagree.
@@ -58,3 +60,42 @@ print(report)
 ```
 
 `verify_pdf` returns a `VerificationReport` with `ok`, `problems`, `object_count`, `page_count`, `has_struct_tree`, and `has_lang`. The `verify` extra (`pikepdf`) enables the deeper structural checks used in the test suite, and `emboss verify out.pdf` runs verification from the command line.
+
+<Callout type="info">
+`verify_pdf` is a structural check on the bytes Emboss just wrote (a
+well-formed xref, matching object offsets, a present structure tree). It
+does not confirm ISO conformance on its own -- for that, see real
+veraPDF conformance below.
+</Callout>
+
+## Real veraPDF conformance
+
+`emboss.pdf.verify.verify_conformance` shells out to the actual veraPDF CLI and parses its JSON output -- this is a real external validator run as a subprocess, not a simulated or approximated check:
+
+```python
+from emboss.pdf.verify import verify_conformance
+
+report = verify_conformance(doc.render(), flavour="ua1")   # or "2b", "3b"
+print(report.compliant)     # bool
+for violation in report.violations:
+    print(violation.clause, violation.description, violation.count)
+```
+
+From the command line:
+
+```bash
+emboss verify out.pdf --conformance ua1
+```
+
+`verify_conformance` looks for the `verapdf` executable on `PATH`, or at `VERAPDF_PATH` if set, and raises a `RuntimeError` with an install hint if neither is found -- it never silently skips the check. The project's own CI installs the real veraPDF binary and runs this exact check (`.github/workflows/ci.yml`, the `conformance` job) against generated PDFs on every push and pull request, so PDF/UA and PDF/A conformance are continuously verified against the reference implementation, not just asserted.
+
+## Node ids and the layout map
+
+Every top-level block in a rendered document gets a stable id: an explicit one if set, otherwise a deterministic token derived from the block's type, position, and content, so the same document produces the same ids on any machine and across runs.
+
+```python
+doc.layout_map()
+# {"n1a2b3c4": [{"page": 0, "x0": 72.0, "y0": 690.2, "x1": 540.0, "y1": 706.4}], ...}
+```
+
+`Document.layout_map()` resolves every node id to the page and bounding box (or boxes, if the block was split across pages or columns) it was actually drawn at, in PDF coordinates. Node ids and the layout map are what let `Document.from_pdf()` recover a document, `emboss.diff` match blocks between two revisions, and any external system key its own annotations or review comments to a specific block regardless of where it lands on the page. See [Self-Describing PDFs](/provenance) for the full recovery story.

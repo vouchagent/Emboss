@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emboss-pdf"
-version = "0.1.0"
-description = "Emboss — precision PDF generation with optimal typesetting and PDF/UA structure"
+version = "0.2.0"
+description = "Deterministic, PDF/UA-tagged, veraPDF-conformant PDF generation for Python, built for LLM-driven document pipelines"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Gaurav Gupta" }]
 keywords = ["pdf", "typesetting", "accessibility", "pdf-ua", "knuth-plass"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",

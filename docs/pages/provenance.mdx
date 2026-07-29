@@ -1,0 +1,129 @@
+---
+title: Self-Describing PDFs
+description: embed_spec, from_pdf recovery, strip_pdf, and the layout map
+---
+
+import { Callout } from 'nextra/components'
+
+# Self-Describing PDFs
+
+A rendered PDF can carry enough of its own provenance to be reconstructed later, without a database lookup or a side channel to the system that generated it. Three pieces work together: embedding the spec at render time, recovering a document from a PDF, and stripping that provenance back out before external distribution.
+
+## Embedding the spec
+
+```python
+doc = Document(title="Q3 Report", style="finance")
+doc.heading("Revenue", level=1)
+doc.paragraph("Revenue increased 12% year over year.")
+
+pdf_bytes = doc.render(embed_spec=True)
+```
+
+`embed_spec=True` attaches three real `/AF` (associated file) attachments, using the ISO 32000-2 embedded-file mechanism (`emboss.pdf.attachments`):
+
+| Attachment | Contents | `/AFRelationship` |
+|------------|----------|--------------------|
+| `emboss-spec.json` | Canonical EmbossSpec JSON of the document's content tree | `Source` |
+| `emboss-layout.json` | The node id -> page/bounding-box layout map | `Supplement` |
+| `emboss-doc.md` | A reflowable Markdown twin of the document | `Alternative` |
+
+<Callout type="info">
+`embed_spec=True` forces PDF/A part 3 when the document also sets
+`pdfa=True`, since PDF/A-2 forbids arbitrary embedded files and PDF/A-3
+permits them (`emboss.pdfa.pdfa_part_for`). On a non-PDF/A document it
+just embeds the files normally.
+</Callout>
+
+`document_to_spec_dict(doc)` / `spec_dict_to_json(spec)` (in `emboss.recovery`) build the embedded spec payload directly, if you want the canonical dict or its deterministic sorted-key JSON bytes without rendering a PDF.
+
+## Recovering a document
+
+```python
+from emboss import Document
+
+recovered = Document.from_pdf("report.pdf")
+```
+
+`Document.from_pdf` tries the embedded `emboss-spec.json` attachment first (`recover_from_attachment`) -- an exact reconstruction, byte-for-byte equivalent in content to the original spec. If no attachment is present, it falls back to a degraded reconstruction (`recover_from_structure_tree`) that walks the PDF/UA structure tree and pulls text out of the content streams by marked-content id:
+
+- Headings, paragraphs, tables, lists, block quotes, footnotes, and code blocks come back as real elements, in document order, with their original stable node ids (the `~N` split-continuation suffix stripped, if a block had been split across pages).
+- Styling, images, charts, math, and front-matter elements (cover pages, abstracts, and so on) are not recoverable from the tag tree alone: they degrade to plain text or are dropped.
+- Pass `strict=True` to require the exact attachment-based path and raise a `ValueError` instead of taking the degraded one.
+
+```python
+recovered = Document.from_pdf("report.pdf", strict=True)
+# ValueError if no emboss-spec.json attachment is present
+```
+
+## The layout map
+
+```python
+layout = doc.layout_map()
+# {"n1a2b3c4": [{"page": 0, "x0": 72.0, "y0": 690.2, "x1": 540.0, "y1": 706.4}], ...}
+```
+
+Every top-level block gets a stable id: an explicit one if set, otherwise a deterministic token (`emboss.nodeid.derive_node_id`) derived from the element's type, ordinal position, and a canonical serialization of its content fields (style and identity fields excluded), so the same document assigns the same ids on any machine and across runs, and an unrelated block appended later leaves earlier ids untouched.
+
+`doc.layout_map()` renders once (caching the result against the current content) and returns every node id resolved to the page and bounding box, or boxes, it was actually drawn at, in PDF coordinates with a bottom-left origin. A block split across pages or columns contributes one entry per placement. `layout_map_json(doc)` serializes the same map as deterministic, sorted JSON -- the same bytes that end up in the `emboss-layout.json` attachment.
+
+Node ids and the layout map are the shared foundation behind:
+
+- **Recovery** (`from_pdf`, above): the degraded path restores each block's original id from the structure tree.
+- **Diff and redline** (`emboss.diff`): `diff_documents` matches blocks between two documents by id to classify them as added, removed, or changed, and `render_redline` uses the layout map from a first render pass to place real change-bars in the margin next to added content.
+- **External auditing and annotation**: any system that needs to say "this specific block, wherever it landed" can key off the node id rather than a page/coordinate pair that shifts if the document reflows.
+
+## Stripping provenance before distribution
+
+Before a PDF leaves the building, `strip_pdf` removes everything above from an already-rendered file:
+
+```bash
+emboss strip report.pdf -o external.pdf
+```
+
+```python
+from emboss import strip_pdf
+
+clean_bytes = strip_pdf(pdf_bytes)
+```
+
+`strip_pdf` operates on rendered bytes directly (load, mutate, save via pikepdf) rather than re-rendering, so it works on any Emboss-produced PDF, not just ones rendered in the current process. It removes:
+
+- The `/AF` embedded-file attachments and the catalog's `/Names /EmbeddedFiles` tree.
+- Provenance metadata: the `/Producer` and `/Creator` Info dictionary entries, and the XMP `xmp:CreatorTool`, `pdf:Producer`, `xmpMM:DocumentID`, `xmpMM:InstanceID`, and `xmpMM:History` fields.
+- The structure tree's `/IDTree` and every element's `/ID` node id attribute.
+
+Title, Author, and date fields are kept. Output stays deterministic (`deterministic_id=True` on save), so a stripped file is still byte-identical across repeated runs on the same input.
+
+## Reproducibility manifest
+
+A separate, narrower attachment answers a different question than the spec attachment: not "what is this document" but "what would it take to reproduce these exact bytes."
+
+```python
+pdf_bytes = doc.render(manifest=True)   # attaches emboss-manifest.json
+```
+
+`emboss.manifest.build_manifest` (what `manifest=True` calls) records the spec's sha256, the running Emboss version, the sha256 of every embedded font, and any render options that differ from their defaults (`pdfa`, `color_mode`, `tagged`, `toc`, `page_number_format`, `page_numbers`, `front_matter_pages`). `doc.reproducibility_manifest(embed_spec=..., predecessor_sha256=..., predecessor_manifest_sha256=...)` builds the same dict without rendering, and can chain a signed lineage pointer to the document this one was derived from.
+
+```bash
+emboss reproduce report.pdf
+```
+
+```python
+from emboss import reproduce
+
+report = reproduce("report.pdf")
+print(report.ok)             # bool
+print(report)                # human-readable PASS/FAIL summary
+```
+
+`reproduce()` recovers the document from the PDF (embedded spec first, degraded structure-tree path otherwise), re-renders it, and compares the two structurally: same page count, same visible text per page (extracted by marked-content id, the same method for both PDFs). Byte-for-byte equality isn't the bar -- re-attaching a manifest to the reproduction would itself shift bytes across the attachment boundary -- so a `ReproductionReport` reports page-level text mismatches (`page_mismatches`, `diffs`) rather than a raw byte diff.
+
+<Callout type="info">
+`render(embed_spec=True)` needs no extra dependency: attachments are
+built with the core PDF assembler. Reading them back requires
+`pikepdf` (`pip install emboss-pdf[verify]`). Without it,
+`recover_from_attachment` quietly returns `None` (so `from_pdf` falls
+through to the structure-tree path), and `strip_pdf` /
+`recover_from_structure_tree` raise `ImportError` with that install
+hint rather than failing with an unrelated error.
+</Callout>

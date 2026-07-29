@@ -7,6 +7,9 @@
   "math": "Math Notation",
   "color": "Color and Print",
   "accessibility": "Accessibility",
+  "provenance": "Self-Describing PDFs",
+  "decks": "Executive Decks",
+  "diagrams": "Diagrams",
   "markdown": "Markdown Input",
   "api-reference": "API Reference"
 }

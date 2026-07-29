@@ -72,7 +72,19 @@ Seven built-in stylesheets encode type scale, leading, table rules, and spacing:
 {"page": {"preset": "a4", "margin_left": 108, "columns": 2, "column_gap": 18}}
 ```
 
-Presets: `letter`, `a4`, `legal`. Explicit `width`/`height` (points, 72 per inch) override the preset. Margins default to 72pt. `columns` accepts 1 through 4; content flows between columns automatically and `column_gap` is in points.
+Presets: `letter`, `a4`, `a5`, `legal`, `compact` (A5 with tight margins, tuned for phone and tablet reading). Explicit `width`/`height` (points, 72 per inch) override the preset. Margins default to 72pt. `columns` accepts 1 through 4; content flows between columns automatically and `column_gap` is in points. Set `"landscape": true` on `page` (or any `page_styles` entry) for a wide page.
+
+`page_styles` is a name -> page-geometry map that a `page_break` block can switch to and back from mid-document, useful for one wide table or diagram inside an otherwise portrait document:
+
+```json
+{"page_styles": {"wide": {"preset": "a4", "landscape": true}},
+ "content": [
+   {"type": "paragraph", "text": "Portrait content."},
+   {"type": "page_break", "page_style": "wide"},
+   {"type": "table", "headers": ["..."], "rows": [["..."]]},
+   {"type": "page_break"}
+ ]}
+```
 
 ### Legal features
 
@@ -90,7 +102,7 @@ Presets: `letter`, `a4`, `legal`. Explicit `width`/`height` (points, 72 per inch
 
 ## Block types
 
-Every content block carries a required `type` discriminator. The canonical tags are: `heading`, `paragraph`, `table`, `bullets`, `numbered`, `image`, `chart`, `footnote`, `callout`, `code_block`, `math`, `bibliography`, `svg`, `page_break`, `rule`. Synonym tags (`bullet_list`, `numbered_list`, `math_block`, `horizontal_rule`) are normalized during parsing.
+Every content block carries a required `type` discriminator. The canonical tags are: `heading`, `paragraph`, `table`, `bullets`, `numbered`, `image`, `chart`, `footnote`, `callout`, `blockquote`, `code_block`, `math`, `bibliography`, `svg`, `diagram`, `cover_page`, `abstract`, `authors`, `pull_quote`, `stat_tiles`, `toc`, `appendix`, `index`, `glossary`, `page_break`, `rule`. Synonym tags (`bullet_list`, `numbered_list`, `math_block`, `horizontal_rule`) are normalized during parsing.
 
 ### heading
 
@@ -116,7 +128,7 @@ For inline formatting use `runs` instead of `text`:
 ]}
 ```
 
-Run fields: `text` (required), `bold`, `italic`, `font_size`, `font_family`, `color` (6-digit hex, no `#`), `link` (URL).
+Run fields: `text` (required), `bold`, `italic`, `font_size`, `font_family`, `color` (6-digit hex, no `#`), `link` (URL), `index_terms` (list of strings; marks this run as an index entry with no visible effect, resolved by an `index` block elsewhere in the document).
 
 ### table
 
@@ -226,14 +238,111 @@ Citation fields: `key` (required), `authors`, `title`, `year`, `journal`, `volum
  "width": 200, "height": 100, "alt_text": "Diagram"}
 ```
 
-Rendered as native PDF paths, no rasterization. Supported elements: `rect`, `circle`, `ellipse`, `line`, `polygon`, `polyline`, `path`.
+Rendered as native PDF paths, no rasterization. Supported elements: `rect`, `circle`, `ellipse`, `line`, `polygon`, `polyline`, `path` (full data including arcs), plus transforms, gradients, clipping, opacity, and text. See the source-level notes in `emboss.svg` for the complete subset.
+
+### blockquote
+
+```json
+{"type": "blockquote", "text": "Simplicity is the ultimate sophistication.",
+ "attribution": "Leonardo da Vinci"}
+```
+
+A quoted passage set off with an accent bar, tagged `/BlockQuote`.
+
+### diagram
+
+```json
+{"type": "diagram", "direction": "down",
+ "nodes": [
+   {"id": "api", "label": "API Gateway"},
+   {"id": "auth", "label": "Auth Service"},
+   {"id": "db", "label": "User Store", "shape": "store"}
+ ],
+ "edges": [
+   {"src": "api", "dst": "auth", "label": "verify"},
+   {"src": "auth", "dst": "db"}
+ ],
+ "caption": "Login flow"}
+```
+
+Layout, arrow routing, and alt text are computed automatically; cycles are handled by reversing back edges for layout while rendering them along their true direction. Node `shape`: `box`, `rounded`, `decision`, `store`, `start_end`. Edge `style`: `solid` or `dashed`. `direction`: `down` or `right`.
+
+### Front matter and executive elements
+
+```json
+{"type": "cover_page", "title": "Annual Report", "subtitle": "FY2025",
+ "authors": ["Jane Doe"], "date": "July 2026", "kicker": "Confidential"}
+```
+
+A full-page cover with centered title composition; forces a page break.
+
+```json
+{"type": "abstract", "text": "We present a layout engine.",
+ "keywords": ["layout", "typography"]}
+```
+
+```json
+{"type": "authors", "authors": [
+  {"name": "Ada Lovelace", "affiliation": "Analytical Engine", "email": "ada@x.io"}
+]}
+```
+
+A centered grid of author entries.
+
+```json
+{"type": "pull_quote", "text": "Simplicity is the ultimate sophistication.",
+ "attribution": "da Vinci"}
+```
+
+A large-type offset quotation, tagged `/BlockQuote`.
+
+```json
+{"type": "stat_tiles", "stats": [
+  {"label": "Revenue", "value": "$4.5M", "delta": "+12%"},
+  {"label": "Churn", "value": "2.1%", "delta": "-0.3%"}
+]}
+```
+
+A row of bordered statistic tiles drawn as vector graphics; deltas are colored by sign.
+
+### toc, appendix, index, glossary
+
+```json
+{"type": "toc", "title": "Contents", "depth": 3, "source": "headings"}
+```
+
+A visible listing with dot leaders, real page numbers, and clickable links. `source` is `headings`, `figures`, or `tables` (the latter two list captioned figures/tables from the cross-reference index).
+
+```json
+{"type": "appendix", "title": "Survey Instrument",
+ "content": [{"type": "paragraph", "text": "..."}]}
+```
+
+Wraps nested blocks in a lettered section ("Appendix A", "Appendix B", ...) with its own headings numbered `A.1`, `A.2`, restarting at each new top-level appendix.
+
+```json
+{"type": "index", "title": "Index"}
+```
+
+A two-column back-of-book index: alphabetized terms with resolved page numbers, gathered from `index_terms` marks on `TextRun`s anywhere in the document (see the paragraph run fields above). Use at most one per document.
+
+```json
+{"type": "glossary", "entries": [
+  {"term": "Latency", "definition": "Time to first byte."}
+]}
+```
+
+An alphabetized bold-term/definition list; each term's first body-text occurrence is automatically linked to its glossary entry.
 
 ### page_break and rule
 
 ```json
 {"type": "page_break"}
+{"type": "page_break", "page_style": "wide"}
 {"type": "rule", "thickness": 0.5, "color": "cccccc"}
 ```
+
+`page_break`'s optional `page_style` names an entry in the document's `page_styles` map (see [Page geometry](#page-geometry)); content after the break uses that page's geometry until another page break switches again or reverts to the default when it carries no `page_style`.
 
 ## Per-element style overrides
 
@@ -247,8 +356,8 @@ Most blocks accept a `style` object that overrides the preset for that element o
 Fields: `font_family`, `font_size`, `bold`, `italic`, `color`, `align`, `line_height`, `space_before`, `space_after`, `indent_first`.
 
 <Callout type="info">
-The Python API has one block with no JSON tag: `BlockQuote` (a quoted
-passage with optional attribution, tagged `/BlockQuote`). It is produced by
-the Markdown parser and available as a dataclass, but is not part of the
-LLM JSON vocabulary.
+Every block type documented above, including `blockquote` and `diagram`,
+is part of the LLM JSON vocabulary (the pydantic `ContentBlock`
+discriminated union) as well as the Python dataclass API -- there is no
+block that is Python-only.
 </Callout>

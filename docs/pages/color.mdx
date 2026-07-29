@@ -54,6 +54,15 @@ parse_cmyk("cmyk(0,100,95,0)")                # -> CmykColor
 SpotColor("PANTONE 485 C", 0.0, 1.0, 0.95, 0.0)
 ```
 
+## Branding
+
+`emboss.brandkit.BrandKit` is a versioned brand object (palette, fonts, logo) applied on top of any style preset via `Document(brand=...)`; see the top-level README's BrandKit section for the full API. Two color behaviors are worth knowing here:
+
+- Brand text colors (`primary`, `ink`, `muted`) are passed through `darken_to_contrast`, which nudges the color's HSL lightness down in an `hsl_to_hex`/`rgb_to_hsl` loop until it reaches 4.5:1 contrast against white, so a light brand color never becomes illegible body text. The raw brand color is kept, undarkened, for fills and rules.
+- `brand.series_palette(n)` (or `derived_palette(n)` for the algorithmic variant) generates a deterministic N-color chart palette from just `primary` and `accent`, so charts in a branded document stay on-brand without hand-picking a palette per chart.
+
+Both color-mode conversion (`rgb_to_cmyk`) and brand color derivation are ordinary, deterministic math with no external color-management dependency, so output stays byte-identical across machines either way.
+
 ## Spot colors as Separation spaces
 
 `spot(Name,c,m,y,k)` defines a named spot color with a CMYK fallback. In the PDF it becomes a `/Separation` color space with `/DeviceCMYK` as the alternate space and a Type 4 PostScript tint-transform function that scales the fallback by the tint value, which is how prepress tools expect named inks. Resource names are derived deterministically from the ink name, keeping output byte-identical.

@@ -141,6 +141,61 @@ def _strip(args: argparse.Namespace) -> int:
     return 0
 
 
+def _diff(args: argparse.Namespace) -> int:
+    from .diff import diff_documents, render_redline
+    from .spec import Document
+
+    old_path = Path(args.old)
+    new_path = Path(args.new)
+    if not old_path.exists():
+        print(f"error: file not found: {old_path}", file=sys.stderr)
+        return 1
+    if not new_path.exists():
+        print(f"error: file not found: {new_path}", file=sys.stderr)
+        return 1
+
+    try:
+        old_doc = Document.from_pdf(old_path)
+        new_doc = Document.from_pdf(new_path)
+    except Exception as exc:
+        print(f"error: could not read PDF(s): {exc}", file=sys.stderr)
+        return 1
+
+    result = diff_documents(old_doc, new_doc)
+    redline_bytes = render_redline(old_doc, new_doc, result)
+
+    output = Path(args.output)
+    output.write_bytes(redline_bytes)
+
+    if not args.quiet:
+        print(
+            f"{output} — {len(result.added)} added, {len(result.removed)} removed, "
+            f"{len(result.changed)} changed, {len(result.unchanged)} unchanged"
+        )
+    return 0
+
+
+def _reproduce(args: argparse.Namespace) -> int:
+    from .manifest import reproduce
+
+    path = Path(args.input)
+    if not path.exists():
+        print(f"error: file not found: {path}", file=sys.stderr)
+        return 1
+
+    try:
+        report = reproduce(path.read_bytes())
+    except ImportError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"error: reproduction failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(report)
+    return 0 if report.ok else 1
+
+
 def _export(args: argparse.Namespace) -> int:
     try:
         from .adapters.pydantic_schema import DocumentSpec
@@ -321,6 +376,45 @@ def main(argv: list[str] | None = None) -> int:
         "-q", "--quiet", action="store_true", help="Suppress status output"
     )
 
+    diff_p = sub.add_parser(
+        "diff",
+        help="Diff two PDFs and render a redlined comparison",
+        description=(
+            "Compare two Emboss-produced PDFs by node id (recovering an "
+            "embedded spec if present, else the degraded structure-tree "
+            "path) and render a redlined PDF: additions, deletions, and "
+            "word-level text changes, with a summary page."
+        ),
+    )
+    diff_p.add_argument("old", help="Original PDF file path")
+    diff_p.add_argument("new", help="Revised PDF file path")
+    diff_p.add_argument(
+        "-o",
+        "--output",
+        default="redline.pdf",
+        help="Output redlined PDF path (default: redline.pdf)",
+    )
+    diff_p.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress status output"
+    )
+
+    reproduce_p = sub.add_parser(
+        "reproduce",
+        help="Re-render a PDF from its embedded spec and verify structural equivalence",
+        description=(
+            "Recover the EmbossSpec (and reproducibility manifest, if "
+            "present) embedded in a PDF, re-render it, and compare the "
+            "result against the original. Byte-for-byte equality is not "
+            "the bar: re-attaching a manifest/spec to the reproduction "
+            "would itself change its bytes across the attachment "
+            "boundary, so this instead verifies structural equivalence "
+            "-- same page count, and the same visible text per page via "
+            "pikepdf/MCID extraction -- and prints PASS or FAIL with a "
+            "diff summary."
+        ),
+    )
+    reproduce_p.add_argument("input", help="PDF file path")
+
     export_p = sub.add_parser(
         "export",
         help="Export a JSON spec to HTML, Markdown, or Office-ready JSON",
@@ -363,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
         "schema": _schema,
         "verify": _verify,
         "strip": _strip,
+        "diff": _diff,
+        "reproduce": _reproduce,
         "export": _export,
         "analyze": _analyze,
         "validate": _validate,
@@ -376,7 +472,7 @@ def _get_version() -> str:
 
         return __version__
     except Exception:
-        return "0.1.0"
+        return "0.2.0"
 
 
 if __name__ == "__main__":

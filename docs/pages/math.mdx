@@ -43,6 +43,16 @@ In the JSON spec this is `{"type": "math", "source": "...", "display": true}`; i
 - Aligned equations: `aligned`, `align`, `align*`, `split`
 - Gathered equations: `gathered`, `gather`, `gather*`
 
+## Real math alphabets
+
+`\mathbb`, `\mathcal`/`\mathscr`, and `\mathfrak` do not fall back to italic or bold approximations: they render actual double-struck, script, and fraktur glyphs (the Unicode Mathematical Alphanumeric Symbols block, with the pre-existing letterlike-symbol exceptions such as `\mathbb{R}` -> U+211D and `\mathcal{H}` -> U+210B mapped to their reserved codepoints) from the bundled Emboss Math font, a modified subset of STIX Two Math.
+
+```python
+doc.math(r"\mathbb{R}^n \to \mathcal{H}, \quad \mathfrak{g} = \mathrm{Lie}(G)")
+```
+
+`math_alphabet_node` (in `emboss.math_render`) does the character mapping; `math_font_metrics()` lazily loads the font's metrics the first time an alphabet is used. Characters with no mapping in a given alphabet (punctuation, for instance) pass through unmapped rather than being dropped.
+
 ## Layout quality
 
 Layout comes from real metrics, not approximations:

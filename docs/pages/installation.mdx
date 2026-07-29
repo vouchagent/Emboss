@@ -65,15 +65,18 @@ Without registered fonts, Emboss falls back to built-in base-14 metrics (Helveti
 Installing the package adds an `emboss` console script:
 
 ```bash
-emboss render spec.json -o out.pdf   # render an EmbossSpec JSON file
-emboss schema                        # print the JSON Schema for LLM prompts
-emboss verify out.pdf                # structural verification
-emboss export spec.json              # export HTML/Markdown from a spec
-emboss analyze spec.json             # content intelligence report
-emboss validate spec.json            # constraint validation report
+emboss render spec.json -o out.pdf            # render an EmbossSpec JSON file
+emboss schema                                 # print the JSON Schema for LLM prompts
+emboss verify out.pdf                         # structural verification
+emboss verify out.pdf --conformance 2b        # + real veraPDF conformance (ua1/2b/3b)
+emboss strip out.pdf -o external.pdf          # remove attachments, provenance, node ids
+emboss diff old.pdf new.pdf -o redline.pdf    # node-id diff + redlined comparison
+emboss export spec.json                       # export HTML/Markdown from a spec
+emboss analyze spec.json                      # content intelligence report
+emboss validate spec.json                     # constraint validation report
 ```
 
-`render`, `export`, `analyze`, and `validate` accept `-` to read the spec from stdin.
+`render`, `export`, `analyze`, and `validate` accept `-` to read the spec from stdin. `--conformance` requires the `verapdf` CLI on `PATH` (or `VERAPDF_PATH` set); see [Accessibility](/accessibility). `diff` recovers both PDFs via `Document.from_pdf` internally, so it works on any Emboss-produced file, with or without an embedded spec.
 
 ## Development setup
 

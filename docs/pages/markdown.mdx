@@ -18,6 +18,24 @@ doc.save("output.pdf")
 
 Keyword arguments pass through to the Document constructor. If no `title` is given, the first level-1 heading becomes the title. `parse_markdown(text)` returns the element list directly.
 
+## Front matter
+
+A leading `---`-delimited block of flat `key: value` lines supplies document metadata; explicit `Document.from_markdown(**kw)` keyword arguments win over it:
+
+```markdown
+---
+title: Quarterly Report
+author: Finance Team
+style: finance
+toc: true
+---
+
+# Executive Summary
+...
+```
+
+String fields: `title`, `author`, `subject`, `keywords`, `style`, `language`, `color_mode` (`rgb` or `cmyk`). Boolean fields: `toc`, `number_sections`, `page_numbers`. Values are parsed as flat YAML scalars (quoted or bare strings, `true`/`false`/`yes`/`no`/`on`/`off`, ints, floats). An unrecognized key, or a non-boolean value given for a boolean field, is dropped and recorded as a warning rather than applied; a line that isn't valid `key: value` syntax at all makes the whole block fall back to being parsed as literal Markdown (the `---` delimiters included) instead of guessing. `parse_front_matter(text)` returns a `FrontMatter` with `.fields`, `.warnings`, and the remaining `.body` directly, if you want to inspect it without rendering.
+
 ## Block constructs
 
 | Construct | Syntax | Maps to |
@@ -29,6 +47,7 @@ Keyword arguments pass through to the Document constructor. If no `title` is giv
 | Task lists | `- [ ]` / `- [x]` | `BulletList` with drawn checkboxes |
 | Tables | pipe tables with a separator row | `Table`; `:---:` alignment respected, cells parsed inline |
 | Fenced code | ` ```lang ` | `CodeBlock` with the language tag |
+| Fenced diagrams | ` ```diagram ` (node/edge line syntax) | Rendered diagram `SvgBlock`, see [Diagrams](/diagrams) |
 | Math blocks | `$$ ... $$` | `MathBlock` |
 | Blockquotes | `> ...` (lazy continuation lines included) | `BlockQuote` with accent bar |
 | Callouts | `> [!NOTE]`, `[!TIP]`, `[!WARNING]`, `[!CAUTION]`, `[!IMPORTANT]` | `Callout` |

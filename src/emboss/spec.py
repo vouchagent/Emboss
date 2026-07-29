@@ -77,6 +77,7 @@ class TextRun:
     color: str | None = None
     link: str | None = None
     strikethrough: bool = False
+    underline: bool = False
     index_terms: tuple = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
@@ -935,11 +936,15 @@ class Document:
     front_matter_pages: int = 0
     creator: str = "Emboss"
     producer: str = "Emboss"
+    predecessor: str | None = None
 
     def __post_init__(self) -> None:
         from .typography.font_metrics import FontRegistry
 
         self._fonts = FontRegistry()
+        #: FileAttachments queued by `attach_encrypted`; always included
+        #: by `render`/`save`, independent of `embed_spec`/`manifest`.
+        self._extra_attachments: list = []
 
     @property
     def fonts(self):
@@ -1059,7 +1064,15 @@ class Document:
             return apply_brand(base, self.brand)
         return base
 
-    def render(self, linearize: bool = False, *, embed_spec: bool = False) -> bytes:
+    def render(
+        self,
+        linearize: bool = False,
+        *,
+        embed_spec: bool = False,
+        manifest: bool = False,
+        predecessor_sha256: str | None = None,
+        predecessor_manifest_sha256: str | None = None,
+    ) -> bytes:
         """Render to PDF bytes.
 
         ``linearize=True`` rewrites the output for Fast Web View.
@@ -1069,23 +1082,58 @@ class Document:
         original spec is lost. It forces PDF/A part 3 when ``pdfa`` is
         also set, since PDF/A-2 forbids arbitrary attachments; on a
         non-PDF/A document it embeds normally without forcing anything.
+        ``manifest=True`` additionally attaches ``emboss-manifest.json``
+        (see ``reproducibility_manifest``): the spec's sha256, the
+        Emboss version, every embedded font's sha256, and any
+        non-default render options, so ``emboss reproduce`` can later
+        verify a re-render matches. ``predecessor_sha256`` /
+        ``predecessor_manifest_sha256`` (or setting ``Document.
+        predecessor``) record a lineage pointer to the document this one
+        was derived from; combine with a DocMDP certification signature
+        (``signing.sign_pdf(..., certify=True)``) for a verifiable,
+        signed chain of custody. Attachments queued by
+        ``attach_encrypted`` are always included, regardless of these
+        flags.
         """
         from .writer import render_document
 
-        embed_files = self._embed_spec_files() if embed_spec else None
-        data = render_document(self, embed_files=embed_files)
+        embed_files: list = []
+        if embed_spec:
+            embed_files.extend(self._embed_spec_files())
+        embed_files.extend(self._extra_attachments)
+        if manifest:
+            embed_files.append(
+                self._manifest_attachment(
+                    embed_spec, predecessor_sha256, predecessor_manifest_sha256
+                )
+            )
+        data = render_document(self, embed_files=embed_files or None)
         if linearize:
             data = _linearize_pdf(data)
         return data
 
-    def save(self, path, linearize: bool = False, *, embed_spec: bool = False) -> None:
-        """Render and write to path.
-
-        See ``render`` for what ``linearize`` and ``embed_spec`` do.
-        """
+    def save(
+        self,
+        path,
+        linearize: bool = False,
+        *,
+        embed_spec: bool = False,
+        manifest: bool = False,
+        predecessor_sha256: str | None = None,
+        predecessor_manifest_sha256: str | None = None,
+    ) -> None:
+        """Render and write to path. See ``render`` for what each flag does."""
         from pathlib import Path
 
-        Path(path).write_bytes(self.render(linearize=linearize, embed_spec=embed_spec))
+        Path(path).write_bytes(
+            self.render(
+                linearize=linearize,
+                embed_spec=embed_spec,
+                manifest=manifest,
+                predecessor_sha256=predecessor_sha256,
+                predecessor_manifest_sha256=predecessor_manifest_sha256,
+            )
+        )
 
     def _embed_spec_files(self) -> list:
         """Build the /AF attachments for ``render(embed_spec=True)``."""
@@ -1118,6 +1166,150 @@ class Document:
                 relationship="Alternative",
             ),
         ]
+
+    def reproducibility_manifest(
+        self,
+        *,
+        embed_spec: bool = False,
+        predecessor_sha256: str | None = None,
+        predecessor_manifest_sha256: str | None = None,
+    ) -> dict:
+        """Build this document's reproducibility manifest without rendering.
+
+        Runs (and caches) a layout pass first, via ``layout_map``, so the
+        manifest's font list reflects every font this document's render
+        actually resolves. See ``manifest.build_manifest`` for the
+        manifest's shape; pass the same ``embed_spec`` value you intend
+        to pass to ``render``/``save``, since it is recorded under
+        ``render_options``. ``predecessor_sha256`` falls back to
+        ``self.predecessor`` when not given explicitly.
+        """
+        from .manifest import build_manifest
+
+        self.layout_map()
+        return build_manifest(
+            self,
+            embed_spec=embed_spec,
+            predecessor_sha256=predecessor_sha256,
+            predecessor_manifest_sha256=predecessor_manifest_sha256,
+        )
+
+    def _manifest_attachment(
+        self,
+        embed_spec: bool,
+        predecessor_sha256: str | None,
+        predecessor_manifest_sha256: str | None,
+    ):
+        """Build the /AF attachment for ``render(manifest=True)``."""
+        from .manifest import MANIFEST_FILENAME, manifest_json
+        from .pdf.attachments import FileAttachment
+
+        manifest_dict = self.reproducibility_manifest(
+            embed_spec=embed_spec,
+            predecessor_sha256=predecessor_sha256,
+            predecessor_manifest_sha256=predecessor_manifest_sha256,
+        )
+        return FileAttachment(
+            name=MANIFEST_FILENAME,
+            data=manifest_json(manifest_dict),
+            mime="application/json",
+            description=(
+                "Reproducibility manifest: spec hash, Emboss version, "
+                "embedded font hashes, and non-default render options."
+            ),
+            relationship="Supplement",
+        )
+
+    def redact(self, rules: list) -> "Document":
+        """Return a NEW Document with ``rules`` applied before rendering.
+
+        Each ``RedactionRule`` (see ``redaction.RedactionRule``) matches
+        whole content blocks -- by node id, by a regex/predicate over
+        the block's plain text, or by element type -- before any layout
+        or content stream is produced, so a match's original text never
+        reaches the rendered PDF: ``mode="remove"`` drops the block
+        outright, ``mode="placeholder"`` replaces it with same-shaped
+        filler text and covers it with an opaque box sized from the
+        placeholder's own rendered bounding box (an honest black box: it
+        conceals filler, not the redacted content, which was already
+        gone before rendering).
+
+        The audit trail of what was removed (plain text, by which rule,
+        where) is written to the *returned* document's ``redaction_log``
+        attribute -- not a dataclass field, so ``document_to_spec_dict``,
+        ``reproducibility_manifest``, and ``render(embed_spec=True)``
+        never see it, and it is never auto-attached to the redacted
+        document's own /AF files. Callers who want it in the output must
+        attach it themselves, explicitly (e.g. via ``attach_encrypted``).
+        """
+        from .redaction import redact_document
+
+        redacted, log = redact_document(self, rules)
+        redacted.redaction_log = log
+        return redacted
+
+    def attach_encrypted(
+        self,
+        name: str,
+        data: bytes,
+        password: str,
+        *,
+        mime: str = "application/octet-stream",
+    ) -> "Document":
+        """Queue *data* as an AES-256-GCM-encrypted /AF attachment.
+
+        See ``redaction.encrypt_attachment`` for the ciphertext format.
+        Included by the next ``render``/``save`` regardless of
+        ``embed_spec``/``manifest``. Uses a fresh random salt and nonce
+        each call, so calling this twice with identical arguments still
+        yields different ciphertext bytes -- this is the one legitimate
+        use of randomness in the library, and it never runs unless a
+        caller opts in here. Mutates and returns self so calls can chain
+        like ``add``.
+        """
+        from .pdf.attachments import FileAttachment
+        from .redaction import encrypt_attachment
+
+        blob = encrypt_attachment(data, password)
+        self._extra_attachments.append(
+            FileAttachment(
+                name=name,
+                data=blob,
+                mime=mime,
+                description=(
+                    "AES-256-GCM encrypted payload; see redaction.decrypt_attachment."
+                ),
+                relationship="EncryptedPayload",
+            )
+        )
+        return self
+
+    def patch(self, node_id: str, **changes) -> "Document":
+        """Return a new Document with the block matching node_id replaced.
+
+        Applies ``dataclasses.replace(block, **changes)`` to a deep copy
+        of the one content element carrying ``node_id`` — everything
+        else, and the original Document, is left untouched. Lets a
+        caller (an LLM given one block's id and a small diff) patch a
+        single block without regenerating the whole document. Raises
+        ``ValueError`` listing the ids actually present when no block
+        carries ``node_id`` — typically because ids have not been
+        assigned yet (they are assigned on render, ``from_pdf``
+        recovery, or an earlier ``patch`` call, not on construction).
+        """
+        import copy
+        import dataclasses
+
+        new_content = copy.deepcopy(self.content)
+        for index, element in enumerate(new_content):
+            if getattr(element, "id", None) == node_id:
+                new_content[index] = dataclasses.replace(element, **changes)
+                return dataclasses.replace(self, content=new_content)
+
+        available = sorted(el.id for el in new_content if getattr(el, "id", None))
+        raise ValueError(
+            f"no block with id {node_id!r} in this document; available ids: {available}"
+        )
 
     def layout_map(self) -> dict:
         """Return node id -> list of {page, x0, y0, x1, y1} placements.

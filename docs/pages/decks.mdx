@@ -1,0 +1,75 @@
+---
+title: Executive Decks
+description: SlideDeck -- designed slide layouts, color themes, and fit-to-slide
+---
+
+# Executive Decks
+
+`emboss.slides.SlideDeck` builds a presentation deck from designed slide layouts rather than raw blocks on a landscape page: a title slide, section dividers, stat rows, and a themed chart slide all come from purpose-built layout methods, and no slide is ever allowed to spill onto a continuation page.
+
+```python
+from emboss.slides import SlideDeck
+
+deck = SlideDeck("Q3 Board Review", presenter="Ana Ruiz", date="Oct 2026", theme="boardroom")
+deck.title_slide(subtitle="Board update")
+deck.section_divider("Results")
+deck.stat_slide("Key metrics", [("ARR", "$12.4M", "+18%"), ("Churn", "2.1%", "-0.3%")])
+deck.bullet_slide("Highlights", ["Enterprise ARR up 22%", "Net retention at 118%"], takeaway="On track for FY target.")
+deck.closing_slide("Thank you", contact="ana@acme.com")
+deck.save("board_deck.pdf")
+```
+
+`SlideDeck(title, presenter="", date="", theme="boardroom", aspect_ratio="16:9")` -- `aspect_ratio` also accepts `"4:3"`.
+
+## Slide layouts
+
+| Method | Produces |
+|--------|----------|
+| `title_slide(subtitle="")` | Opening slide: title, accent bar, presenter/date byline, brand band |
+| `section_divider(title)` | Numbered kicker over a full-width theme panel |
+| `content_slide(title, *blocks, layout="single")` | Arbitrary blocks under a titled accent bar; `layout="two-column"` splits text blocks (headings, paragraphs, lists) into a two-column grid |
+| `bullet_slide(title, bullets, takeaway="")` | Titled bullet list with an optional tinted takeaway callout |
+| `stat_slide(title, stats)` | Large stat values over letterspaced labels, with colored deltas; `stats` is a list of `(label, value)` or `(label, value, delta)` tuples |
+| `chart_slide(title, chart_element, takeaway="")` | A full-width themed `Chart`, sized to fill the remaining slide body |
+| `quote_slide(text, attribution="")` | A large attributed pull quote |
+| `code_slide(title, code, language="text")` | A titled syntax-highlighted code panel |
+| `closing_slide(message, contact="")` | Centered closing message, accent bar, contact line |
+
+Each call appends one slide and returns the deck, so calls chain.
+
+## Themes
+
+Four complete color systems, each independently tuned (ink, title, muted, accent, panel, tints, and a deterministic chart palette) rather than a single accent color swapped in:
+
+| Theme | Character |
+|-------|-----------|
+| `boardroom` | Deep navy with a gold accent on warm white -- the classic board deck |
+| `horizon` | Dusk blue and coral on white -- warm, editorial, optimistic |
+| `carbon` | Near-black panels with an electric blue accent -- technical, precise |
+| `meadow` | Forest and spring green on white -- calm, grounded, sustainable |
+
+Aliases `default` (-> `boardroom`), `dark` (-> `carbon`), `light` and `minimal` (-> `horizon`) are also accepted. `emboss.slides.relative_luminance` and `contrast_ratio` are the same WCAG contrast-ratio helpers used to keep each theme's text legible against its panels.
+
+```python
+from emboss.slides import THEMES, resolve_theme
+
+theme = resolve_theme("carbon")
+theme.accent   # "3fa7d6"
+```
+
+A `Chart` dropped into `chart_slide` or a two-column content slide automatically inherits the theme's `chart_palette` unless the chart already sets explicit `colors`.
+
+## Fit-to-slide
+
+Every slide's blocks are measured with the real layout engine after composition. If a slide would overflow its single page, `SlideDeck` scales font sizes and vertical spacing down in steps (`SCALE_STEP = 0.95`) until it fits, down to a floor of `MIN_SCALE = 0.8`. If it still does not fit at the minimum scale, `build()`/`render()`/`save()` raise a `ValueError` naming which slide and by how many points it overflowed, rather than silently letting content run past the page edge.
+
+## Building and rendering
+
+```python
+document = deck.build()   # the underlying Document, for further customization
+pdf_bytes = deck.render()
+deck.save("deck.pdf")
+deck.slide_count          # number of slides added so far
+```
+
+`build()` assembles the deck into a single `Document` with one `PageBreak` between slides, a footer showing the deck title and `{page} / {pages}`, and (when the first slide is not already a title slide) a small deck-title masthead line so every slide identifies the deck it belongs to.

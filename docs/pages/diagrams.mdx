@@ -1,0 +1,104 @@
+---
+title: Diagrams
+description: Node/edge graphs with automatic layout, rendered as native PDF vectors
+---
+
+# Diagrams
+
+Architecture diagrams, flowcharts, and state machines as a node/edge list, with layout computed automatically -- no coordinates to place by hand:
+
+```python
+doc.diagram(
+    nodes=[
+        {"id": "api", "label": "API Gateway"},
+        {"id": "auth", "label": "Auth Service"},
+        {"id": "db", "label": "User Store", "shape": "store"},
+        {"id": "ok", "label": "Response", "shape": "rounded"},
+    ],
+    edges=[
+        {"src": "api", "dst": "auth", "label": "verify"},
+        {"src": "auth", "dst": "db"},
+        {"src": "db", "dst": "auth", "style": "dashed"},
+        {"src": "auth", "dst": "ok"},
+    ],
+    caption="Login flow",
+)
+```
+
+In the JSON spec this is `{"type": "diagram", "nodes": [...], "edges": [...], "direction": "down", "caption": "..."}`.
+
+## Nodes and edges
+
+```python
+from emboss import DiagramNode, DiagramEdge
+
+DiagramNode(id="api", label="API Gateway", shape="box", group=None)
+DiagramEdge(src="api", dst="auth", label="verify", style="solid")
+```
+
+Both also accept loose input: a `dict` with the matching keys, or a positional tuple (`(id, label)`, `(id, label, shape)` for nodes; `(src, dst)`, `(src, dst, label)`, `(src, dst, label, style)` for edges).
+
+| Node `shape` | Renders as |
+|--------------|------------|
+| `box` (default) | Rounded-corner rectangle |
+| `rounded` | Pill-cornered rectangle |
+| `decision` | Diamond |
+| `store` | Database cylinder |
+| `start_end` | Full pill (stadium shape) |
+
+Edge `style` is `solid` (default) or `dashed`, for marking optional or asynchronous paths. `direction` is `down` (top-to-bottom layers, the default) or `right` (left-to-right).
+
+## Layout algorithm
+
+`layout_diagram(nodes, edges, direction="down")` (in `emboss.diagrams`) computes the placement in three passes:
+
+1. **Layering.** A longest-path layering assigns each node to a layer based on its edges, after detecting and reversing back edges (a DFS over the graph) so cyclic graphs still get a sensible layered layout -- the reversed edges are only used for layout; rendering draws each edge along its real, authored direction, including self-loops as a small loop back into the node.
+2. **Ordering.** Within each layer, nodes are ordered by four barycenter sweeps (two downward passes weighted by predecessor position, two upward weighted by successor position) to reduce edge crossings.
+3. **Placement.** Node sizes come from real font metrics (label text wrapped to a maximum node width), and layers are spaced with even gaps between siblings and between layers.
+
+```python
+from emboss import layout_diagram
+
+layout = layout_diagram(nodes, edges, direction="down")
+layout.width, layout.height   # canvas size
+layout.by_id["api"].x, layout.by_id["api"].y   # a PlacedNode's resolved box
+```
+
+## Rendering and accessibility
+
+`render_diagram_svg(nodes, edges, direction=, theme_colors=)` emits deterministic SVG markup (shapes, routed edge paths with arrowheads, and centered multi-line labels), which is what `doc.diagram(...)` renders through the SVG embedding path -- diagrams are native vector graphics, not rasterized images.
+
+```python
+from emboss import diagram_alt_text
+
+diagram_alt_text(nodes, edges)
+# "Diagram: 4 nodes (API Gateway, Auth Service, User Store, Response), 4 connections"
+```
+
+`diagram_alt_text` builds a deterministic accessibility summary (node count, first few labels, connection count), and `doc.diagram(...)` / `diagram_svg_block(...)` set it as the block's `/Alt` text automatically unless a caller overrides it -- no diagram ships without alt text.
+
+## Markdown syntax
+
+A fenced ` ```diagram ` block accepts a minimal line-oriented syntax, so an LLM (or a person) can write a diagram without JSON:
+
+````
+```diagram
+direction: right
+api: API Gateway
+auth: Auth Service
+db: User Store [store]
+ok: Response [rounded]
+api -> auth: verify
+auth -> db
+db --> auth
+auth -> ok
+```
+````
+
+- `id: Label [shape]` declares a node (`[shape]` is optional, defaults to `box`).
+- `a -> b: label` declares a solid edge; `-->` declares a dashed one. The label is optional.
+- `direction: right` (or `down`) sets the flow axis; it may appear anywhere and applies to the whole diagram.
+- Blank lines and `#`-prefixed comments are ignored. An id referenced only by an edge becomes an implicit box node with its id as the label.
+- A malformed line raises `ValueError` quoting the offending line, so an LLM generating this syntax gets a correctable error rather than a silently wrong diagram.
+
+`emboss.diagrams.parse_diagram_source(text)` parses this syntax into `(nodes, edges, direction)`; `diagram_block_from_source(text, caption=None)` does the same and returns the rendered block directly, which is what the Markdown parser calls for a ` ```diagram ` fence.
