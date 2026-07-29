@@ -1297,6 +1297,8 @@ emboss verify contract.pdf --revisions      # exits non-zero on uncovered append
 
 Two redaction models are available, and they are not equally honest. **Construction-time redaction** (`Document.redact`) is the one to use for anything that actually matters: it matches whole content blocks -- by stable node id, a regex or predicate over the block's plain text, or element type -- and removes or replaces them *before* layout or rendering, so the real text never reaches a content stream.
 
+Because redaction runs before the document embeds anything, a removed block is absent from **every** embedded artifact too, not just the page: the `emboss-spec.json`, the text index, the layout map, the Markdown twin, the reproducibility manifest, and any table's attached CSV. This is verified in `tests/test_redaction_leak.py`, and it is the property that keeps "self-describing" from quietly defeating "redacted". One honest limitation: redaction is **block-granular**. A value you keep in an un-redacted block stays there, including in a kept table's embedded CSV, so to remove a value from a table you redact the table (or drop `attach_data`), not just a paragraph elsewhere.
+
 ```python
 from emboss import Callout, RedactionRule
 
