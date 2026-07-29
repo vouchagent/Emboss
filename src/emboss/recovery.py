@@ -230,14 +230,14 @@ def _paragraph_block(el: Paragraph) -> dict:
 
 
 def _bullets_block(el: BulletList) -> dict:
-    block = {"type": "bullets", "items": _list_item_texts(el)}
+    block: dict = {"type": "bullets", "items": _list_item_texts(el)}
     if el.bullet != "•":
         block["bullet"] = el.bullet
     return block
 
 
 def _numbered_block(el: NumberedList) -> dict:
-    block = {"type": "numbered", "items": _list_item_texts(el)}
+    block: dict = {"type": "numbered", "items": _list_item_texts(el)}
     if el.start != 1:
         block["start"] = el.start
     return block
@@ -377,7 +377,7 @@ def _code_block(el: CodeBlock) -> dict:
 
 
 def _math_block(el: MathBlock) -> dict:
-    block = {"type": "math", "source": el.source}
+    block: dict = {"type": "math", "source": el.source}
     if not el.display:
         block["display"] = False
     if el.caption:
