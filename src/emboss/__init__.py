@@ -160,6 +160,18 @@ from .signing import (
     can_sign,
     sign_pdf,
 )
+from .amend import (
+    Attestation,
+    CoverageReport,
+    Revision,
+    amend_pdf,
+    amend_sign,
+    coverage_report,
+    format_history,
+    prepare_signature,
+    revision_history,
+    verify_amended,
+)
 
 try:
     from importlib.metadata import PackageNotFoundError, version as _pkg_version
@@ -327,5 +339,15 @@ __all__ = [
     "build_signature_appearance",
     "can_sign",
     "sign_pdf",
+    "Attestation",
+    "Revision",
+    "CoverageReport",
+    "amend_pdf",
+    "prepare_signature",
+    "amend_sign",
+    "revision_history",
+    "coverage_report",
+    "format_history",
+    "verify_amended",
     "__version__",
 ]

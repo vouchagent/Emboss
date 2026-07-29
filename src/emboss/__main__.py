@@ -108,6 +108,17 @@ def _verify(args: argparse.Namespace) -> int:
         print(conformance)
         if not conformance.compliant:
             exit_code = 1
+
+    if getattr(args, "revisions", False):
+        from .amend import coverage_report, format_history
+
+        print(format_history(data))
+        report = coverage_report(data)
+        # Alarm only on content appended after a signature that no signature
+        # covers, not on an unsigned base (which is simply not yet signed).
+        appended_uncovered = [i for i in report.uncovered if i not in report.signatures]
+        if report.signatures and appended_uncovered:
+            exit_code = 1
     return exit_code
 
 
@@ -352,6 +363,11 @@ def main(argv: list[str] | None = None) -> int:
             "(requires verapdf on PATH or VERAPDF_PATH set)"
         ),
     )
+    verify_p.add_argument(
+        "--revisions",
+        action="store_true",
+        help="Show the incremental-revision history and signature coverage",
+    )
 
     strip_p = sub.add_parser(
         "strip",
@@ -371,6 +387,45 @@ def main(argv: list[str] | None = None) -> int:
     strip_p.add_argument(
         "-q", "--quiet", action="store_true", help="Suppress status output"
     )
+
+    amend_p = sub.add_parser(
+        "amend",
+        help="Append a signature to a PDF without rewriting prior bytes",
+        description=(
+            "Amend a PDF by appending an incremental revision: the original "
+            "bytes are never rewritten, so a signature's ByteRange attests to "
+            "everything before it. Content edits go through 'render'; only "
+            "attestations append here."
+        ),
+    )
+    amend_p.add_argument("input", help="PDF file path")
+    amend_p.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output path (default: overwrite the input in place)",
+    )
+    amend_p.add_argument(
+        "--sign", action="store_true", help="Append a PKCS#7 signature revision"
+    )
+    amend_p.add_argument("--cert", default=None, help="Signer certificate (PEM) path")
+    amend_p.add_argument("--key", default=None, help="Signer private key (PEM) path")
+    amend_p.add_argument(
+        "--reason", default="", help="Reason recorded in the signature"
+    )
+    amend_p.add_argument("--name", default="", help="Signer name recorded in the field")
+    amend_p.add_argument("-q", "--quiet", action="store_true")
+
+    history_p = sub.add_parser(
+        "history",
+        help="Show a PDF's incremental-revision history and signature coverage",
+        description=(
+            "List each incremental revision (base, signature, annotations, "
+            "attachment) with its byte range, and flag any revision that no "
+            "signature's ByteRange covers -- appended content nobody signed."
+        ),
+    )
+    history_p.add_argument("input", help="PDF file path")
 
     diff_p = sub.add_parser(
         "diff",
@@ -508,6 +563,8 @@ def main(argv: list[str] | None = None) -> int:
         "validate": _validate,
         "review": _review,
         "apply": _apply,
+        "amend": _amend,
+        "history": _history,
     }
     return handlers[args.command](args)
 
@@ -595,6 +652,53 @@ def _apply(args: argparse.Namespace) -> int:
         Path(args.redline).write_bytes(redline(doc, patched))
     if not args.quiet:
         print(f"applied {len(edits)} edits", file=sys.stderr)
+    return 0
+
+
+def _amend(args: argparse.Namespace) -> int:
+    from .amend import amend_sign
+
+    path = Path(args.input)
+    if not path.exists():
+        print(f"error: file not found: {path}", file=sys.stderr)
+        return 1
+    if not args.sign:
+        print(
+            "error: nothing to amend; pass --sign with --cert and --key",
+            file=sys.stderr,
+        )
+        return 1
+    if not args.cert or not args.key:
+        print("error: --sign requires --cert and --key", file=sys.stderr)
+        return 1
+
+    try:
+        amended = amend_sign(
+            path.read_bytes(),
+            cert=args.cert,
+            key=args.key,
+            reason=args.reason,
+            name=args.name,
+        )
+    except Exception as exc:
+        print(f"error: amend failed: {exc}", file=sys.stderr)
+        return 1
+
+    output = Path(args.output) if args.output else path
+    output.write_bytes(amended)
+    if not args.quiet:
+        print(f"{output} -- appended signature revision, prior bytes untouched")
+    return 0
+
+
+def _history(args: argparse.Namespace) -> int:
+    from .amend import format_history
+
+    path = Path(args.input)
+    if not path.exists():
+        print(f"error: file not found: {path}", file=sys.stderr)
+        return 1
+    print(format_history(path.read_bytes()))
     return 0
 
 
