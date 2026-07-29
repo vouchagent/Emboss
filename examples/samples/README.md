@@ -11,3 +11,4 @@ Each script renders a self-contained PDF exercising a different part of Emboss. 
 | `05_print_production_cmyk.py` | CMYK color mode, spot color strings, PDF/A archival output |
 | `06_math_notation.py` | LaTeX environments (matrix, cases, aligned), MathML input, math alphabets |
 | `07_llm_markdown_input.py` | The core product loop: raw LLM Markdown (with YAML front matter) to structured PDF |
+| `08_emboss_overview.py` | The product loop end to end: an executive overview drafted by an LLM (Claude Sonnet 5) into an EmbossSpec, fact-checked against the codebase, and rendered by Emboss. The spec is committed in `exec_overview.json` and renders deterministically with no API key |

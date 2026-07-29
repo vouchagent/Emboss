@@ -4,7 +4,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss-pdf/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
-Precision PDF generation for Python. Describe a document with a declarative spec; the engine handles typography, layout, accessibility tagging, and the complete PDF structure. Output is deterministic and byte-identical across runs.
+Turn structured or LLM-generated content into accessible, print-ready PDFs. Describe a document once, as a declarative spec or as Markdown, and Emboss handles typesetting, PDF/UA tagging, and the full PDF structure. Output is deterministic and byte-identical across runs, so every PDF is hash-verifiable and diffable in CI.
 
 ```python
 from emboss import Document
@@ -23,6 +23,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 ## Table of Contents
 
 - [Built for Enterprise](#built-for-enterprise)
+- [How Emboss Compares](#how-emboss-compares)
 - [Why Emboss](#why-emboss)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -76,6 +77,41 @@ Emboss is built around guarantees that matter once a PDF leaves a notebook and e
 - **CMYK and PDF/A archival output** for print production and long-term retention pipelines.
 - **Long-form apparatus**: numbered appendices, an alphabetized back-of-book index with resolved page numbers, a glossary with auto-linked first occurrences, and a visible table of contents with real page numbers and dot leaders.
 - **`emboss strip`** removes embedded files, provenance-revealing metadata, and internal structure-tree node ids from a rendered PDF before it goes to an external party.
+
+---
+
+## How Emboss Compares
+
+Emboss is not a general-purpose drawing library or an HTML-to-PDF converter. It is built for the pipeline where structured or model-generated content becomes a trustworthy document, and the comparison is most honest at the level of tool categories rather than head-to-head with a specific product.
+
+Every claim in the Emboss column below is verifiable against this repository and its test suite. The right column describes what general-purpose PDF tooling (imperative drawing libraries and HTML/CSS engines) *typically* does; it is a category statement, not a claim about any one product, and specifics for a given tool should be verified against that tool.
+
+**Where Emboss is differentiated**
+
+| Dimension | Emboss | Typical general-purpose PDF tools |
+|---|---|---|
+| Input a model can be constrained to | JSON schema, provider-native structured outputs, Markdown | Imperative code or HTML/CSS; no schema contract |
+| Validation and repair of imperfect input | Built in (truncation repair, per-block recovery) | Not provided |
+| Deterministic byte-identical output | Yes, test-verified | Generally not guaranteed |
+| PDF/UA accessibility tagging | On by default | Opt-in or unavailable |
+| Conformance evidence | Real veraPDF check in CI and `emboss verify` | Varies; rarely built in |
+| Self-describing, recoverable document | `embed_spec` + `from_pdf` | No |
+| Stable node ids and layout map | Yes | No |
+| Document diff to a redlined PDF | Yes | No |
+| Redaction that never enters the content stream | Yes | Typically overlay-based |
+
+**Where established tools are ahead**
+
+This side matters just as much. Stated plainly:
+
+| Dimension | Emboss | Typical general-purpose PDF tools |
+|---|---|---|
+| Complex-script shaping (Arabic, Indic) | Not supported | Several engines support it |
+| Arbitrary HTML and CSS input | Not supported | HTML/CSS engines accept it |
+| Image formats | PNG and JPEG | Often broader |
+| Production maturity | New, released 2026 | Many have 10 to 20 years in production |
+
+For turning structured or LLM-generated content into accessible, verifiable, auditable PDFs, Emboss covers ground the general category does not. For arbitrary HTML rendering, complex-script typesetting, or a long track record in production, an established tool is the safer choice.
 
 ---
 

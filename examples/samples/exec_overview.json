@@ -1,0 +1,109 @@
+{
+  "title": "Emboss: A Trustworthy Foundation for Business-Critical Documents",
+  "author": "Emboss Project",
+  "subject": "Executive overview of the Emboss PDF generation library",
+  "style": "brief",
+  "content": [
+    {"type": "heading", "text": "Executive Summary", "level": 1},
+    {"type": "paragraph", "text": "Emboss is an open-source library that generates PDF documents from structured input. It is built around three business priorities that most document tools treat as afterthoughts: accessibility compliance, auditability, and consistent brand output."},
+    {"type": "paragraph", "text": "Every document Emboss produces is accessibility-tagged, verifiable against an industry validator, and reproducible byte-for-byte. This makes it suited to regulated, brand-sensitive, or audit-heavy document workflows: reports, contracts, filings, and executive communications."},
+    {"type": "callout", "variant": "info", "title": "Key takeaway", "text": "Accessibility tagging is on by default, with no untagged output mode, so it cannot be forgotten. Formal conformance verification against the veraPDF validator runs continuously in the project build pipeline and is available on demand for any document."},
+
+    {"type": "heading", "text": "What It Is, and the Problem It Solves", "level": 1},
+    {"type": "paragraph", "text": "Organizations generate PDFs for regulators, auditors, customers, and boards, but general-purpose tools were not designed around compliance, provenance, or review workflows. Fixing accessibility, tracking who changed what, or proving a document has not been altered are typically bolted on after the fact, if they exist at all."},
+    {"type": "paragraph", "text": "Emboss addresses this by treating accessibility tagging, reproducibility, redaction safety, and redlined review as core engine behavior rather than optional add-ons. Documents are described as structured content and rendered deterministically, with a full record of how they were produced."},
+
+    {"type": "heading", "text": "Capability Summary", "level": 1},
+    {"type": "table", "caption": "Core capabilities and their business value", "stripe": true,
+      "headers": ["Capability", "Business Value"],
+      "rows": [
+        ["Deterministic, byte-identical rendering", "Same input always produces the same file. Supports legal and financial defensibility: two parties can independently confirm a document is unaltered."],
+        ["PDF/UA tagging on by default, no untagged mode", "Accessibility compliance is not something teams can accidentally skip. Reduces legal and reputational risk around inaccessible documents."],
+        ["Conformance verified against veraPDF in CI", "Compliance claims are checked by an independent, real validator on every build, not asserted by the vendor alone."],
+        ["Self-describing PDFs (embedded spec, layout map, Markdown twin)", "A distributed PDF can be reconstructed or repurposed later, reducing dependency on lost source files."],
+        ["Stable node ids and queryable layout map", "Enables precise automation: locating, referencing, or updating a specific paragraph or table on a specific page."],
+        ["Document diff with redlined PDF output", "Supports formal review cycles: reviewers see exactly what changed, with additions, deletions, and a change summary."],
+        ["Node-scoped patching", "A single clause or figure can be corrected without regenerating or manually re-editing the entire document."],
+        ["Reproducibility manifest and `emboss reproduce`", "Any past document can be recreated and its match to the original verified, supporting audit and dispute resolution."],
+        ["Redaction by construction", "Redacted content never enters the rendered file in the first place, closing a common data-leak failure mode in redaction workflows."],
+        ["DocMDP certification signatures, encrypted attachments, `emboss strip`", "Documents can be certified against later tampering, and internal metadata can be cleanly removed before external distribution."],
+        ["BrandKit (palette, fonts, logo) with contrast auto-correction", "One brand definition governs every document, and text colors are automatically adjusted to remain readable and compliant."],
+        ["Seven style presets (legal, finance, academic, corporate, minimal, journal, brief)", "Documents match their purpose out of the box, reducing formatting overhead for common business document types."]
+      ]
+    },
+
+    {"type": "heading", "text": "Accessibility and Conformance", "level": 1},
+    {"type": "bullets", "items": [
+      "PDF/UA accessibility tagging is applied on every document by default; there is no way to generate an untagged file.",
+      "Decorative marks are correctly flagged as artifacts rather than exposed to assistive technology as content.",
+      "Conformance to PDF/UA-1, PDF/A-2b, and PDF/A-3b is checked in continuous integration using the real veraPDF validator, not an internal approximation.",
+      "The same check is available on demand via `emboss verify --conformance` for any generated document."
+    ]},
+    {"type": "paragraph", "text": "For organizations facing accessibility regulation or archival mandates, this removes a common gap: accessibility and archival compliance are verified continuously, rather than tested once and assumed to hold afterward."},
+
+    {"type": "heading", "text": "Review, Provenance, and Security", "level": 1},
+    {"type": "paragraph", "text": "Emboss treats document review and document integrity as first-class workflows rather than manual, external processes."},
+    {"type": "bullets", "items": [
+      "Diff and redline: two document versions are compared by node id, with word-level differences, and rendered as a redlined PDF showing struck deletions, underlined insertions, margin change bars, and a summary page.",
+      "Reproducibility: a manifest records the spec hash, engine version, font hashes, and rendering options, so any document can later be regenerated and verified to match.",
+      "Redaction by construction: matched content is removed or replaced before layout, so it is never present in the rendered content stream. A separate audit log records what was redacted, and is never attached to the output file.",
+      "Certification and cleanup: DocMDP certification signatures support tamper-evidence, and `emboss strip` removes attachments, provenance metadata, and internal ids before a document leaves the organization."
+    ]},
+    {"type": "callout", "variant": "success", "title": "Key takeaway", "text": "Redaction happens before layout, not after. This closes the common failure mode where redacted text remains recoverable underneath a black box in the final file."},
+
+    {"type": "heading", "text": "Brand and Design", "level": 1},
+    {"type": "paragraph", "text": "A single BrandKit object defines palette, fonts, and logo, and applies uniformly across every document an organization produces. Brand text colors are automatically darkened as needed to meet contrast requirements."},
+    {"type": "bullets", "items": [
+      "Typography uses optimal (Knuth-Plass) line breaking, real kerning, hyphenation, and hanging punctuation.",
+      "Bundled open-license fonts include Source Serif 4, Source Sans 3, Source Code Pro, and an Emboss Math family.",
+      "Seven built-in style presets cover legal, finance, academic, corporate, minimal, journal, and brief document types.",
+      "CMYK and spot color are supported, alongside PDF/A archival output for long-term retention."
+    ]},
+
+    {"type": "heading", "text": "Content Types: Math, Charts, Diagrams, and Decks", "level": 1},
+    {"type": "bullets", "items": [
+      "Math: rendered from a LaTeX subset or presentation MathML, including matrices, cases, aligned environments, numbered equations, and genuine blackboard, script, and fraktur alphabets.",
+      "Charts: vector output with an honest zero baseline, no silent truncation of labels, optional print-safe pattern fills, data-derived alt text, and fact-checked captions. The engine will refuse to render a chart it cannot represent honestly.",
+      "Diagrams: node-and-edge graphs with automatic layered-graph layout, useful for process flows and architecture diagrams.",
+      "Executive decks: designed slide layouts with contrast-checked themes and fit-to-slide validation.",
+      "Long-form documents: visible table of contents with real page numbers, lettered appendices, alphabetized index, glossary, and mixed portrait/landscape page geometry within one document."
+    ]},
+
+    {"type": "heading", "text": "How Emboss Compares", "level": 1},
+    {"type": "paragraph", "text": "The comparison below refers to general-purpose PDF tools as a category, not any specific product."},
+    {"type": "table", "caption": "Emboss versus typical general-purpose PDF tools", "stripe": true,
+      "headers": ["Emboss", "Typical General-Purpose PDF Tools"],
+      "rows": [
+        ["Accessibility tagging on by default, no untagged mode", "Accessibility tagging is typically opt-in or unavailable"],
+        ["Conformance verified against a real validator in continuous integration", "Conformance is typically self-asserted or untested"],
+        ["Byte-identical, deterministic output with a reproducibility manifest", "Output reproducibility is typically not guaranteed or tracked"],
+        ["Redaction removes content before layout", "Redaction is often applied visually after layout, risking recoverable underlying text"],
+        ["Built-in document diff with redlined PDF output", "Version comparison is typically a manual or external process"],
+        ["Self-describing PDFs that can reconstruct their own source document", "Source documents are typically separate from the PDF and can be lost"],
+        ["One versioned BrandKit applied consistently across all documents", "Brand consistency typically depends on manual template maintenance"],
+        ["Honest charting rules (zero baseline, no truncation, will refuse misleading renders)", "Charting behavior is typically left to the document author"]
+      ]
+    },
+
+    {"type": "heading", "text": "Where Established Tools Are Ahead", "level": 1},
+    {"type": "paragraph", "text": "Emboss is a new project, and it is important to be direct about its current limitations relative to established, decades-old PDF tools."},
+    {"type": "table", "stripe": true,
+      "headers": ["Area", "Current Emboss Position"],
+      "rows": [
+        ["Complex-script text", "No support for complex-script shaping such as Arabic or Indic scripts"],
+        ["Rich input formats", "No arbitrary HTML/CSS input; documents are authored as structured content, not markup"],
+        ["Image formats", "Supports PNG and JPEG only"],
+        ["Production maturity", "Released in 2026; has less production track record than long-established PDF tools"]
+      ]
+    },
+
+    {"type": "heading", "text": "How the Claims Are Verified", "level": 1},
+    {"type": "bullets", "items": [
+      "Conformance to PDF/UA-1, PDF/A-2b, and PDF/A-3b is checked using the real veraPDF validator in continuous integration, and on demand via `emboss verify --conformance`.",
+      "Deterministic output is covered by automated tests confirming identical bytes for identical input.",
+      "The project is open source under Apache-2.0, so its rendering and validation logic can be inspected directly rather than taken on faith.",
+      "The library includes more than 1,700 automated tests and is published on PyPI as emboss-pdf 0.2.0 (`pip install emboss-pdf`, Python 3.10+)."
+    ]},
+    {"type": "callout", "variant": "note", "title": "Verification, not assertion", "text": "Every conformance and reproducibility claim in this document is backed by an automated check that runs in continuous integration, not a one-time internal test."}
+  ]
+}

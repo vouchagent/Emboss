@@ -1,6 +1,7 @@
 {
   "index": "Introduction",
   "installation": "Installation",
+  "comparison": "How Emboss Compares",
   "llm-integration": "LLM Integration",
   "spec-format": "EmbossSpec Format",
   "typography": "Typography",
