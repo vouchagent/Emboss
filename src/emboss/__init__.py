@@ -123,6 +123,7 @@ from .templates import (
 )
 from .markdown import parse_markdown, parse_front_matter, FrontMatter
 from .nodeid import assign_node_ids, derive_node_id, layout_map_json
+from .textmap import TextIndex, Resolution, reconstruct_node_text, text_map_json
 from .generate import (
     spec_prompt,
     generate,
@@ -284,6 +285,10 @@ __all__ = [
     "assign_node_ids",
     "derive_node_id",
     "layout_map_json",
+    "TextIndex",
+    "Resolution",
+    "reconstruct_node_text",
+    "text_map_json",
     "spec_prompt",
     "generate",
     "parse_spec_json",

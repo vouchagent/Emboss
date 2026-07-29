@@ -108,6 +108,7 @@ class RenderResult:
     page_count: int
     issues: list = field(default_factory=list)
     layout_map: dict = field(default_factory=dict)
+    text_index: dict = field(default_factory=dict)
 
     def __bytes__(self) -> bytes:
         return self.data
@@ -178,6 +179,10 @@ class Renderer:
         self._svg_fonts: dict = {}
         # node id -> list of {page, x0, y0, x1, y1} placements
         self._layout_map: dict = {}
+        # node id -> list of {page, char_start, char_end, x0,y0,x1,y1} text
+        # spans, in render order; the basis for resolving a highlight rect to
+        # a character range within a node (the text-position index).
+        self._text_index: dict = {}
         # (FileAttachment, StructureElement | None) pairs awaiting embedding;
         # a None target is a document-level attachment (e.g. embed_spec=True).
         self._pending_attachments: list = [(fa, None) for fa in (embed_files or [])]
@@ -228,6 +233,7 @@ class Renderer:
             page_count=len(pages),
             issues=issues,
             layout_map=self._layout_map,
+            text_index=self._text_index,
         )
 
     # -- appendices --
@@ -1259,6 +1265,35 @@ class Renderer:
         entry.update(box)
         self._layout_map.setdefault(node_id, []).append(entry)
 
+    def _record_text_span(
+        self, node_id, page_index, char_start, text, x, baseline, metrics, size
+    ) -> int:
+        """Record a rendered fragment's char range and rect; return its length.
+
+        The character offsets count the visible rendered text of the node in
+        render order, so a highlight rect over these glyphs maps back to a
+        char range within the node.
+        """
+        length = len(text)
+        if not node_id or not text:
+            return length
+        width = metrics.text_width(text, size)
+        box = round_bbox(
+            x,
+            baseline + metrics.descent(size),
+            x + width,
+            baseline + metrics.ascent(size),
+        )
+        entry = {
+            "page": page_index,
+            "char_start": char_start,
+            "char_end": char_start + length,
+            "text": text,
+        }
+        entry.update(box)
+        self._text_index.setdefault(node_id, []).append(entry)
+        return length
+
     def _resolve_font(self, style, run, registry) -> tuple:
         family = (
             run.font_family if run and run.font_family else style.require("font_family")
@@ -1315,6 +1350,9 @@ class Renderer:
         align = style.require("align")
         apply_protrusion = align in ("justify", "left")
 
+        node_id = getattr(placed.block.element, "id", None)
+        char_cursor = 0
+
         for line in placed.lines:
             baseline = y - line.ascent
 
@@ -1353,6 +1391,11 @@ class Renderer:
                 )
                 if sc_actual is not None:
                     stream.raw(b"EMC")
+                if char_cursor > 0 and text:
+                    char_cursor += 1  # word separator between rendered fragments
+                char_cursor += self._record_text_span(
+                    node_id, page_index, char_cursor, text, x, baseline, metrics, size
+                )
                 if run.strikethrough:
                     self._draw_strikethrough(
                         stream, metrics, size, x, baseline, text, color

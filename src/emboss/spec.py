@@ -1168,10 +1168,18 @@ class Document:
         from .nodeid import layout_map_json
         from .pdf.attachments import FileAttachment
         from .recovery import document_to_spec_dict, spec_dict_to_json
+        from .textmap import text_map_json
         from .adapters.markdown_export import to_markdown
 
         spec_json = spec_dict_to_json(document_to_spec_dict(self))
         return [
+            FileAttachment(
+                name="emboss-textmap.json",
+                data=text_map_json(self).encode("utf-8"),
+                mime="application/json",
+                description="Node id to per-character text-position index.",
+                relationship="Supplement",
+            ),
             FileAttachment(
                 name="emboss-spec.json",
                 data=spec_json,
@@ -1355,6 +1363,24 @@ class Document:
         result = render_document(self, return_result=True)
         self._layout_map_cache = (token, result.layout_map)
         return result.layout_map
+
+    def text_index(self):
+        """Return a `TextIndex` resolving page rectangles to node char ranges.
+
+        Renders once and caches; the cache is keyed to the current content so
+        mutating the document and calling again recomputes it.
+        """
+        from .textmap import TextIndex
+        from .writer import render_document
+
+        token = id(self.content), len(self.content)
+        cached = getattr(self, "_text_index_cache", None)
+        if cached is not None and cached[0] == token:
+            return cached[1]
+        result = render_document(self, return_result=True)
+        index = TextIndex(result.text_index, result.layout_map)
+        self._text_index_cache = (token, index)
+        return index
 
     @classmethod
     def from_markdown(cls, text: str, **kw) -> "Document":
