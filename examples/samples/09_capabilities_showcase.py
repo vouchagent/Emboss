@@ -175,7 +175,7 @@ doc.paragraph(
 )
 doc.math(
     r"\|\hat{x} - x\|_2 \leq C_1 \frac{\|x - x_k\|_1}{\sqrt{k}} + C_2 \epsilon",
-    display=True, number=True, tag="recovery",
+    display=True, number=True, label="eq:recovery",
 )
 doc.paragraph("The bound in @eq:recovery holds for any matrix satisfying the condition below.")
 doc.math(
