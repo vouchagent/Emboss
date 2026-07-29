@@ -350,6 +350,18 @@ class TableSpec(BaseModel):
         True, description="Repeat header row when table spans multiple pages."
     )
     style: StyleOverride | None = None
+    headline: str | None = Field(
+        None, description="Bold headline drawn above the table."
+    )
+    subtitle: str | None = Field(
+        None, description="Lighter subtitle drawn below the headline."
+    )
+    source_line: str | None = Field(
+        None, description="Small gray source attribution below the table."
+    )
+    attach_data: bool = Field(
+        False, description="Embed the table's headers and rows as a CSV /AF attachment."
+    )
 
     @model_validator(mode="after")
     def auto_detect_numeric_alignment(self):
@@ -403,6 +415,10 @@ class TableSpec(BaseModel):
             stripe=self.stripe,
             repeat_header=self.repeat_header,
             style=self.style.to_style() if self.style else None,
+            headline=self.headline,
+            subtitle=self.subtitle,
+            source_line=self.source_line,
+            attach_data=self.attach_data,
         )
 
 
@@ -564,6 +580,28 @@ class ChartSpec(BaseModel):
     legend: bool = Field(True, description="Show a legend for named series.")
     width: float = Field(400.0, ge=50, description="Chart width in points.")
     height: float = Field(250.0, ge=50, description="Chart height in points.")
+    patterns: bool = Field(
+        False, description="Overlay per-series vector patterns for grayscale print."
+    )
+    headline: str | None = Field(
+        None, description="Bold headline drawn above the chart."
+    )
+    subtitle: str | None = Field(
+        None, description="Lighter subtitle drawn below the headline."
+    )
+    source_line: str | None = Field(
+        None, description="Small gray source attribution below the chart."
+    )
+    verify_facts: bool = Field(
+        False,
+        description=(
+            "Verify the headline's numbers against the chart data, falling "
+            "back to an auto-generated finding when unsupported."
+        ),
+    )
+    attach_data: bool = Field(
+        False, description="Embed the chart's series data as a CSV /AF attachment."
+    )
 
     @model_validator(mode="after")
     def _require_data(self) -> "ChartSpec":
@@ -584,6 +622,12 @@ class ChartSpec(BaseModel):
             legend=self.legend,
             width=self.width,
             height=self.height,
+            patterns=self.patterns,
+            headline=self.headline,
+            subtitle=self.subtitle,
+            source_line=self.source_line,
+            verify_facts=self.verify_facts,
+            attach_data=self.attach_data,
         )
 
 
@@ -826,12 +870,18 @@ class BibliographySpec(BaseModel):
 
 
 class PageBreakSpec(BaseModel):
-    """Forces subsequent content onto a new page."""
+    """Forces subsequent content onto a new page.
+
+    ``page_style`` names an entry in ``DocumentSpec.page_styles``; content
+    after this break uses that page's geometry until another page break
+    switches again, or reverts to the document default with none set.
+    """
 
     type: Literal["page_break"] = "page_break"
+    page_style: str | None = None
 
     def to_element(self) -> PageBreak:
-        return PageBreak()
+        return PageBreak(page_style=self.page_style)
 
 
 class HorizontalRuleSpec(BaseModel):
@@ -1264,6 +1314,10 @@ class PageConfig(BaseModel):
             "Swap left/right margins on even (verso) pages for bound documents."
         ),
     )
+    landscape: bool = Field(
+        False,
+        description="Rotate the page to landscape orientation (width > height).",
+    )
 
     def to_page_spec(self) -> PageSpec:
         overrides = {}
@@ -1277,6 +1331,8 @@ class PageConfig(BaseModel):
             overrides["column_gap"] = self.column_gap
         if self.mirror_margins:
             overrides["mirror_margins"] = True
+        if self.landscape:
+            overrides["landscape"] = True
 
         if self.width and self.height:
             return PageSpec(width=self.width, height=self.height, **overrides)
@@ -1454,6 +1510,15 @@ class DocumentSpec(BaseModel):
     )
 
     page: PageConfig = Field(default_factory=PageConfig, description="Page geometry.")
+    page_styles: dict[str, PageConfig] = Field(
+        default_factory=dict,
+        description=(
+            "Named page geometries (e.g. a wide landscape page for a table "
+            "or diagram) that a page_break's page_style can switch to "
+            "mid-document, reverting to `page` on a page break with no "
+            "page_style."
+        ),
+    )
     brand: BrandKitSpec | None = Field(
         None,
         description=(
@@ -1539,6 +1604,9 @@ class DocumentSpec(BaseModel):
             style=self.style,
             brand=self.brand.to_brandkit() if self.brand else None,
             page=self.page.to_page_spec(),
+            page_styles={
+                name: cfg.to_page_spec() for name, cfg in self.page_styles.items()
+            },
             header_text=self.header_text,
             footer_text=self.footer_text,
             header=self.header.to_header_footer() if self.header else None,

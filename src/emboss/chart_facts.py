@@ -13,7 +13,7 @@ import re
 
 from .charts import direction_of, format_value
 
-__all__ = ["compute_facts", "fact_sentence", "verify_caption"]
+__all__ = ["compute_facts", "fact_sentence", "resolve_headline", "verify_caption"]
 
 _EXEMPT_MAX = 12
 _SUFFIX_SCALE = {"K": 1_000.0, "k": 1_000.0, "M": 1_000_000.0, "m": 1_000_000.0}
@@ -203,3 +203,21 @@ def fact_sentence(chart) -> str:
         f"{name} {verb} from {format_value(s['first'])} "
         f"to {format_value(s['last'])}{peak}."
     )
+
+
+def resolve_headline(element) -> str | None:
+    """Return the effective chart headline, applying opt-in fact verification.
+
+    With ``verify_facts`` off (the default) this is just ``element.headline``.
+    With it on: an absent headline is replaced by ``fact_sentence``, and a
+    present headline whose numbers ``verify_caption`` cannot support falls
+    back to ``fact_sentence`` too, so an opted-in caption is never wrong.
+    """
+    headline = getattr(element, "headline", None)
+    if not getattr(element, "verify_facts", False):
+        return headline
+    if not headline:
+        return fact_sentence(element) or None
+    if verify_caption(headline, compute_facts(element)):
+        return fact_sentence(element) or headline
+    return headline

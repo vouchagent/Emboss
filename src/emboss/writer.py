@@ -10,15 +10,23 @@ hash-verifiable for filings and diffable in CI.
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from dataclasses import dataclass, field, replace
 
 from .constraints import ConstraintValidator
 from .crossref import CrossReferenceIndex
 from .numbering import NumberingContext
-from .layout.engine import LayoutEngine, PlacedBlock
+from .layout.engine import LayoutEngine, PlacedBlock, annotation_sizes
 from .nodeid import assign_node_ids, round_bbox
 from .pdf.assembler import PDFAssembler
+from .pdf.attachments import (
+    FileAttachment,
+    af_array,
+    build_embedded_file,
+    build_names_tree,
+)
 from .pdf.fonts import build_font_resource
 from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
 from .pdf.streams import ContentStream
@@ -40,6 +48,7 @@ from .spec import (
     Image,
     MathBlock,
     NumberedList,
+    PageBreak,
     Paragraph,
     PullQuote,
     StatTiles,
@@ -95,6 +104,21 @@ class RenderResult:
         return self.data
 
 
+# Chart/table annotation colors: headline uses the body text color at bold
+# weight; subtitle and source_line step down in emphasis and size.
+_SUBTITLE_COLOR = "44403c"
+_SOURCE_LINE_COLOR = "78716c"
+
+
+def _csv_bytes(rows: list) -> bytes:
+    """Encode rows of strings as UTF-8 CSV with deterministic line endings."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue().encode("utf-8")
+
+
 def render_document(
     document: Document, *, strict: bool = False, return_result: bool = False
 ):
@@ -130,6 +154,13 @@ class Renderer:
         self._svg_fonts: dict = {}
         # node id -> list of {page, x0, y0, x1, y1} placements
         self._layout_map: dict = {}
+        # (FileAttachment, StructureElement) pairs awaiting embedding
+        self._pending_attachments: list = []
+        # id(element) of chart/table elements already fully drawn once,
+        # so a split table's headline/attachment fire only on its first page
+        self._chart_table_seen: set = set()
+        self._chart_attach_count = 0
+        self._table_attach_count = 0
 
     def run(self) -> RenderResult:
         validation = self.validator.validate(self.source).raise_if_failed()
@@ -156,8 +187,7 @@ class Renderer:
                 engine, document, content, width, toc_indices
             )
         else:
-            measured = [engine.measure(el, width) for el in content]
-            pages = engine.paginate(measured, document.page)
+            pages = self._paginate_sections(engine, document, content)
         self._section_titles = self._collect_section_titles(document, pages)
 
         assembler = PDFAssembler()
@@ -470,6 +500,53 @@ class Renderer:
             entries.append((element, text, level, key))
         return entries
 
+    def _paginate_sections(self, engine, document, content: list) -> list:
+        """Measure and paginate content, switching page geometry at styled
+        `PageBreak` markers so a document can mix page sizes mid-flow."""
+        sections = self._split_page_sections(document, content)
+        pages: list = []
+        for spec, chunk in sections:
+            measured = [engine.measure(el, spec.content_width) for el in chunk]
+            pages.extend(engine.paginate(measured, spec))
+        for index, page in enumerate(pages, start=1):
+            page.number = index
+        return pages
+
+    @staticmethod
+    def _split_page_sections(document, content: list) -> list:
+        """Split content into runs that each share one page geometry.
+
+        A `PageBreak.page_style` names an entry in `document.page_styles`;
+        everything after it uses that geometry until another `PageBreak`
+        switches again, or reverts to the document's default page when a
+        `PageBreak` carries no `page_style`.
+        """
+        default_spec = document.page
+        styles = getattr(document, "page_styles", None) or {}
+        sections: list = []
+        current_spec = default_spec
+        chunk: list = []
+        for element in content:
+            if isinstance(element, PageBreak):
+                name = element.page_style
+                if name is None:
+                    next_spec = default_spec
+                elif name in styles:
+                    next_spec = styles[name]
+                else:
+                    available = ", ".join(sorted(styles)) or "(none registered)"
+                    raise ValueError(
+                        f"unknown page_style {name!r}; registered: {available}"
+                    )
+                if next_spec is not current_spec:
+                    sections.append((current_spec, chunk))
+                    chunk = []
+                    current_spec = next_spec
+                    continue
+            chunk.append(element)
+        sections.append((current_spec, chunk))
+        return sections
+
     def _paginate_with_toc(
         self, engine, document, content, width: float, toc_indices: list
     ) -> list:
@@ -583,6 +660,19 @@ class Renderer:
             assembler, resources, ext_states
         )
 
+        attachment_entries: list = []
+        for file_attachment, target_el in self._pending_attachments:
+            filespec_ref, _ef_ref = build_embedded_file(
+                assembler,
+                name=file_attachment.name,
+                data=file_attachment.data,
+                mime=file_attachment.mime,
+                description=file_attachment.description,
+                relationship=file_attachment.relationship,
+            )
+            attachment_entries.append((file_attachment.name, filespec_ref))
+            target_el.af_refs = [filespec_ref]
+
         struct_ref = None
         if document.tagged:
             builder = StructureTreeBuilder(assembler, page_refs)
@@ -592,9 +682,8 @@ class Renderer:
             page_dict = PdfDict()
             page_dict["Type"] = PdfName("Page")
             page_dict["Parent"] = PdfRef(pages_id)
-            page_dict["MediaBox"] = PdfArray(
-                [0, 0, document.page.width, document.page.height]
-            )
+            page_spec = getattr(page, "spec", None) or document.page
+            page_dict["MediaBox"] = PdfArray([0, 0, page_spec.width, page_spec.height])
             page_dict["Resources"] = page_resource_refs.get(index, resources_ref)
             page_dict["Contents"] = content_refs[index]
             if document.tagged:
@@ -615,6 +704,14 @@ class Renderer:
         catalog["Type"] = PdfName("Catalog")
         catalog["Pages"] = PdfRef(pages_id)
         catalog["Lang"] = document.language
+        if attachment_entries:
+            tree_ref = assembler.add(build_names_tree(attachment_entries))
+            names = catalog.get("Names")
+            if names is None:
+                names = PdfDict()
+                catalog["Names"] = names
+            names["EmbeddedFiles"] = tree_ref
+            catalog["AF"] = af_array([ref for _name, ref in attachment_entries])
         if document.tagged:
             catalog["StructTreeRoot"] = struct_ref
             mark_info = PdfDict()
@@ -780,13 +877,15 @@ class Renderer:
         root = StructureElement(tag="Document")
         legal = document.legal
 
+        page_spec = getattr(page, "spec", None) or document.page
+
         if legal and legal.watermark:
-            self._draw_watermark(stream, document, sheet, legal, font_registry)
+            self._draw_watermark(stream, page_spec, sheet, legal, font_registry)
 
         page_blocks = page.blocks
         page_footnotes = list(getattr(page, "footnotes", []) or [])
         if self._is_mirrored(document, page_index):
-            shift = document.page.margin_right - document.page.margin_left
+            shift = page_spec.margin_right - page_spec.margin_left
             if shift:
                 page_blocks = [
                     replace(placed, x=placed.x + shift) for placed in page.blocks
@@ -798,7 +897,7 @@ class Renderer:
         for placed in page_blocks:
             element = placed.block.element
             struct_before = len(root.children)
-            self._record_layout(document, placed, page_index)
+            self._record_layout(page_spec, placed, page_index)
             if isinstance(element, Heading):
                 self._draw_text_block(
                     stream,
@@ -831,7 +930,7 @@ class Renderer:
                     page_index,
                     root,
                     font_registry,
-                    document.page.content_width,
+                    page_spec.content_width,
                 )
             elif isinstance(element, Image):
                 self._draw_image(stream, placed, page_index, root, font_registry)
@@ -844,7 +943,7 @@ class Renderer:
                     page_index,
                     root,
                     font_registry,
-                    document.page.content_width,
+                    page_spec.content_width,
                 )
             elif isinstance(element, MathBlock):
                 self._draw_math(stream, placed, page_index, root, font_registry)
@@ -857,11 +956,11 @@ class Renderer:
                     page_index,
                     root,
                     font_registry,
-                    document.page.content_width,
+                    page_spec.content_width,
                 )
             elif isinstance(element, CoverPage):
                 self._draw_cover(
-                    stream, placed, page_index, root, font_registry, document
+                    stream, placed, page_index, root, font_registry, page_spec
                 )
             elif isinstance(element, Abstract):
                 self._draw_abstract(stream, placed, page_index, root, font_registry)
@@ -874,7 +973,7 @@ class Renderer:
             elif isinstance(element, TableOfContents):
                 self._draw_toc(stream, placed, page_index, root, font_registry)
             elif isinstance(element, HorizontalRule):
-                self._draw_rule(stream, placed, document, sheet)
+                self._draw_rule(stream, placed, page_spec.content_width)
 
             node_id = getattr(element, "id", None)
             if node_id:
@@ -943,12 +1042,12 @@ class Renderer:
             return col_w
         return page_spec.content_width
 
-    def _record_layout(self, document, placed, page_index) -> None:
+    def _record_layout(self, page_spec, placed, page_index) -> None:
         """Add one node-id -> page/bbox entry from a placed block's geometry."""
         node_id = getattr(placed.block.element, "id", None)
         if not node_id:
             return
-        width = self._block_width(placed, document.page)
+        width = self._block_width(placed, page_spec)
         box = round_bbox(
             placed.x,
             placed.y - placed.height,
@@ -1363,12 +1462,115 @@ class Renderer:
 
         stream.end_marked()
 
+    def _draw_headline_block(
+        self, stream, x, y, width, headline, subtitle, style, registry
+    ) -> float:
+        """Draw a bold headline then a lighter subtitle above content.
+
+        Returns the new top y where the content body should start.
+        """
+        headline_size, subtitle_size, _source_size = annotation_sizes(style)
+        if headline:
+            metrics, _, key = self._resolve_font(style.with_(bold=True), None, registry)
+            tx = x + max(0.0, (width - metrics.text_width(headline, headline_size)) / 2)
+            stream.text_line(
+                headline,
+                key,
+                headline_size,
+                tx,
+                y - headline_size,
+                style.require("color"),
+                gid_map=metrics.gid_map,
+            )
+            y -= headline_size + 4.0
+        if subtitle:
+            metrics, _, key = self._resolve_font(style, None, registry)
+            tx = x + max(0.0, (width - metrics.text_width(subtitle, subtitle_size)) / 2)
+            stream.text_line(
+                subtitle,
+                key,
+                subtitle_size,
+                tx,
+                y - subtitle_size,
+                _SUBTITLE_COLOR,
+                gid_map=metrics.gid_map,
+            )
+            y -= subtitle_size + 3.0
+        return y
+
+    def _draw_source_line(
+        self, stream, x, y, width, source_line, style, registry
+    ) -> None:
+        """Draw a small gray source line below content, centered on width."""
+        if not source_line:
+            return
+        _headline_size, _subtitle_size, source_size = annotation_sizes(style)
+        metrics, _, key = self._resolve_font(style, None, registry)
+        tx = x + max(0.0, (width - metrics.text_width(source_line, source_size)) / 2)
+        stream.text_line(
+            source_line,
+            key,
+            source_size,
+            tx,
+            y - source_size - 2.0,
+            _SOURCE_LINE_COLOR,
+            gid_map=metrics.gid_map,
+        )
+
+    def _queue_attachment(
+        self, name: str, data: bytes, description: str, target_el
+    ) -> None:
+        """Record a CSV attachment for a structure element, embedded once assembled."""
+        self._pending_attachments.append(
+            (
+                FileAttachment(
+                    name=name,
+                    data=data,
+                    mime="text/csv",
+                    description=description,
+                    relationship="Data",
+                ),
+                target_el,
+            )
+        )
+
+    def _table_csv_bytes(self, element) -> bytes:
+        """Encode a table's headers and rows as CSV, cell text only."""
+        headers = [cell.plain_text for cell in element.header_cells]
+        rows = [[cell.plain_text for cell in row] for row in element.body_rows]
+        return _csv_bytes(([headers] if headers else []) + rows)
+
+    def _chart_csv_bytes(self, element) -> bytes:
+        """Encode a chart's categories and series values as CSV."""
+        labels = [str(v) for v in element.labels]
+        if element.series:
+            header = ["category"] + [
+                (s.label or f"series {i + 1}") for i, s in enumerate(element.series)
+            ]
+            count = max([len(labels)] + [len(s.values) for s in element.series])
+            rows = []
+            for i in range(count):
+                cat = labels[i] if i < len(labels) else str(i + 1)
+                row = [cat] + [
+                    str(s.values[i]) if i < len(s.values) else ""
+                    for s in element.series
+                ]
+                rows.append(row)
+        else:
+            header = ["category", "value"]
+            rows = [
+                [labels[i] if i < len(labels) else str(i + 1), str(v)]
+                for i, v in enumerate(element.values)
+            ]
+        return _csv_bytes([header] + rows)
+
     def _draw_table(self, stream, placed, page_index, root, registry, sheet) -> None:
         block = placed.block
         layout = block.table
         if layout is None:
             return
 
+        element = block.element
         table_el = StructureElement(tag="Table")
         root.children.append(table_el)
 
@@ -1381,7 +1583,34 @@ class Renderer:
             cursor += width
         table_width = sum(widths)
 
+        first_segment = id(element) not in self._chart_table_seen
+        if first_segment:
+            self._chart_table_seen.add(id(element))
+            if element.attach_data or self.source.pdfa:
+                self._table_attach_count += 1
+                name = f"table-{self._table_attach_count}-data.csv"
+                self._queue_attachment(
+                    name, self._table_csv_bytes(element), "Table source data", table_el
+                )
+
         y = placed.y
+        if first_segment and (element.headline or element.subtitle):
+            head_el = StructureElement(tag="Caption")
+            table_el.children.append(head_el)
+            head_mcid = stream.next_mcid()
+            head_el.add_mcid(page_index, head_mcid)
+            stream.begin_marked("Caption", head_mcid)
+            y = self._draw_headline_block(
+                stream,
+                placed.x,
+                y,
+                table_width,
+                element.headline,
+                element.subtitle,
+                block.style,
+                registry,
+            )
+            stream.end_marked()
 
         if layout.header_lines and placed.include_table_header:
             head = StructureElement(tag="THead")
@@ -1494,10 +1723,11 @@ class Renderer:
         )
         stream.end_marked()
 
-        caption = block.element.caption
+        caption = element.caption
         is_last_segment = bool(
             row_indices and row_indices[-1] == len(layout.row_heights) - 1
         )
+        content_bottom = y
         if caption and is_last_segment:
             metrics, size, key = self._resolve_font(block.style, None, registry)
             cap_size = size * 0.85
@@ -1516,6 +1746,24 @@ class Renderer:
                 y - cap_size - 4.0,
                 block.style.require("color"),
                 gid_map=metrics.gid_map,
+            )
+            stream.end_marked()
+            content_bottom -= cap_size + 8.0
+
+        if element.source_line and is_last_segment:
+            src_el = StructureElement(tag="Caption")
+            table_el.children.append(src_el)
+            src_mcid = stream.next_mcid()
+            src_el.add_mcid(page_index, src_mcid)
+            stream.begin_marked("Caption", src_mcid)
+            self._draw_source_line(
+                stream,
+                placed.x,
+                content_bottom,
+                table_width,
+                element.source_line,
+                block.style,
+                registry,
             )
             stream.end_marked()
 
@@ -1537,13 +1785,13 @@ class Renderer:
                 )
             cursor -= line.height
 
-    def _draw_rule(self, stream, placed, document, sheet) -> None:
+    def _draw_rule(self, stream, placed, content_width: float) -> None:
         element = placed.block.element
         stream.begin_artifact()
         stream.line(
             placed.x,
             placed.y,
-            placed.x + document.page.content_width,
+            placed.x + content_width,
             placed.y,
             color=element.color,
             width=element.thickness,
@@ -1625,6 +1873,7 @@ class Renderer:
         return self._image_refs[source_key][0]
 
     def _draw_chart(self, stream, placed, page_index, root, registry) -> None:
+        from .chart_facts import resolve_headline
         from .charts import ChartData, ChartSpec, render_chart, series_summary
 
         element = placed.block.element
@@ -1634,17 +1883,41 @@ class Renderer:
         fig_el.alt_text = element.alt_text or series_summary(element)
         root.children.append(fig_el)
 
+        if element.attach_data or self.source.pdfa:
+            self._chart_attach_count += 1
+            name = f"chart-{self._chart_attach_count}-data.csv"
+            self._queue_attachment(
+                name, self._chart_csv_bytes(element), "Chart source data", fig_el
+            )
+
         mcid = stream.next_mcid()
         fig_el.add_mcid(page_index, mcid)
         stream.begin_marked("Figure", mcid)
 
         _, size, key = self._resolve_font(style, None, registry)
 
+        headline = resolve_headline(element)
+        y = self._draw_headline_block(
+            stream,
+            placed.x,
+            placed.y,
+            element.width,
+            headline,
+            element.subtitle,
+            style,
+            registry,
+        )
+
         data = ChartData(
             labels=list(element.labels),
             values=list(element.values),
             colors=list(element.colors) if element.colors else None,
             title=element.title,
+            series=list(element.series) if element.series else None,
+            x_title=element.x_title,
+            y_title=element.y_title,
+            legend=element.legend,
+            patterns=element.patterns,
         )
         spec = ChartSpec(
             chart_type=element.chart_type,
@@ -1652,7 +1925,17 @@ class Renderer:
             width=element.width,
             height=element.height,
         )
-        render_chart(stream, spec, placed.x, placed.y, key, size * 0.8)
+        render_chart(stream, spec, placed.x, y, key, size * 0.8)
+
+        self._draw_source_line(
+            stream,
+            placed.x,
+            y - element.height,
+            element.width,
+            element.source_line,
+            style,
+            registry,
+        )
 
         stream.end_marked()
 
@@ -2199,10 +2482,12 @@ class Renderer:
             y -= line.height
         return y
 
-    def _draw_cover(self, stream, placed, page_index, root, registry, document) -> None:
+    def _draw_cover(
+        self, stream, placed, page_index, root, registry, page_spec
+    ) -> None:
         parts = placed.block.extras.get("cover", [])
         style = placed.block.style
-        page = document.page
+        page = page_spec
         left = page.margin_left
         width = placed.block.extras.get("width", page.content_width)
         color = style.require("color")
@@ -2467,13 +2752,13 @@ class Renderer:
 
         stream.end_marked()
 
-    def _draw_watermark(self, stream, document, sheet, legal, registry) -> None:
+    def _draw_watermark(self, stream, page_spec, sheet, legal, registry) -> None:
         metrics = self.fonts.resolve("Helvetica", bold=True)
         key = self._font_key(metrics, registry)
         size = 64.0
         width = metrics.text_width(legal.watermark, size)
 
-        page = document.page
+        page = page_spec
         import math
 
         angle = 52.0
@@ -2532,7 +2817,7 @@ class Renderer:
         style = sheet.resolved(sheet.header_footer)
         metrics, size, key = self._resolve_font(style, None, registry)
         color = style.require("color")
-        spec = document.page
+        spec = getattr(page, "spec", None) or document.page
         legal = document.legal
 
         gmap = metrics.gid_map
@@ -2717,7 +3002,7 @@ class Renderer:
         restart at the top of each page. That is what pleading paper does,
         rather than counting only lines that happen to carry text.
         """
-        spec = document.page
+        spec = getattr(page, "spec", None) or document.page
         size = legal.line_number_font_size
         color = "78716c"
 

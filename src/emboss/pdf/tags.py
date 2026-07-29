@@ -71,6 +71,7 @@ class StructureElement:
     annot_ref: PdfRef | None = None
     struct_parent: int | None = None
     node_id: str | None = None
+    af_refs: list | None = None
 
     def add(self, child: "StructureElement") -> "StructureElement":
         self.children.append(child)
@@ -205,6 +206,8 @@ class StructureTreeBuilder:
             attrs["O"] = PdfName("Table")
             attrs["ColSpan"] = element.colspan
             node["A"] = attrs
+        if element.af_refs:
+            node["AF"] = PdfArray(list(element.af_refs))
 
         self.assembler.add(node, obj_id=obj_id)
         return self_ref

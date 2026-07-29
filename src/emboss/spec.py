@@ -278,6 +278,10 @@ class Table:
     repeat_header: bool = True
     style: Style | None = None
     id: str | None = None
+    headline: str | None = None
+    subtitle: str | None = None
+    source_line: str | None = None
+    attach_data: bool = False
 
     @property
     def header_cells(self) -> list:
@@ -371,6 +375,12 @@ class Chart:
     y_title: str | None = None
     legend: bool = True
     id: str | None = None
+    patterns: bool = False
+    headline: str | None = None
+    subtitle: str | None = None
+    source_line: str | None = None
+    verify_facts: bool = False
+    attach_data: bool = False
 
     @property
     def structure_tag(self) -> str:
@@ -449,8 +459,15 @@ _CALLOUT_ICONS = {
 
 @dataclass
 class PageBreak:
-    """Forces content after this point onto a new page."""
+    """Forces content after this point onto a new page.
 
+    ``page_style`` names an entry in ``Document.page_styles``; content
+    after this break uses that page's geometry until another `PageBreak`
+    switches again, or reverts to the document's default page when a
+    later `PageBreak` carries no ``page_style``.
+    """
+
+    page_style: str | None = None
     id: str | None = None
     structure_tag: str = field(default="Artifact", init=False)
 
@@ -708,6 +725,11 @@ class PageSpec:
     columns: int = 1
     column_gap: float = 18.0
     mirror_margins: bool = False
+    landscape: bool = False
+
+    def __post_init__(self) -> None:
+        if self.landscape and self.width < self.height:
+            self.width, self.height = self.height, self.width
 
     @classmethod
     def letter(cls, **kw) -> "PageSpec":
@@ -806,6 +828,7 @@ class Document:
     style: Union[str, StyleSheet] = "corporate"
     brand: BrandKit | None = None
     page: PageSpec = field(default_factory=PageSpec)
+    page_styles: dict[str, PageSpec] = field(default_factory=dict)
     content: list = field(default_factory=list)
     header_text: str | None = None
     footer_text: str | None = None
@@ -866,8 +889,8 @@ class Document:
     def table(self, headers, rows, **kw) -> "Document":
         return self.add(Table(headers=headers, rows=rows, **kw))
 
-    def page_break(self) -> "Document":
-        return self.add(PageBreak())
+    def page_break(self, page_style: str | None = None) -> "Document":
+        return self.add(PageBreak(page_style=page_style))
 
     def image(self, source, **kw) -> "Document":
         return self.add(Image(source=source, **kw))

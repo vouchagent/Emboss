@@ -49,6 +49,8 @@ __all__ = [
     "Page",
     "LayoutEngine",
     "TableLayout",
+    "annotation_heights",
+    "annotation_sizes",
 ]
 
 
@@ -107,6 +109,25 @@ class MeasuredBlock:
                 return index
             used += line.height
         return len(self.lines)
+
+
+def annotation_sizes(style) -> tuple[float, float, float]:
+    """Return (headline_size, subtitle_size, source_line_size) in points."""
+    body = style.require("font_size")
+    return body + 1.0, body * 0.92, 7.5
+
+
+def annotation_heights(headline, subtitle, source_line, style) -> tuple:
+    """Return reserved (headline_h, subtitle_h, source_h) for resolved text.
+
+    Callers resolve the headline first (e.g. via ``chart_facts.resolve_headline``)
+    so measurement and rendering always reserve/consume the same space.
+    """
+    headline_size, subtitle_size, source_size = annotation_sizes(style)
+    headline_h = headline_size + 4.0 if headline else 0.0
+    subtitle_h = subtitle_size + 3.0 if subtitle else 0.0
+    source_h = source_size + 4.0 if source_line else 0.0
+    return headline_h, subtitle_h, source_h
 
 
 @dataclass(slots=True)
@@ -675,12 +696,19 @@ class LayoutEngine:
         )
 
     def _measure_chart(self, element, width: float) -> MeasuredBlock:
+        from ..chart_facts import resolve_headline
+
         style = self.sheet.resolved(self.sheet.body, element.style)
         display_w = min(element.width, width)
         display_h = element.height * (display_w / element.width)
+        headline = resolve_headline(element)
+        headline_h, subtitle_h, source_h = annotation_heights(
+            headline, element.subtitle, element.source_line, style
+        )
+        total = headline_h + subtitle_h + display_h + source_h
         return MeasuredBlock(
             element=element,
-            height=display_h,
+            height=total,
             style=style,
             can_split=False,
             space_before=8.0,
@@ -1339,6 +1367,10 @@ class LayoutEngine:
         total = header_height + sum(row_heights)
         if element.caption:
             total += self._caption_allowance(style)
+        headline_h, subtitle_h, source_h = annotation_heights(
+            element.headline, element.subtitle, element.source_line, style
+        )
+        total += headline_h + subtitle_h + source_h
 
         return MeasuredBlock(
             element=element,
@@ -2261,6 +2293,10 @@ class LayoutEngine:
         tail_height = tail_layout.header_height + sum(tail_layout.row_heights)
         if getattr(block.element, "caption", None):
             tail_height += self._caption_allowance(block.style)
+        _headline_h, _subtitle_h, source_h = annotation_heights(
+            None, None, getattr(block.element, "source_line", None), block.style
+        )
+        tail_height += source_h
         tail = MeasuredBlock(
             element=block.element,
             height=tail_height,

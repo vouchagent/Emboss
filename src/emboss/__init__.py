@@ -82,6 +82,7 @@ from .styles import PRESETS, Style, StyleSheet, apply_brand, resolve_preset
 from .typography.font_metrics import FontMetrics, FontRegistry
 from .typography.hyphenation import Hyphenator
 from .typography.line_breaking import LineBreaker
+from .typography.numbers import format_number
 from .intelligence import (
     ContentAnalyzer,
     QualityScorer,
@@ -184,6 +185,7 @@ __all__ = [
     "FontMetrics",
     "Hyphenator",
     "LineBreaker",
+    "format_number",
     "ConstraintValidator",
     "ValidationResult",
     "ValidationError",

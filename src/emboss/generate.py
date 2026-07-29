@@ -358,6 +358,7 @@ Do not emit brand colors, fonts, or a logo: visual branding is applied programma
 ```
 Presets: letter, a4, a5, legal, compact. Use "columns": 2 for two-column layouts (newsletters, academic papers); "column_gap" is in points.
 The "compact" preset (A5 with tight margins) suits phone and tablet reading.
+Set "landscape": true on "page" (or any entry in "page_styles") for a wide page. "page_styles" is a name -> page-geometry map; a {{"type": "page_break", "page_style": "wide"}} block switches to that geometry until a page break with no "page_style" reverts to the document default — use this for a wide table or diagram inside an otherwise portrait document.
 
 ## Headers, Footers & Page Numbers
 ```json
@@ -810,7 +811,7 @@ def _manual_parse(data: dict) -> "Document":
             attribution=b.get("attribution"),
         ),
         "rule": lambda b: HorizontalRule(),
-        "page_break": lambda b: PageBreak(),
+        "page_break": lambda b: PageBreak(page_style=b.get("page_style")),
         "diagram": lambda b: _parse_diagram(b),
     }
 
