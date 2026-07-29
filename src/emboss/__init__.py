@@ -123,6 +123,7 @@ from .templates import (
     data_sheet,
 )
 from .markdown import parse_markdown, parse_front_matter, FrontMatter
+from .builder import build_from_directory, ordered_markdown_files
 from .nodeid import assign_node_ids, derive_node_id, layout_map_json
 from .textmap import TextIndex, Resolution, reconstruct_node_text, text_map_json
 from .generate import (
@@ -331,6 +332,8 @@ __all__ = [
     "parse_markdown",
     "parse_front_matter",
     "FrontMatter",
+    "build_from_directory",
+    "ordered_markdown_files",
     "assign_node_ids",
     "derive_node_id",
     "layout_map_json",

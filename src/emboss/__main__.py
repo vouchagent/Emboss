@@ -339,6 +339,32 @@ def main(argv: list[str] | None = None) -> int:
         help="Embed the spec, layout map, and text map (needed for review)",
     )
 
+    build_p = sub.add_parser(
+        "build",
+        help="Build one PDF from a directory of Markdown files",
+        description=(
+            "Concatenate a folder of Markdown files, in order, into a single "
+            "tagged PDF. Order is alphabetical by default (numeric prefixes "
+            "like 01-intro.md work) or from a .order file in the directory. "
+            "The first file's front matter supplies the title and style."
+        ),
+    )
+    build_p.add_argument("directory", help="Directory of .md files")
+    build_p.add_argument(
+        "-o", "--output", default="book.pdf", help="Output PDF path (default: book.pdf)"
+    )
+    build_p.add_argument("--title", default=None, help="Override the document title")
+    build_p.add_argument("--style", default=None, help="Style preset override")
+    build_p.add_argument(
+        "--no-toc", action="store_true", help="Do not add a table of contents"
+    )
+    build_p.add_argument(
+        "--no-page-breaks",
+        action="store_true",
+        help="Do not insert a page break between files",
+    )
+    build_p.add_argument("-q", "--quiet", action="store_true")
+
     schema_p = sub.add_parser(
         "schema",
         help="Export the JSON Schema for LLM prompt engineering",
@@ -553,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
 
     handlers = {
         "render": _render,
+        "build": _build,
         "schema": _schema,
         "verify": _verify,
         "strip": _strip,
@@ -699,6 +726,34 @@ def _history(args: argparse.Namespace) -> int:
         print(f"error: file not found: {path}", file=sys.stderr)
         return 1
     print(format_history(path.read_bytes()))
+    return 0
+
+
+def _build(args: argparse.Namespace) -> int:
+    from .builder import build_from_directory
+
+    directory = Path(args.directory)
+    if not directory.is_dir():
+        print(f"error: not a directory: {directory}", file=sys.stderr)
+        return 1
+
+    try:
+        doc = build_from_directory(
+            directory,
+            title=args.title,
+            style=args.style,
+            toc=not args.no_toc,
+            page_break_between=not args.no_page_breaks,
+        )
+        pdf_bytes = doc.render()
+    except Exception as exc:
+        print(f"error: build failed: {exc}", file=sys.stderr)
+        return 1
+
+    output = Path(args.output)
+    output.write_bytes(pdf_bytes)
+    if not args.quiet:
+        print(f"{output} -- {len(pdf_bytes):,} bytes from {directory}")
     return 0
 
 
