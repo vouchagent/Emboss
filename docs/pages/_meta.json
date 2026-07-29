@@ -3,6 +3,7 @@
   "installation": "Installation",
   "comparison": "How Emboss Compares",
   "llm-integration": "LLM Integration",
+  "mcp": "MCP Server",
   "spec-format": "EmbossSpec Format",
   "typography": "Typography",
   "math": "Math Notation",

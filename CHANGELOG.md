@@ -22,6 +22,14 @@ follows [Semantic Versioning](https://semver.org/).
     never auto-applied; an `exact` edit splices only the objected-to phrase.
   - `review_html.review_html()`: a self-contained static triage report.
   - CLI: `emboss review` and `emboss apply`; `emboss render --embed-spec`.
+- MCP server (`mcp_server.py`, `pip install emboss-pdf[mcp]`, `emboss-mcp`):
+  makes Emboss documents callable from an AI assistant over the Model
+  Context Protocol (standard FastMCP API). Tools center the novel
+  capabilities -- `get_document_spec` / `get_document_text` (exact answers
+  from the embedded JSON), `list_embedded_data` / `extract_embedded_data`
+  (pull a table's source CSV back out), `extract_review_comments`,
+  `revision_history` -- plus `render_document`, `verify_document`, and
+  `get_spec_schema`. Handlers are plain tested functions (`dispatch`).
 - Incremental amendment (`amend.py`): append-only revisions for signatures
   and approvals that never rewrite prior bytes. `amend_sign` /
   `prepare_signature` / `amend_pdf`, `revision_history`, and

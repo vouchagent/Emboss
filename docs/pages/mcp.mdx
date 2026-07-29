@@ -1,0 +1,112 @@
+---
+title: MCP Server
+description: Make Emboss documents agent-callable, and answer questions about them with certainty
+---
+
+# MCP server
+
+The Emboss MCP server makes your documents usable directly from an AI assistant that speaks the [Model Context Protocol](https://modelcontextprotocol.io) -- Claude Desktop, for one. Configure it once, and the assistant can generate PDFs and, more importantly, **answer questions about them from their embedded structure, not from guessing at rendered pixels.**
+
+An Emboss PDF rendered with `embed_spec=True` carries its own EmbossSpec JSON, a per-character text-position index, and any CSV data attached to its tables and charts. The server's query tools read that embedded structure, so an answer about the document is exact.
+
+## Why this matters
+
+- **Answers are 100% accurate.** The document's structure is embedded as JSON. When the assistant is asked "what were EMEA bookings in the Q3 report?", it reads the attached table CSV or the spec, not an OCR guess.
+- **The novel data travels with the file.** A table can carry its own source CSV inside the PDF; the assistant can pull it back out on request.
+- **Review and traceability are first-class.** The assistant can list reviewer comments resolved to exact nodes and character ranges, and show a signed document's revision history and what nobody signed.
+- **It works on any Emboss PDF.** Every query tool takes a file path, so the same server answers questions about every PDF you generate, not a single fixed document.
+
+## Install
+
+```bash
+pip install "emboss-pdf[mcp]"
+```
+
+This pulls in the MCP SDK (FastMCP) and pikepdf alongside Emboss, and installs the `emboss-mcp` command, which serves over stdio.
+
+## Configure it into Claude Desktop
+
+Add the server to your Claude Desktop config file:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "emboss": {
+      "command": "emboss-mcp"
+    }
+  }
+}
+```
+
+If `emboss-mcp` is not on your PATH, use the Python module form instead:
+
+```json
+{
+  "mcpServers": {
+    "emboss": {
+      "command": "python",
+      "args": ["-m", "emboss.mcp_server"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. The Emboss tools now appear in the client.
+
+## Step by step: from documents to answers
+
+1. **Generate one or more PDFs with Emboss**, rendered so they are self-describing. Either in your own code:
+
+   ```python
+   doc.save("q3-report.pdf", embed_spec=True)
+   ```
+
+   or ask the assistant to do it once the server is configured -- the `render_document` tool defaults to `embed_spec=True`. You can generate as many PDFs as you like; the server is not tied to any one of them.
+
+2. **Ask the assistant about a document.** Point it at the file and ask a question:
+
+   > "Using the emboss tools, what were EMEA bookings in q3-report.pdf, and what does its risk paragraph say?"
+
+   The assistant calls `get_document_text` (or `extract_embedded_data` for the table's CSV) and answers from the structured source.
+
+3. **Pull the underlying data out.** 
+
+   > "Extract the bookings table from q3-report.pdf as CSV."
+
+   The assistant calls `extract_embedded_data` and returns the exact `table-1-data.csv` embedded in the file.
+
+4. **Triage review markup.** After a reviewer highlights the PDF in Acrobat, Preview, or Chrome:
+
+   > "List the review comments in q3-report-legal.pdf and which paragraphs they hit."
+
+   The assistant calls `extract_review_comments` and gets each comment resolved to a node id and character range.
+
+5. **Check traceability on a signed document.**
+
+   > "Show the revision history of contract.pdf and whether anything was added after it was signed."
+
+   The assistant calls `revision_history`, which flags any content appended after a signature that no signature covers.
+
+## Tools
+
+| Tool | What it does |
+|------|--------------|
+| `render_document` | Render an EmbossSpec JSON document to a PDF (self-describing by default) |
+| `render_markdown` | Render a Markdown document to a PDF |
+| `get_document_spec` | Return the exact EmbossSpec JSON embedded in a PDF |
+| `get_document_text` | Return each node's exact text from the embedded text-position index |
+| `list_embedded_data` | List embedded files: the spec, layout/text maps, and any table/chart CSVs |
+| `extract_embedded_data` | Extract one embedded file (e.g. a table's source CSV) as text |
+| `extract_review_comments` | Extract reviewer annotations resolved to node and character range |
+| `revision_history` | Show incremental-revision history and flag content no signature covers |
+| `verify_document` | Report structural integrity, page count, and tagging |
+| `get_spec_schema` | Return the EmbossSpec JSON Schema for authoring a document spec |
+
+## Notes
+
+- The query tools rely on `embed_spec=True`. A PDF rendered without it can still be verified, but `get_document_spec` / `get_document_text` will report that the structure was not embedded rather than guess.
+- The server runs locally over stdio and reads the PDF paths you give it; nothing is uploaded.
+- The tools are plain, tested Python functions (`emboss.mcp_server.dispatch`), so the same capabilities are callable from your own code without an MCP client.

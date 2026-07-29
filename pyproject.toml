@@ -32,11 +32,13 @@ dependencies = ["fonttools>=4.40"]
 llm = ["pydantic>=2.0"]
 verify = ["pikepdf>=8.0"]
 signing = ["cryptography>=41.0"]
+mcp = ["mcp>=1.2.0", "pikepdf>=8.0", "pydantic>=2.0"]
 dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "cryptography>=41.0", "mypy>=1.8", "ruff==0.15.21"]
-all = ["pydantic>=2.0", "pikepdf>=8.0", "cryptography>=41.0"]
+all = ["pydantic>=2.0", "pikepdf>=8.0", "cryptography>=41.0", "mcp>=1.2.0"]
 
 [project.scripts]
 emboss = "emboss.__main__:main"
+emboss-mcp = "emboss.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/GGChamp85/Emboss"

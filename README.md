@@ -730,6 +730,28 @@ emboss apply comments.json --spec spec.json --edits edits.json \
 
 ---
 
+## MCP Server
+
+Make Emboss documents callable from an AI assistant that speaks the [Model Context Protocol](https://modelcontextprotocol.io), such as Claude Desktop. Configure it once, and the assistant can generate PDFs and answer questions about them **from their embedded structure, not from guessing at rendered pixels** -- because an Emboss PDF made with `embed_spec=True` carries its own EmbossSpec JSON, a per-character text index, and any CSV data attached to its tables.
+
+```bash
+pip install "emboss-pdf[mcp]"
+```
+
+```json
+{
+  "mcpServers": {
+    "emboss": { "command": "emboss-mcp" }
+  }
+}
+```
+
+The server (built on the standard FastMCP API, served over stdio) exposes tools for the novel capabilities: `render_document`, `get_document_spec` and `get_document_text` (exact answers from the embedded JSON), `list_embedded_data` / `extract_embedded_data` (pull a table's source CSV back out), `extract_review_comments` (annotations resolved to nodes), `revision_history` (traceability), plus `verify_document` and `get_spec_schema`. Every query tool takes a file path, so one server answers questions about every PDF you generate. See the [MCP Server guide](https://ggchamp85.github.io/Emboss/mcp) for the step-by-step Claude Desktop setup.
+
+The tools are plain, tested functions (`emboss.mcp_server.dispatch`), callable from your own code without an MCP client.
+
+---
+
 ## Templates
 
 Pre-configured document factories for common formats:
