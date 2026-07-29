@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emboss-pdf"
-version = "0.6.0"
+version = "1.0.0"
 description = "Deterministic, PDF/UA-tagged, veraPDF-conformant PDF generation for Python, built for LLM-driven document pipelines"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "Gaurav Gupta" }]
 keywords = ["pdf", "typesetting", "accessibility", "pdf-ua", "knuth-plass"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
@@ -29,12 +29,15 @@ classifiers = [
 dependencies = ["fonttools>=4.40"]
 
 [project.optional-dependencies]
+# pillow/starlette are transitive (via pikepdf/mcp, which set no upper bound);
+# floors pinned here to known-patched releases so installers do not resolve a
+# vulnerable transitive version. Emboss itself never imports either.
 llm = ["pydantic>=2.0"]
-verify = ["pikepdf>=8.0"]
+verify = ["pikepdf>=8.0", "pillow>=12.3.0"]
 signing = ["cryptography>=41.0"]
-mcp = ["mcp>=1.2.0", "pikepdf>=8.0", "pydantic>=2.0"]
-dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "cryptography>=41.0", "mypy>=1.8", "ruff==0.15.21"]
-all = ["pydantic>=2.0", "pikepdf>=8.0", "cryptography>=41.0", "mcp>=1.2.0"]
+mcp = ["mcp>=1.2.0", "pikepdf>=8.0", "pydantic>=2.0", "pillow>=12.3.0", "starlette>=1.3.1"]
+dev = ["pytest>=7.4", "pikepdf>=8.0", "pydantic>=2.0", "cryptography>=41.0", "mypy>=1.8", "ruff==0.15.21", "pillow>=12.3.0", "starlette>=1.3.1"]
+all = ["pydantic>=2.0", "pikepdf>=8.0", "cryptography>=41.0", "mcp>=1.2.0", "pillow>=12.3.0", "starlette>=1.3.1"]
 
 [project.scripts]
 emboss = "emboss.__main__:main"

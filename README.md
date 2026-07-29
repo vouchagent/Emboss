@@ -129,6 +129,8 @@ Every conformance claim is checkable: `emboss verify out.pdf --conformance ua1` 
 | AI integration | First-class MCP server, grounded answers | None |
 | Dependencies | Pure Python, `fonttools` only (rest optional) | Native libs / a browser runtime |
 
+**Dependency security.** The only hard dependency is `fonttools`; `pydantic`, `pikepdf`, `cryptography`, and `mcp` are optional extras, and Emboss never imports two of their own transitive dependencies (`pillow`, `starlette`) directly. Because those two set no upper bound, Emboss pins a known-patched floor on them in its own `[project.optional-dependencies]` (`pillow>=12.3.0`, `starlette>=1.3.1`), so `pip install emboss-pdf[verify]` / `[mcp]` / `[dev]` / `[all]` resolves to a patched transitive chain rather than whatever floor those packages declare. `pip-audit` against the full dependency set (base plus every extra) reports no known vulnerabilities.
+
 ---
 
 ## Built for Enterprise
@@ -1627,6 +1629,7 @@ src/emboss/
 | 5 | Cross-references, custom headers/footers, numbered lists | Done |
 | 6 | Micro-typography, GPOS kerning, performance, CMYK | Done |
 | 7 | BrandKit, SlideDeck, diagrams, MathML, real veraPDF conformance, self-describing PDFs (`embed_spec`/`from_pdf`/`strip`), document diff and redline, reproducibility manifest, construction-time redaction, DocMDP certification signatures, encrypted attachments, node-scoped patching | Done |
+| 8 | Text-position index and annotation round-trip, incremental amendment with signature coverage, MCP server, Factur-X/ZUGFeRD, table arithmetic validation, PAdES/eIDAS baseline signatures, PDF/X-4, WTPDF 1.0, Mermaid parsing, include-from-source, `emboss build`, controlled-document block | Done |
 
 ---
 

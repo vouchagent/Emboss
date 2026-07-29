@@ -3,6 +3,36 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] - 2026-07-29
+
+The first stable release. The public API (`emboss.__all__`) is now covered by
+semantic versioning: a breaking change to a documented function or class
+signature will ship as a major version bump.
+
+### Added
+- **Mermaid parser** (`mermaid.py`): `parse_mermaid` maps `flowchart`/`graph`,
+  `sequenceDiagram`, and `erDiagram` source onto Emboss's existing diagram
+  builders, so the large existing corpus of Mermaid-authored documentation
+  renders as native vector graphics. A ` ```mermaid ` Markdown fence parses
+  through it, degrading to a code block with a warning on failure (or raising
+  under `strict=True`); an unsupported kind raises `MermaidError` naming it.
+- **Include-from-source** (`include.py`): `include_source(path, lines=,
+  marker=, dedent=True)` pulls a code block's content from a source file by
+  line range or a region/BEGIN-END marker, so documented examples cannot
+  drift from the code. A fenced code block with `file=PATH` loads through it
+  in Markdown, resolved against `base_dir`.
+- **`emboss build`** (`builder.py`): concatenates a directory of Markdown
+  files, in order, into one tagged PDF -- the build-step workflow a
+  documentation team already has, rather than an API call. Alphabetical
+  order by default, or an explicit `.order` file; the first file's front
+  matter supplies the title and style.
+- **Controlled-document block** (`DocumentControl`, `Approval`,
+  `RevisionEntry`): a document identifier, version, status, an approvals
+  table, and a revision history for ISO 9001 / IEC 62304 / medical-device
+  documentation. Expands into real, fully tagged tables before layout, so
+  pagination and PDF/UA tagging come from the existing table machinery.
+  `Document.document_control(**kwargs)`.
+
 ## [0.6.0] - 2026-07-29
 
 ### Added
