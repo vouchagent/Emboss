@@ -20,8 +20,29 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 
 ---
 
+## What Makes Emboss Different
+
+Emboss treats a PDF as structured, self-describing data with a deterministic, accessible, verifiable lifecycle, not as final ink. Six properties set it apart:
+
+1. **Native typesetting, no browser.** Emboss is a real typesetting engine (Knuth-Plass line breaking, true font metrics), not HTML-to-PDF like WeasyPrint or Prince, and not headless Chrome. That is why output is deterministic and why there is no Chromium or Node attack surface. It runs anywhere, including locked-down servers.
+
+2. **Pure-Python core, one hard dependency.** Only `fonttools` is required; pydantic, pikepdf, cryptography, and the MCP SDK are optional extras. Easy to vendor, audit, and deploy in restricted environments.
+
+3. **Byte-identical output.** No timestamps, no random ids; the file `/ID` is derived from content. The same document produces the same bytes on every machine, so a filing can be hash-pinned and a change can be code-reviewed and diffed in CI. Almost no other PDF toolchain can say this.
+
+4. **Accessibility by default.** The PDF/UA structure tree is derived from the same semantic model that drives layout, so tags cannot drift from content. This matters now that the EU Accessibility Act (June 2025) makes accessible PDFs mandatory for many businesses. Conformance is checked against the real veraPDF validator in CI, not mocked.
+
+5. **Data embedded at the element level, a table *is* its spreadsheet.** A table or chart can carry its own source CSV inside the PDF as a per-element attachment, so the figure a reader sees and the data an analyst needs are the same file and can never drift apart. Every other PDF flattens a table to ink; Emboss keeps the data live inside the document.
+
+6. **Self-describing and node-keyed, one closed loop.** Each document embeds its own spec, a per-character text index, and a stable id on every block. Generate, review, edit, sign, verify, and reproduce all key off that same structure, so the document stays coherent and machine-actionable through its whole lifecycle. Competitors give you one stage; Emboss gives you the loop, backed by 1,900+ tests.
+
+The one-line version: **an Emboss document is structured data you can also read.**
+
+---
+
 ## Table of Contents
 
+- [What Makes Emboss Different](#what-makes-emboss-different)
 - [Built for Enterprise](#built-for-enterprise)
 - [How Emboss Compares](#how-emboss-compares)
 - [Why Emboss](#why-emboss)
@@ -37,6 +58,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 - [Self-Describing PDFs](#self-describing-pdfs)
 - [Document Diff and Redline](#document-diff-and-redline)
 - [Review Round-Trip](#review-round-trip)
+- [MCP Server](#mcp-server)
 - [Templates](#templates)
 - [Executive Decks](#executive-decks)
 - [Domain Features](#domain-features)
