@@ -142,6 +142,46 @@ doc.callout(
 )
 
 # --------------------------------------------------------------------------
+doc.heading("Review that resolves to the exact words", level=1)
+doc.paragraph(
+    "A reviewer marks up the PDF in whatever they already use, Acrobat, "
+    "Preview, or Chrome. Because the document carries a text-position index, "
+    "each highlight or strike-out resolves back to the exact node and "
+    "character range it covers, not a guess at a region. Other PDFs have no "
+    "structure to resolve a comment against."
+)
+doc.code_block(
+    "from emboss.annotations import extract_comments, merge_comments\n"
+    "\n"
+    "# reviewers mark up v1.pdf in their own reader, then:\n"
+    "comments = merge_comments(\n"
+    '    extract_comments("v1-legal.pdf"),\n'
+    '    extract_comments("v1-finance.pdf"),\n'
+    ")",
+    language="python",
+)
+doc.paragraph(
+    "A resolved comment names the block and the phrase, not just the page:"
+)
+doc.code_block(
+    '{"id": "c-07", "author": "R. Patel", "type": "strikeout",\n'
+    ' "node_id": "sec-risk.p3", "char_range": [120, 143],\n'
+    ' "anchor_text": "exposure exceeds $4.2M",\n'
+    ' "comment": "Overstates it, use the netted figure",\n'
+    ' "resolution": "exact", "status": "open"}',
+    language="json",
+)
+doc.callout(
+    "The resolution state is never omitted: exact (one node and a character "
+    "range), node (one node), spanning (two or more, reported not split), or "
+    "unanchored (no text beneath, surfaced not dropped). A silently "
+    "mis-resolved comment is worse than an unresolved one. A model then edits "
+    "only the phrase objected to, and a redline proves the change.",
+    variant="success",
+    title="Reviewer markup becomes structured, node-keyed feedback",
+)
+
+# --------------------------------------------------------------------------
 doc.heading("Software and architecture documentation", level=1)
 doc.paragraph(
     "Describe a system, do not draw it. Emboss renders syntax-highlighted "
@@ -387,6 +427,33 @@ doc.table(
 )
 
 # --------------------------------------------------------------------------
+doc.heading("Sign without rewriting, and prove what nobody signed", level=1)
+doc.paragraph(
+    "Content edits produce a new file; approvals append. A signature is added "
+    "as an incremental revision that never rewrites the bytes already in the "
+    "file, so each signature attests to everything before it. The revision "
+    "history makes the audit question answerable: what was added that nobody "
+    "signed?"
+)
+doc.table(
+    headers=["Rev", "Kind", "Signer", "Coverage"],
+    rows=[
+        ["0", "base", "", "covered by rev 1, 2"],
+        ["1", "signature", "R. Patel (Legal)", "signed"],
+        ["2", "signature", "M. Osei (Finance)", "signed"],
+        ["3", "annotations", "", "not covered by any signature"],
+    ],
+    caption="An incremental-revision history with a signature-coverage check.",
+)
+doc.callout(
+    "That last row is the feature: content appended after a signature that no "
+    "signature covers is detected and reported. It falls out of the revision "
+    "chain for free, and it is the check auditors actually want.",
+    variant="note",
+    title="Append-only revisions with signature coverage",
+)
+
+# --------------------------------------------------------------------------
 doc.heading("Trust, briefly", level=1)
 doc.paragraph(
     "One section, because it should be assumed rather than sold. Every "
@@ -395,7 +462,7 @@ doc.paragraph(
     "reconstructed later, and it supports a redlined diff between "
     "versions for review. Conformance to PDF/UA-1 and PDF/A is checked "
     "against the real veraPDF validator in continuous integration. The "
-    "project is open source under Apache-2.0 with more than 1,700 "
+    "project is open source under Apache-2.0 with more than 1,800 "
     "automated tests."
 )
 
