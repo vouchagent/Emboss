@@ -446,6 +446,54 @@ def main(argv: list[str] | None = None) -> int:
     )
     validate_p.add_argument("input", help="JSON spec file, or '-' for stdin")
 
+    review_p = sub.add_parser(
+        "review",
+        help="Extract reviewer annotations from marked-up PDFs to comments",
+        description=(
+            "Read the highlights, strike-outs, and notes reviewers added to "
+            "one or more Emboss-produced PDFs (rendered with embed_spec=True) "
+            "and resolve each against the embedded text map to a node id and "
+            "character range. Several returned PDFs merge into one comment "
+            "list. The unresolved count is reported loudly."
+        ),
+    )
+    review_p.add_argument("inputs", nargs="+", help="Marked-up PDF file paths")
+    review_p.add_argument(
+        "-o", "--output", default=None, help="Write comments JSON to this path"
+    )
+    review_p.add_argument(
+        "--html", default=None, help="Write a static HTML triage report to this path"
+    )
+    review_p.add_argument("-q", "--quiet", action="store_true")
+
+    apply_p = sub.add_parser(
+        "apply",
+        help="Apply resolved comments to a spec (proposes by default)",
+        description=(
+            "Turn extracted comments into targeted node edits. Without an "
+            "--edits map this only proposes the patches and writes nothing, "
+            "since reviewer comments are never auto-applied. With --edits "
+            "(comment id to replacement text) it patches each node, renders "
+            "the result, and can write a redline proving the change."
+        ),
+    )
+    apply_p.add_argument("comments", help="comments JSON from 'emboss review'")
+    apply_p.add_argument(
+        "--spec", required=True, help="JSON spec of the document to patch"
+    )
+    apply_p.add_argument(
+        "--edits",
+        default=None,
+        help="JSON map of comment id to replacement text (omit to propose only)",
+    )
+    apply_p.add_argument(
+        "-o", "--output", default=None, help="Write the patched, re-rendered PDF here"
+    )
+    apply_p.add_argument(
+        "--redline", default=None, help="Write a redlined PDF of the change here"
+    )
+    apply_p.add_argument("-q", "--quiet", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -462,8 +510,96 @@ def main(argv: list[str] | None = None) -> int:
         "export": _export,
         "analyze": _analyze,
         "validate": _validate,
+        "review": _review,
+        "apply": _apply,
     }
     return handlers[args.command](args)
+
+
+def _review(args: argparse.Namespace) -> int:
+    from .annotations import (
+        comments_to_json,
+        extract_comments,
+        merge_comments,
+        unresolved_count,
+    )
+
+    lists = []
+    for name in args.inputs:
+        path = Path(name)
+        if not path.exists():
+            print(f"error: file not found: {path}", file=sys.stderr)
+            return 1
+        try:
+            lists.append(extract_comments(path.read_bytes()))
+        except Exception as exc:
+            print(f"error: could not read {path}: {exc}", file=sys.stderr)
+            return 1
+
+    comments = merge_comments(*lists) if len(lists) > 1 else lists[0]
+
+    if args.output:
+        Path(args.output).write_text(comments_to_json(comments), encoding="utf-8")
+    if args.html:
+        from .review_html import review_html
+
+        Path(args.html).write_text(review_html(comments), encoding="utf-8")
+    if not args.output and not args.html:
+        print(comments_to_json(comments))
+
+    unresolved = unresolved_count(comments)
+    if not args.quiet:
+        note = f"{len(comments)} comments"
+        if unresolved:
+            note += f" -- WARNING: {unresolved} unresolved (spanning/unanchored)"
+        print(note, file=sys.stderr)
+    # Non-zero exit signals unresolved comments to a calling script.
+    return 2 if unresolved else 0
+
+
+def _apply(args: argparse.Namespace) -> int:
+    import json
+
+    from .annotations import Comment
+    from .review import apply_replacements, propose_patches, redline
+    from .spec import Document
+
+    comments_path = Path(args.comments)
+    spec_path = Path(args.spec)
+    for path in (comments_path, spec_path):
+        if not path.exists():
+            print(f"error: file not found: {path}", file=sys.stderr)
+            return 1
+
+    raw = json.loads(comments_path.read_text(encoding="utf-8"))
+    comments = [Comment(**c) for c in raw]
+    doc = Document.from_json(spec_path.read_text(encoding="utf-8"))
+    doc.layout_map()  # assign node ids so patches resolve
+
+    if not args.edits:
+        patches = propose_patches(doc, comments, {})
+        for p in patches:
+            state = "patchable" if p.patchable else f"SKIP ({p.note})"
+            print(f"{p.comment_id} [{p.resolution}] {p.node_id}: {state}")
+            if p.before:
+                print(f"    before: {p.before}")
+        if not args.quiet:
+            print(
+                f"{len(patches)} comments proposed; supply --edits to apply",
+                file=sys.stderr,
+            )
+        return 0
+
+    edits = json.loads(Path(args.edits).read_text(encoding="utf-8"))
+    patched = apply_replacements(doc, comments, edits)
+
+    if args.output:
+        Path(args.output).write_bytes(patched.render(embed_spec=True))
+    if args.redline:
+        Path(args.redline).write_bytes(redline(doc, patched))
+    if not args.quiet:
+        print(f"applied {len(edits)} edits", file=sys.stderr)
+    return 0
 
 
 def _get_version() -> str:

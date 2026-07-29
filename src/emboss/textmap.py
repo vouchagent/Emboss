@@ -10,8 +10,10 @@ character range beneath it -- the basis for annotation round-tripping.
 
 from __future__ import annotations
 
+import io
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 __all__ = [
     "TextIndex",
@@ -80,6 +82,45 @@ class TextIndex:
 
         result = render_document(doc, return_result=True)
         return cls(result.text_index, result.layout_map)
+
+    @classmethod
+    def from_pdf(cls, source) -> "TextIndex | None":
+        """Rebuild the index from a PDF's embedded emboss-textmap.json, or None.
+
+        Returns None (rather than raising) when pikepdf is unavailable or the
+        text map was never embedded, so callers can report the resolution
+        limits honestly instead of guessing.
+        """
+        try:
+            import pikepdf
+        except ImportError:
+            return None
+
+        if isinstance(source, (bytes, bytearray)):
+            data = bytes(source)
+        else:
+            data = Path(source).read_bytes()
+
+        with pikepdf.open(io.BytesIO(data)) as pdf:
+            try:
+                raw = pdf.attachments["emboss-textmap.json"].get_file().read_bytes()
+            except KeyError:
+                return None
+            layout: dict = {}
+            try:
+                layout_raw = (
+                    pdf.attachments["emboss-layout.json"].get_file().read_bytes()
+                )
+                layout = json.loads(layout_raw)
+            except KeyError:
+                pass
+
+        doc_map = json.loads(raw)
+        obj = cls.__new__(cls)
+        obj._index = {nid: v["spans"] for nid, v in doc_map.items()}
+        obj._layout = layout
+        obj._node_text = {nid: v["text"] for nid, v in doc_map.items()}
+        return obj
 
     def node_text(self, node_id: str) -> str:
         return self._node_text.get(node_id, "")

@@ -727,8 +727,30 @@ def _parse_spec_data(
         if strict:
             raise
         _warn(on_warning, f"validation failed with {exc.error_count()} error(s)")
-        return _recover_document(data, on_warning)
-    return spec.to_document()
+        doc = _recover_document(data, on_warning)
+        _assign_explicit_ids(doc, data)
+        return doc
+    doc = spec.to_document()
+    _assign_explicit_ids(doc, data)
+    return doc
+
+
+def _assign_explicit_ids(doc, data: dict) -> None:
+    """Carry explicit block ids from the spec dict onto the parsed elements.
+
+    The pydantic content specs do not model the ``id`` field, so an explicit
+    id set in the spec (used for node-scoped patching and annotation
+    round-tripping) is reapplied here by position. If the block count diverged
+    through normalization or repair, ids are left unassigned rather than
+    mapped to the wrong element.
+    """
+    blocks = [b for b in data.get("content", []) if isinstance(b, dict)]
+    if len(blocks) != len(doc.content):
+        return
+    for block, element in zip(blocks, doc.content):
+        node_id = block.get("id")
+        if node_id and hasattr(element, "id"):
+            element.id = node_id
 
 
 def _manual_parse(data: dict) -> "Document":
@@ -880,7 +902,11 @@ def _manual_parse(data: dict) -> "Document":
         block_type = block.get("type", "")
         builder = type_map.get(block_type)
         if builder:
-            doc.add(builder(block))
+            element = builder(block)
+            node_id = block.get("id")
+            if node_id and hasattr(element, "id"):
+                element.id = node_id
+            doc.add(element)
 
     return doc
 
