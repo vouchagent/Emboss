@@ -158,7 +158,7 @@ class Renderer:
         embed_files: list | None = None,
     ) -> None:
         self.fonts = document.fonts
-        if document.pdfa:
+        if document.pdfa or document.pdfx:
             self.fonts.enable_pdfa_embedding()
         self.validator = ConstraintValidator(fonts=self.fonts, strict=strict)
         self.source = document
@@ -935,10 +935,20 @@ class Renderer:
             pdfa_entries = pdfa_catalog_entries(assembler, document, part=part)
             for key, value in pdfa_entries.items():
                 catalog[key] = value
-        elif document.tagged:
+        elif document.tagged or document.pdfx or document.wtpdf:
             from .pdfa import build_xmp_stream
 
             catalog["Metadata"] = build_xmp_stream(assembler, document, pdfa=False)
+
+        if document.pdfx:
+            from .pdfx import build_pdfx_output_intent
+
+            intent_ref = build_pdfx_output_intent(assembler, document)
+            existing = catalog.get("OutputIntents")
+            if isinstance(existing, PdfArray):
+                existing.append(intent_ref)
+            else:
+                catalog["OutputIntents"] = PdfArray([intent_ref])
 
         if document.signatures:
             from .signing import (
@@ -970,6 +980,10 @@ class Renderer:
             info["Keywords"] = document.keywords
         info["Creator"] = document.creator
         info["Producer"] = document.producer
+        if document.pdfx:
+            from .pdfx import PDFX_VERSION
+
+            info["GTS_PDFXVersion"] = PDFX_VERSION
 
         return assembler.build(PdfRef(catalog_id), info=info)
 

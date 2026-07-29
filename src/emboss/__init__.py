@@ -149,6 +149,14 @@ from .facturx import (
     facturx_attachment,
 )
 from .writer import RenderResult, render_document
+from .pdfa import WTPDF_REUSE_ID
+from .pdfx import PDFX_VERSION, build_pdfx_output_intent
+from .pdf.verify import (
+    WtpdfReport,
+    verify_conformance,
+    verify_pdf,
+    verify_wtpdf,
+)
 from .manifest import MANIFEST_FILENAME, ReproductionReport, build_manifest, reproduce
 from .redaction import (
     RedactionMark,
@@ -313,6 +321,13 @@ __all__ = [
     "data_sheet",
     "render_document",
     "RenderResult",
+    "PDFX_VERSION",
+    "build_pdfx_output_intent",
+    "WTPDF_REUSE_ID",
+    "WtpdfReport",
+    "verify_wtpdf",
+    "verify_pdf",
+    "verify_conformance",
     "parse_markdown",
     "parse_front_matter",
     "FrontMatter",

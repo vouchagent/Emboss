@@ -22,7 +22,21 @@ __all__ = [
     "RuleViolation",
     "ConformanceReport",
     "verify_conformance",
+    "WtpdfReport",
+    "verify_wtpdf",
 ]
+
+#: XMP conformsTo identifier for WTPDF 1.0 "Reuse" conformance.
+_WTPDF_REUSE_ID = b"http://pdfa.org/declarations/wtpdf/#reuse1.0"
+
+#: Structure types that carry meaningful reusable content in a Well-Tagged
+#: PDF; their presence in a document is asserted where the content exists.
+_WTPDF_CONTENT_TAGS = frozenset(
+    {"H1", "H2", "H3", "H4", "H5", "H6", "P", "L", "Table", "Figure"}
+)
+
+_STRUCT_ELEM_RE = re.compile(rb"\d+ 0 obj\b(.*?)\bendobj", re.DOTALL)
+_STRUCT_TAG_RE = re.compile(rb"/S\s*/([A-Za-z0-9]+)")
 
 _XREF_ENTRY = re.compile(rb"^(\d{10}) (\d{5}) ([nf]) ?$")
 
@@ -221,6 +235,99 @@ def verify_conformance(pdf_bytes: bytes, flavour: str = "2b") -> ConformanceRepo
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"could not parse veraPDF JSON output: {exc}") from exc
     return _parse_verapdf_json(payload, flavour)
+
+
+@dataclass
+class WtpdfReport:
+    """Result of a WTPDF 1.0 (Reuse) tagging self-check."""
+
+    ok: bool
+    problems: list = field(default_factory=list)
+    has_struct_tree: bool = False
+    has_lang: bool = False
+    wtpdf_declared: bool = False
+    figure_count: int = 0
+    figures_with_alt: int = 0
+    structure_types: set = field(default_factory=set)
+
+    def __str__(self) -> str:
+        status = "conformant" if self.ok else "NON-CONFORMANT"
+        lines = [
+            f"WTPDF 1.0 (Reuse): {status}",
+            f"  structure tree: {self.has_struct_tree}",
+            f"  language set: {self.has_lang}",
+            f"  WTPDF declared: {self.wtpdf_declared}",
+            f"  figures: {self.figures_with_alt}/{self.figure_count} with Alt",
+            f"  structure types: {', '.join(sorted(self.structure_types))}",
+        ]
+        lines.extend(f"  problem: {p}" for p in self.problems)
+        return "\n".join(lines)
+
+
+def _iter_struct_elems(data: bytes):
+    """Yield the dictionary body bytes of each /StructElem object."""
+    for match in _STRUCT_ELEM_RE.finditer(data):
+        body = match.group(1)
+        if b"stream" in body:
+            continue
+        if b"/Type /StructElem" in body or b"/Type/StructElem" in body:
+            yield body
+
+
+def verify_wtpdf(pdf_bytes: bytes) -> WtpdfReport:
+    """Check the substantive WTPDF 1.0 "Reuse" tagging requirements.
+
+    Asserts what Emboss can verify from the bytes it just wrote: a
+    structure tree with a document language, the WTPDF conformsTo
+    declaration in the XMP metadata, recognized structure types on the
+    content, and Alt text on every /Figure element. Returns a
+    :class:`WtpdfReport` in the style of :func:`verify_pdf`.
+    """
+    problems: list = []
+
+    structural = verify_pdf(pdf_bytes)
+    problems.extend(structural.problems)
+
+    has_struct = structural.has_struct_tree
+    if not has_struct:
+        problems.append("no structure tree: WTPDF requires tagged content")
+    has_lang = structural.has_lang
+    if not has_lang:
+        problems.append("no document language (/Lang): required by WTPDF")
+
+    wtpdf_declared = _WTPDF_REUSE_ID in pdf_bytes
+    if not wtpdf_declared:
+        problems.append("WTPDF conformsTo declaration missing from XMP metadata")
+
+    structure_types: set = set()
+    figure_count = 0
+    figures_with_alt = 0
+    for body in _iter_struct_elems(pdf_bytes):
+        tag_match = _STRUCT_TAG_RE.search(body)
+        if tag_match is None:
+            continue
+        tag = tag_match.group(1).decode("ascii")
+        structure_types.add(tag)
+        if tag == "Figure":
+            figure_count += 1
+            if b"/Alt" in body:
+                figures_with_alt += 1
+            else:
+                problems.append("figure structure element missing Alt text")
+
+    if has_struct and not (structure_types & _WTPDF_CONTENT_TAGS):
+        problems.append("structure tree carries no reusable content elements")
+
+    return WtpdfReport(
+        ok=not problems,
+        problems=problems,
+        has_struct_tree=has_struct,
+        has_lang=has_lang,
+        wtpdf_declared=wtpdf_declared,
+        figure_count=figure_count,
+        figures_with_alt=figures_with_alt,
+        structure_types=structure_types,
+    )
 
 
 def _verify_xref(data: bytes, offset: int, problems: list) -> int:

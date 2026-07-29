@@ -28,6 +28,7 @@ __all__ = [
     "build_output_intent",
     "pdfa_catalog_entries",
     "pdfa_part_for",
+    "WTPDF_REUSE_ID",
 ]
 
 _FIXED_DATE = "2024-01-01T00:00:00Z"
@@ -86,6 +87,43 @@ _FACTURX_SCHEMA_LI = """
             </pdfaSchema:property>
           </rdf:li>"""
 
+_PDFX_SCHEMA_LI = """
+          <rdf:li rdf:parseType="Resource">
+            <pdfaSchema:schema>PDF/X identification schema</pdfaSchema:schema>
+            <pdfaSchema:namespaceURI>http://www.npes.org/pdfx/ns/id/</pdfaSchema:namespaceURI>
+            <pdfaSchema:prefix>pdfxid</pdfaSchema:prefix>
+            <pdfaSchema:property>
+              <rdf:Seq>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>GTS_PDFXVersion</pdfaProperty:name>
+                  <pdfaProperty:valueType>Text</pdfaProperty:valueType>
+                  <pdfaProperty:category>internal</pdfaProperty:category>
+                  <pdfaProperty:description>ID of PDF/X standard</pdfaProperty:description>
+                </rdf:li>
+              </rdf:Seq>
+            </pdfaSchema:property>
+          </rdf:li>"""
+
+_WTPDF_SCHEMA_LI = """
+          <rdf:li rdf:parseType="Resource">
+            <pdfaSchema:schema>PDF Declarations schema</pdfaSchema:schema>
+            <pdfaSchema:namespaceURI>http://pdfa.org/declarations/</pdfaSchema:namespaceURI>
+            <pdfaSchema:prefix>pdfd</pdfaSchema:prefix>
+            <pdfaSchema:property>
+              <rdf:Seq>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>declarations</pdfaProperty:name>
+                  <pdfaProperty:valueType>Bag Declaration</pdfaProperty:valueType>
+                  <pdfaProperty:category>internal</pdfaProperty:category>
+                  <pdfaProperty:description>Set of PDF declarations of conformance</pdfaProperty:description>
+                </rdf:li>
+              </rdf:Seq>
+            </pdfaSchema:property>
+          </rdf:li>"""
+
+#: XMP conformsTo identifier for WTPDF 1.0, "Reuse" conformance level.
+WTPDF_REUSE_ID = "http://pdfa.org/declarations/wtpdf/#reuse1.0"
+
 
 def pdfa_part_for(has_attachments: bool) -> int:
     """Return the PDF/A part to declare: 3 when files are attached, else 2."""
@@ -110,6 +148,8 @@ def build_xmp_metadata(
     tagged: bool = True,
     part: int = 2,
     facturx: "FacturXMeta | None" = None,
+    pdfx: str | None = None,
+    wtpdf: bool = False,
 ) -> bytes:
     """Generate an XMP metadata packet for PDF/A (2b or 3b) and PDF/UA-1.
 
@@ -119,6 +159,9 @@ def build_xmp_metadata(
     the pdfuaid part declaration (PDF/UA-1 for tagged output). ``facturx``
     injects the ZUGFeRD/Factur-X ``fx`` namespace values plus its
     pdfaExtension schema so the packet declares the embedded invoice.
+    ``pdfx`` (e.g. ``"PDF/X-4"``) adds the pdfxid GTS_PDFXVersion key and
+    ``wtpdf`` adds the PDF Association WTPDF 1.0 "Reuse" conformance
+    declaration; each also emits a matching pdfaExtension schema entry.
     Dates are deterministic for reproducible output.
     """
     _validate_part(part)
@@ -144,6 +187,13 @@ def build_xmp_metadata(
         pdfua_props = """
       <pdfuaid:part>1</pdfuaid:part>
 """
+    pdfx_ns = ""
+    pdfx_props = ""
+    if pdfx:
+        pdfx_ns = '\n      xmlns:pdfxid="http://www.npes.org/pdfx/ns/id/"'
+        pdfx_props = f"""
+      <pdfxid:GTS_PDFXVersion>{_xml_escape(pdfx)}</pdfxid:GTS_PDFXVersion>
+"""
     fx_ns = ""
     fx_props = ""
     if facturx is not None:
@@ -162,6 +212,10 @@ def build_xmp_metadata(
         schema_items.append(_PDFUA_SCHEMA_LI)
     if facturx is not None:
         schema_items.append(_FACTURX_SCHEMA_LI)
+    if pdfx:
+        schema_items.append(_PDFX_SCHEMA_LI)
+    if wtpdf:
+        schema_items.append(_WTPDF_SCHEMA_LI)
     pdfua_ext = ""
     if schema_items:
         joined = "".join(schema_items)
@@ -177,13 +231,28 @@ def build_xmp_metadata(
     </rdf:Description>
 """
 
+    wtpdf_block = ""
+    if wtpdf:
+        wtpdf_block = f"""
+    <rdf:Description rdf:about=""
+      xmlns:pdfd="http://pdfa.org/declarations/">
+      <pdfd:declarations>
+        <rdf:Bag>
+          <rdf:li rdf:parseType="Resource">
+            <pdfd:conformsTo>{WTPDF_REUSE_ID}</pdfd:conformsTo>
+          </rdf:li>
+        </rdf:Bag>
+      </pdfd:declarations>
+    </rdf:Description>
+"""
+
     xmp = f"""<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description rdf:about=""
       xmlns:dc="http://purl.org/dc/elements/1.1/"
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"{pdfa_ns}{pdfua_ns}{fx_ns}>
+      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"{pdfa_ns}{pdfua_ns}{pdfx_ns}{fx_ns}>
 
       <dc:title>
         <rdf:Alt>
@@ -221,8 +290,8 @@ def build_xmp_metadata(
       <xmp:MetadataDate>{_FIXED_DATE}</xmp:MetadataDate>
 
       <pdf:Producer>{_xml_escape(producer)}</pdf:Producer>{keyword_tags}
-{pdfa_props}{pdfua_props}{fx_props}
-    </rdf:Description>{pdfua_ext}
+{pdfa_props}{pdfua_props}{pdfx_props}{fx_props}
+    </rdf:Description>{pdfua_ext}{wtpdf_block}
   </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end="w"?>"""
@@ -548,6 +617,8 @@ def build_xmp_stream(assembler, document, pdfa: bool = True, part: int = 2) -> P
     declaration but keeps the PDF/UA identifier for tagged output). The
     caller sets the returned reference as the catalog's /Metadata entry.
     """
+    from .pdfx import PDFX_VERSION
+
     xmp_bytes = build_xmp_metadata(
         title=document.title,
         author=document.author,
@@ -560,6 +631,8 @@ def build_xmp_stream(assembler, document, pdfa: bool = True, part: int = 2) -> P
         tagged=getattr(document, "tagged", True),
         part=part,
         facturx=getattr(document, "_facturx_meta", None),
+        pdfx=PDFX_VERSION if getattr(document, "pdfx", False) else None,
+        wtpdf=getattr(document, "wtpdf", False),
     )
 
     xmp_stream = PdfStream(data=xmp_bytes, compress=False)

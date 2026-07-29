@@ -929,6 +929,10 @@ class Document:
     tagged: bool = True
     legal: LegalFeatures | None = None
     pdfa: bool = False
+    pdfx: bool = False
+    pdfx_condition: str | None = None
+    pdfx_output_profile: bytes | None = None
+    wtpdf: bool = False
     redactions: list | None = None
     signatures: list | None = None
     toc: bool = False
