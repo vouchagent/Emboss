@@ -129,6 +129,46 @@ def _combine(index: TextIndex, page: int, rects: list) -> Resolution:
     return Resolution(state="unanchored", page=page, rect=rects[0])
 
 
+def _node_paths(doc) -> dict:
+    """Map each node id to a structural path like Document > Section[X] > Paragraph[3].
+
+    The ordinal is the node's position among siblings of its type within the
+    current section (reset at each heading), so a comment names where in the
+    document it landed, not just an opaque id.
+    """
+    paths: dict = {}
+    section: str | None = None
+    counters: dict = {}
+    for element in doc.content:
+        tname = type(element).__name__
+        node_id = getattr(element, "id", None)
+        if tname == "Heading":
+            section = getattr(element, "text", "") or ""
+            counters = {}
+            if node_id:
+                paths[node_id] = f"Document > Section[{section}]"
+            continue
+        counters[tname] = counters.get(tname, 0) + 1
+        if node_id:
+            prefix = f"Document > Section[{section}] > " if section else "Document > "
+            paths[node_id] = f"{prefix}{tname}[{counters[tname]}]"
+    return paths
+
+
+def _recover_node_paths(data: bytes) -> dict:
+    """Best-effort node paths from the PDF's embedded spec, or empty."""
+    try:
+        from .recovery import recover_from_attachment
+
+        recovered = recover_from_attachment(data)
+        if recovered is None:
+            return {}
+        recovered.layout_map()  # assign node ids so paths key correctly
+        return _node_paths(recovered)
+    except Exception:
+        return {}
+
+
 def _sort_key(entry) -> tuple:
     page, rect, subtype, contents, author = entry
     top = -rect[3] if rect else 0.0
@@ -179,6 +219,8 @@ def extract_comments(source) -> list:
                     )
                 )
 
+    node_paths = _recover_node_paths(data)
+
     # Deterministic ids: sort top-to-bottom, then left-to-right, per page.
     keyed = sorted(raw, key=lambda e: _sort_key((e[0], e[1][0], e[2], e[3], e[4])))
     comments: list = []
@@ -193,6 +235,7 @@ def extract_comments(source) -> list:
                 comment=contents,
                 resolution=res.state,
                 node_id=res.node_id,
+                node_path=node_paths.get(res.node_id) if res.node_id else None,
                 anchor_text=res.anchor_text,
                 char_range=res.char_range,
                 node_ids=res.node_ids,

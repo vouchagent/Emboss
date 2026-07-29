@@ -103,6 +103,20 @@ class TestExtractExact:
         assert c.anchor_text == "four"
 
 
+class TestNodePath:
+    def test_structural_path_names_section_and_ordinal(self):
+        doc = _doc()  # heading Risk, then p1, then p2
+        pdf = doc.render(embed_spec=True)
+        s = _span(doc, "p2", "detail")
+        marked = _annotate(
+            pdf,
+            [(0, [s["x0"], s["y0"], s["x1"], s["y1"]], "/Highlight", "R", "x")],
+        )
+        c = extract_comments(marked)[0]
+        assert c.node_id == "p2"
+        assert c.node_path == "Document > Section[Risk] > Paragraph[2]"
+
+
 class TestResolutionStates:
     def test_spanning_two_paragraphs(self):
         doc = _doc()
