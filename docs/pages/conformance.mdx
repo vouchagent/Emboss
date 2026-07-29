@@ -1,0 +1,53 @@
+---
+title: Print and Reuse Conformance
+description: PDF/X-4 print output and WTPDF 1.0 Well-Tagged conformance
+---
+
+# Print and reuse conformance
+
+Alongside PDF/A archival and PDF/UA accessibility, Emboss can emit PDF/X-4 for print production and declare WTPDF 1.0 for clean content reuse. Every conformance claim is checkable against the real veraPDF validator (`emboss verify out.pdf --conformance ...`), run in CI on every push.
+
+## PDF/X-4 (print / prepress)
+
+PDF/X-4 (ISO 15930-7) is the print-ready profile: embedded fonts, a defined output condition, and a CMYK output intent so a printer knows the intended color.
+
+```python
+doc = Document(
+    title="Brochure",
+    color_mode="cmyk",          # print content in CMYK
+    pdfx=True,
+    pdfx_condition="FOGRA39",
+    pdfx_output_profile=open("CoatedFOGRA39.icc", "rb").read(),
+)
+```
+
+When `pdfx=True`, the render:
+
+- embeds all fonts,
+- adds a `/GTS_PDFX` OutputIntent with `/OutputConditionIdentifier`, `/OutputCondition`, and a `/DestOutputProfile` CMYK ICC stream,
+- writes the `/GTS_PDFXVersion (PDF/X-4)` Info key and the `pdfxid` XMP declaration.
+
+Pass your licensed CMYK profile via `pdfx_output_profile` with the matching `pdfx_condition` for real prepress. If you omit it, Emboss reuses its own minimal, valid CMYK profile, fine for validation and general print, but not a colorimetrically exact FOGRA/GRACoL characterization.
+
+**Scope.** PDF/X-4 requires every device color to be covered by the output intent, so for strict prepress use `color_mode="cmyk"` with `pdfx=True`; device-RGB content under a CMYK intent would fail strict color rules. veraPDF ships no dedicated PDF/X profile, so the automated gate validates the PDF/A carrier; PDF/X structure (OutputIntent, version keys) is asserted directly in tests.
+
+## WTPDF 1.0 (Well-Tagged PDF, Reuse)
+
+WTPDF 1.0, published by the PDF Association, certifies that a tagged PDF's content re-extracts cleanly, which is what a RAG or data pipeline needs. Because Emboss is already PDF/UA-1 tagged, this is a declaration plus a self-check:
+
+```python
+from emboss import verify_wtpdf
+
+doc = Document(title="Handbook", wtpdf=True)   # declares WTPDF 1.0 Reuse in XMP
+pdf = doc.render()
+
+report = verify_wtpdf(pdf)
+report.ok            # True when the tagging supports reuse
+report.problems      # e.g. a figure missing Alt text
+```
+
+`Document(wtpdf=True)` adds the WTPDF conformance declaration to the XMP (`pdfd:declarations`, identifier `http://pdfa.org/declarations/wtpdf/#reuse1.0`). `verify_wtpdf` checks the substantive requirements Emboss can assert: a structure tree is present, a document language is set, reusable structure types (headings, paragraphs, lists, tables, figures) are used, and every figure carries Alt text.
+
+## Combining profiles
+
+The flags compose. A single render can be PDF/UA tagged, PDF/A-3 (with attachments), carry a Factur-X invoice, and declare WTPDF, because each writes its own XMP and catalog entries alongside the others.

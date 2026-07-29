@@ -1,0 +1,63 @@
+---
+title: Digital Signatures
+description: PKCS#7, DocMDP certification, and PAdES (eIDAS) baseline signatures
+---
+
+# Digital signatures
+
+Emboss signs PDFs with detached PKCS#7/CMS signatures, adds DocMDP certification, and produces PAdES-BASELINE signatures, the profile recognized under EU eIDAS. Signing requires the `cryptography` extra (`pip install emboss-pdf[signing]`).
+
+## Basic and certifying signatures
+
+```python
+from emboss import sign_pdf
+
+signed = sign_pdf(pdf_bytes, "signer.key", "signer.crt")
+
+# A certifying (DocMDP) signature declares what may change after signing.
+certified = sign_pdf(pdf_bytes, "signer.key", "signer.crt",
+                     certify=True, docmdp_permission=2)
+```
+
+`docmdp_permission` is `1` (no changes), `2` (form fill-in and signing, the default), or `3` (also annotations). A certifying signature must be the document's first.
+
+## PAdES (eIDAS) baseline
+
+PAdES (ETSI EN 319 142) is the PDF signature profile recognized for legal validity in the EU. `sign_pdf_pades` produces it:
+
+```python
+from emboss import sign_pdf_pades
+
+# PAdES B-B: CAdES-BES CMS + ETSI.CAdES.detached subfilter.
+signed = sign_pdf_pades(pdf_bytes, "signer.key", "signer.crt")
+
+# PAdES B-T: adds an RFC 3161 signature timestamp from a TSA.
+signed = sign_pdf_pades(pdf_bytes, "signer.key", "signer.crt",
+                        tsa_url="https://freetsa.org/tsr")
+```
+
+What makes it PAdES:
+
+- The signature dictionary uses `/SubFilter /ETSI.CAdES.detached`.
+- The CMS `SignedData` is CAdES-BES: the signed attributes include the ESS **signing-certificate-v2** attribute (a SHA-256 hash of the signer certificate), alongside content-type and message-digest, all SHA-256. RSA and EC keys are supported.
+- **B-T** adds a signature-timestamp as an unsigned attribute, an RFC 3161 TimeStampToken over the signature value. Pass `tsa_url` to fetch one over HTTP, or `timestamp_token` to supply a pre-fetched token. A TSA failure raises `TimestampError`; it never silently downgrades to B-B.
+
+LTV (long-term validation / DSS) is out of scope.
+
+## Signing as an append-only amendment
+
+Signatures should append, never rewrite. `amend_sign_pades` adds a PAdES signature as an incremental revision whose `/ByteRange` covers everything before it, leaving prior bytes byte-for-byte intact:
+
+```python
+from emboss import amend_sign_pades
+
+signed = amend_sign_pades(pdf_bytes, cert="legal.crt", key="legal.key",
+                          reason="Approved: Legal", name="R. Patel",
+                          tsa_url="https://freetsa.org/tsr")
+```
+
+See [Incremental Amendment](/amendments) for the revision history and the coverage check that flags content appended after a signature.
+
+## Determinism
+
+Given a fixed `signing_time` (and a fixed `timestamp_token` for B-T), signing is deterministic. When `signing_time` is omitted it defaults to a fixed value rather than the wall clock, so `datetime.now` is never called in the signing path.
