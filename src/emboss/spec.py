@@ -946,6 +946,8 @@ class Document:
         #: FileAttachments queued by `attach_encrypted`; always included
         #: by `render`/`save`, independent of `embed_spec`/`manifest`.
         self._extra_attachments: list = []
+        #: FacturXMeta recorded by `attach_facturx`; threaded into the XMP.
+        self._facturx_meta = None
 
     @property
     def fonts(self):
@@ -1319,6 +1321,24 @@ class Document:
                 relationship="EncryptedPayload",
             )
         )
+        return self
+
+    def attach_facturx(self, invoice, profile: str = "EN 16931") -> "Document":
+        """Queue a Factur-X ``factur-x.xml`` invoice and force PDF/A-3.
+
+        Builds the EN 16931 CII XML from *invoice* (a ``facturx.Invoice``),
+        embeds it as an /AF ``Alternative`` attachment, sets ``pdfa`` so
+        part 3 is declared, and records the ``fx`` XMP metadata so
+        ``render`` threads it into ``build_xmp_metadata``. The invoice is
+        validated here, so inconsistent totals raise before rendering.
+        Mutates and returns self so calls can chain like ``add``.
+        """
+        from .facturx import FacturXMeta, facturx_attachment
+
+        attachment = facturx_attachment(invoice, profile=profile)
+        self._extra_attachments.append(attachment)
+        self.pdfa = True
+        self._facturx_meta = FacturXMeta(conformance_level=profile)
         return self
 
     def patch(self, node_id: str, **changes) -> "Document":

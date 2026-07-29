@@ -15,8 +15,12 @@ Dates are pinned to a deterministic value so output stays reproducible.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
 from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef, PdfStream
+
+if TYPE_CHECKING:
+    from .facturx import FacturXMeta
 
 __all__ = [
     "build_xmp_metadata",
@@ -29,6 +33,58 @@ __all__ = [
 _FIXED_DATE = "2024-01-01T00:00:00Z"
 
 _VALID_PARTS = (2, 3)
+
+_PDFUA_SCHEMA_LI = """
+          <rdf:li rdf:parseType="Resource">
+            <pdfaSchema:schema>PDF/UA identification schema</pdfaSchema:schema>
+            <pdfaSchema:namespaceURI>http://www.aiim.org/pdfua/ns/id/</pdfaSchema:namespaceURI>
+            <pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>
+            <pdfaSchema:property>
+              <rdf:Seq>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>part</pdfaProperty:name>
+                  <pdfaProperty:valueType>Integer</pdfaProperty:valueType>
+                  <pdfaProperty:category>internal</pdfaProperty:category>
+                  <pdfaProperty:description>PDF/UA conformance level</pdfaProperty:description>
+                </rdf:li>
+              </rdf:Seq>
+            </pdfaSchema:property>
+          </rdf:li>"""
+
+_FACTURX_SCHEMA_LI = """
+          <rdf:li rdf:parseType="Resource">
+            <pdfaSchema:schema>Factur-X PDFA Extension Schema</pdfaSchema:schema>
+            <pdfaSchema:namespaceURI>urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#</pdfaSchema:namespaceURI>
+            <pdfaSchema:prefix>fx</pdfaSchema:prefix>
+            <pdfaSchema:property>
+              <rdf:Seq>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>DocumentType</pdfaProperty:name>
+                  <pdfaProperty:valueType>Text</pdfaProperty:valueType>
+                  <pdfaProperty:category>external</pdfaProperty:category>
+                  <pdfaProperty:description>INVOICE</pdfaProperty:description>
+                </rdf:li>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>DocumentFileName</pdfaProperty:name>
+                  <pdfaProperty:valueType>Text</pdfaProperty:valueType>
+                  <pdfaProperty:category>external</pdfaProperty:category>
+                  <pdfaProperty:description>Name of the embedded XML invoice file</pdfaProperty:description>
+                </rdf:li>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>Version</pdfaProperty:name>
+                  <pdfaProperty:valueType>Text</pdfaProperty:valueType>
+                  <pdfaProperty:category>external</pdfaProperty:category>
+                  <pdfaProperty:description>The actual version of the Factur-X data</pdfaProperty:description>
+                </rdf:li>
+                <rdf:li rdf:parseType="Resource">
+                  <pdfaProperty:name>ConformanceLevel</pdfaProperty:name>
+                  <pdfaProperty:valueType>Text</pdfaProperty:valueType>
+                  <pdfaProperty:category>external</pdfaProperty:category>
+                  <pdfaProperty:description>The conformance level of the Factur-X data</pdfaProperty:description>
+                </rdf:li>
+              </rdf:Seq>
+            </pdfaSchema:property>
+          </rdf:li>"""
 
 
 def pdfa_part_for(has_attachments: bool) -> int:
@@ -53,14 +109,17 @@ def build_xmp_metadata(
     pdfa: bool = True,
     tagged: bool = True,
     part: int = 2,
+    facturx: "FacturXMeta | None" = None,
 ) -> bytes:
     """Generate an XMP metadata packet for PDF/A (2b or 3b) and PDF/UA-1.
 
     The packet is a well-formed XML document with all required namespaces.
     ``pdfa`` controls the pdfaid part/conformance declaration and ``part``
     selects PDF/A-2 or PDF/A-3 (level B either way); ``tagged`` controls
-    the pdfuaid part declaration (PDF/UA-1 for tagged output). Dates are
-    deterministic for reproducible output.
+    the pdfuaid part declaration (PDF/UA-1 for tagged output). ``facturx``
+    injects the ZUGFeRD/Factur-X ``fx`` namespace values plus its
+    pdfaExtension schema so the packet declares the embedded invoice.
+    Dates are deterministic for reproducible output.
     """
     _validate_part(part)
     keyword_tags = ""
@@ -85,30 +144,34 @@ def build_xmp_metadata(
         pdfua_props = """
       <pdfuaid:part>1</pdfuaid:part>
 """
-    pdfua_ext = ""
+    fx_ns = ""
+    fx_props = ""
+    if facturx is not None:
+        fx_ns = (
+            '\n      xmlns:fx="urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#"'
+        )
+        fx_props = f"""
+      <fx:DocumentType>{_xml_escape(facturx.document_type)}</fx:DocumentType>
+      <fx:DocumentFileName>{_xml_escape(facturx.filename)}</fx:DocumentFileName>
+      <fx:Version>{_xml_escape(facturx.version)}</fx:Version>
+      <fx:ConformanceLevel>{_xml_escape(facturx.conformance_level)}</fx:ConformanceLevel>
+"""
+
+    schema_items = []
     if tagged and pdfa:
-        pdfua_ext = """
+        schema_items.append(_PDFUA_SCHEMA_LI)
+    if facturx is not None:
+        schema_items.append(_FACTURX_SCHEMA_LI)
+    pdfua_ext = ""
+    if schema_items:
+        joined = "".join(schema_items)
+        pdfua_ext = f"""
     <rdf:Description rdf:about=""
       xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"
       xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"
       xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
       <pdfaExtension:schemas>
-        <rdf:Bag>
-          <rdf:li rdf:parseType="Resource">
-            <pdfaSchema:schema>PDF/UA identification schema</pdfaSchema:schema>
-            <pdfaSchema:namespaceURI>http://www.aiim.org/pdfua/ns/id/</pdfaSchema:namespaceURI>
-            <pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>
-            <pdfaSchema:property>
-              <rdf:Seq>
-                <rdf:li rdf:parseType="Resource">
-                  <pdfaProperty:name>part</pdfaProperty:name>
-                  <pdfaProperty:valueType>Integer</pdfaProperty:valueType>
-                  <pdfaProperty:category>internal</pdfaProperty:category>
-                  <pdfaProperty:description>PDF/UA conformance level</pdfaProperty:description>
-                </rdf:li>
-              </rdf:Seq>
-            </pdfaSchema:property>
-          </rdf:li>
+        <rdf:Bag>{joined}
         </rdf:Bag>
       </pdfaExtension:schemas>
     </rdf:Description>
@@ -120,7 +183,7 @@ def build_xmp_metadata(
     <rdf:Description rdf:about=""
       xmlns:dc="http://purl.org/dc/elements/1.1/"
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"{pdfa_ns}{pdfua_ns}>
+      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"{pdfa_ns}{pdfua_ns}{fx_ns}>
 
       <dc:title>
         <rdf:Alt>
@@ -158,7 +221,7 @@ def build_xmp_metadata(
       <xmp:MetadataDate>{_FIXED_DATE}</xmp:MetadataDate>
 
       <pdf:Producer>{_xml_escape(producer)}</pdf:Producer>{keyword_tags}
-{pdfa_props}{pdfua_props}
+{pdfa_props}{pdfua_props}{fx_props}
     </rdf:Description>{pdfua_ext}
   </rdf:RDF>
 </x:xmpmeta>
@@ -496,6 +559,7 @@ def build_xmp_stream(assembler, document, pdfa: bool = True, part: int = 2) -> P
         pdfa=pdfa,
         tagged=getattr(document, "tagged", True),
         part=part,
+        facturx=getattr(document, "_facturx_meta", None),
     )
 
     xmp_stream = PdfStream(data=xmp_bytes, compress=False)

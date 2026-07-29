@@ -140,6 +140,14 @@ from .recovery import (
     strip_pdf,
 )
 from .diff import DiffResult, diff_documents, render_redline, word_diff
+from .facturx import (
+    FacturXMeta,
+    Invoice,
+    InvoiceLine,
+    Party,
+    build_cii_xml,
+    facturx_attachment,
+)
 from .writer import RenderResult, render_document
 from .manifest import MANIFEST_FILENAME, ReproductionReport, build_manifest, reproduce
 from .redaction import (
@@ -323,6 +331,12 @@ __all__ = [
     "diff_documents",
     "render_redline",
     "word_diff",
+    "Invoice",
+    "Party",
+    "InvoiceLine",
+    "build_cii_xml",
+    "facturx_attachment",
+    "FacturXMeta",
     "MANIFEST_FILENAME",
     "ReproductionReport",
     "build_manifest",
