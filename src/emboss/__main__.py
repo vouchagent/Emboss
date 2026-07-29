@@ -15,16 +15,6 @@ from pathlib import Path
 
 
 def _render(args: argparse.Namespace) -> int:
-    try:
-        from .adapters.pydantic_schema import DocumentSpec
-    except ImportError:
-        print(
-            "error: pydantic is required for JSON-to-PDF conversion.\n"
-            "  pip install emboss-pdf[llm]",
-            file=sys.stderr,
-        )
-        return 1
-
     if args.input == "-":
         raw = sys.stdin.read()
     else:
@@ -41,14 +31,15 @@ def _render(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        spec = DocumentSpec.model_validate(data)
+        from .generate import parse_spec_dict
+
+        doc = parse_spec_dict(data)
     except Exception as exc:
         print(f"error: invalid document spec:\n  {exc}", file=sys.stderr)
         return 1
 
     try:
-        doc = spec.to_document()
-        pdf_bytes = doc.render()
+        pdf_bytes = doc.render(embed_spec=args.embed_spec)
     except Exception as exc:
         print(f"error: rendering failed: {exc}", file=sys.stderr)
         return 1
@@ -330,6 +321,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     render_p.add_argument(
         "-q", "--quiet", action="store_true", help="Suppress status output"
+    )
+    render_p.add_argument(
+        "--embed-spec",
+        action="store_true",
+        help="Embed the spec, layout map, and text map (needed for review)",
     )
 
     schema_p = sub.add_parser(

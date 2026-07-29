@@ -1,0 +1,117 @@
+---
+title: Review Round-Trip
+description: Turn reviewer markup in Acrobat, Preview, or Chrome into structured, node-keyed comments
+---
+
+# Review round-trip
+
+A reviewer highlights, strikes out, or comments on a rendered PDF in whatever they already use (Acrobat, Preview, Chrome). Because an Emboss PDF carries a text-position index, each annotation resolves back to the exact node and character range it covers, not a guess at a rectangle. The result is a structured comment list keyed to stable node ids that a person, or a model, can act on.
+
+This is the piece other PDFs cannot do: they have no structure to resolve a comment against. Emboss knows which glyphs belong to which node, so a highlight becomes a node reference and a character range.
+
+## Render so comments can resolve
+
+Annotations resolve against the embedded text map, so render with `embed_spec=True` (the same flag that embeds the spec and layout map):
+
+```python
+doc.save("v1.pdf", embed_spec=True)   # embeds emboss-textmap.json
+```
+
+The text map (`emboss-textmap.json`, an `/AF` attachment) records every rendered text fragment's node id, character offsets within that node's readable text, and bounding box. `doc.text_index()` exposes the same index in-process; `char_range` is the field that lets a model edit the phrase objected to, not "somewhere in this paragraph."
+
+## Extract comments
+
+```python
+from emboss.annotations import extract_comments
+
+comments = extract_comments("v1-legal.pdf")
+```
+
+Each `Comment` carries the reviewer (`author`), `page`, `type` (highlight, strikeout, underline, squiggly, note), the reviewer's `comment` text, and the resolution:
+
+```python
+{
+  "id": "c-01",
+  "type": "strikeout",
+  "author": "R. Patel",
+  "page": 3,
+  "node_id": "sec-risk.p3",
+  "anchor_text": "exposure exceeds $4.2M",
+  "char_range": [120, 143],
+  "comment": "Overstates it, use the netted figure",
+  "resolution": "exact",
+  "status": "open"
+}
+```
+
+### Resolution states
+
+The `resolution` is always present, never omitted, so a mis-resolved comment cannot pass silently. A silently mis-resolved comment is worse than an unresolved one.
+
+| State | Meaning | Behaviour |
+|-------|---------|-----------|
+| `exact` | Resolved to one node and a character range | Patchable, phrase-level |
+| `node` | Resolved to a node, no character range (a figure, say) | Patchable, whole-node |
+| `spanning` | Crosses two or more nodes | Reports every node id; never split silently |
+| `unanchored` | No content beneath the annotation | Surfaced with page and rect; never dropped |
+
+`unresolved_count(comments)` counts the `spanning` and `unanchored` ones, and `emboss review` reports it loudly and exits non-zero when any remain.
+
+## Merge several reviewers
+
+```python
+from emboss.annotations import merge_comments
+
+comments = merge_comments(legal, finance)   # one renumbered list
+```
+
+Comments union and re-sort top-to-bottom per page across all reviewers; identical comments (same author, type, node, range, and text) are de-duplicated.
+
+## Propose and apply edits
+
+Reviewer comments are never auto-applied, that would ship a document nobody approved. Turning a free-text comment into a concrete replacement string is a separate step (often a language model); Emboss applies the replacement deterministically and proves the change.
+
+```python
+from emboss.review import propose_patches, apply_replacements, redline
+
+# See what each comment would change, without shipping anything.
+patches = propose_patches(doc, comments, replacements={})
+
+# Apply concrete replacements, keyed by comment id.
+new_doc = apply_replacements(doc, comments, {"c-01": "the netted $2.8M"})
+redline_pdf = redline(doc, new_doc)   # proves exactly what changed
+```
+
+For an `exact` resolution over plain text, only the resolved character range is spliced; everything else in the block stays byte-identical.
+
+## Static HTML triage report
+
+For a non-technical owner, one self-contained file, no server:
+
+```python
+from emboss.review_html import review_html
+
+html = review_html(comments)   # unresolved count loud at the top
+```
+
+## Command line
+
+```bash
+emboss render spec.json -o v1.pdf              # embeds spec + text map
+# reviewers mark up v1.pdf in whatever they already use
+
+emboss review v1-legal.pdf v1-finance.pdf -o comments.json
+emboss review v1-legal.pdf --html review.html  # triage view, no server
+
+emboss apply comments.json --spec spec.json                 # propose only
+emboss apply comments.json --spec spec.json --edits edits.json \
+    -o v2.pdf --redline redline.pdf                         # apply and prove
+```
+
+`emboss review` exits non-zero when any comment is unresolved, so a pipeline can gate on it. `emboss apply` proposes by default and writes nothing without an `--edits` map (comment id to replacement text).
+
+## Known limits (tested, not claimed away)
+
+- **Flattened annotations** (Preview's flattened export, for one) are unrecoverable: the markup is burned into the page and is no longer an annotation object. Nothing can resolve them.
+- **The text map must survive.** `emboss strip` removes it; a stripped PDF resolves comments at page-and-rect granularity only (`unanchored`), never a wrong guess.
+- **Geometric resolution.** Resolution is geometric (a quad against the text index), which is robust across Acrobat, Preview, and Chrome markup. When an annotating tool supplies a structure reference, later versions prefer it.

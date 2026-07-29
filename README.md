@@ -36,6 +36,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 - [Accessibility and Conformance (PDF/UA)](#accessibility-and-conformance-pdfua)
 - [Self-Describing PDFs](#self-describing-pdfs)
 - [Document Diff and Redline](#document-diff-and-redline)
+- [Review Round-Trip](#review-round-trip)
 - [Templates](#templates)
 - [Executive Decks](#executive-decks)
 - [Domain Features](#domain-features)
@@ -554,6 +555,7 @@ pdf_bytes = doc.render(embed_spec=True)
 |------------|----------|--------------------|
 | `emboss-spec.json` | The canonical EmbossSpec JSON for exact reconstruction | `Source` |
 | `emboss-layout.json` | The node id -> page/bounding-box layout map | `Supplement` |
+| `emboss-textmap.json` | The node id -> per-character text-position index | `Supplement` |
 | `emboss-doc.md` | A reflowable Markdown twin of the document | `Alternative` |
 
 ```python
@@ -664,6 +666,66 @@ redline_bytes = render_redline(old_doc, new_doc, result)
 ```bash
 emboss diff old.pdf new.pdf -o redline.pdf
 ```
+
+---
+
+## Review Round-Trip
+
+A reviewer highlights, strikes out, or comments on a rendered PDF in whatever they already use -- Acrobat, Preview, Chrome. Because an Emboss PDF carries a text-position index, each annotation resolves back to the exact node and character range it covers, not a guess at a rectangle. This is the piece other PDFs cannot do: they have no structure to resolve a comment against.
+
+Render with `embed_spec=True` so the text map (`emboss-textmap.json`) is present, then read the markup back:
+
+```python
+from emboss.annotations import extract_comments, merge_comments
+
+doc.save("v1.pdf", embed_spec=True)   # reviewers mark this up in their reader
+
+comments = extract_comments("v1-legal.pdf")
+comments = merge_comments(
+    extract_comments("v1-legal.pdf"), extract_comments("v1-finance.pdf")
+)
+```
+
+Each comment carries the reviewer, page, type, their text, and a resolution keyed to a stable node id and character range:
+
+```python
+{"id": "c-07", "type": "strikeout", "author": "R. Patel", "page": 4,
+ "node_id": "sec-risk.p3", "anchor_text": "exposure exceeds $4.2M",
+ "char_range": [120, 143], "comment": "Overstates it, use the netted figure",
+ "resolution": "exact", "status": "open"}
+```
+
+The `resolution` is never omitted, so a mis-resolved comment cannot pass silently:
+
+| State | Meaning | Behaviour |
+|-------|---------|-----------|
+| `exact` | One node and a character range | Patchable, phrase-level |
+| `node` | One node, no character range | Patchable, whole-node |
+| `spanning` | Crosses two or more nodes | Reports every node id; never split silently |
+| `unanchored` | No content beneath the annotation | Surfaced with page and rect; never dropped |
+
+Comments are never auto-applied -- that would ship a document nobody approved. Turning a free-text comment into a concrete replacement is a separate step (often a model); Emboss applies it deterministically and proves the change:
+
+```python
+from emboss.review import propose_patches, apply_replacements, redline
+
+propose_patches(doc, comments, replacements={})          # what would change
+new_doc = apply_replacements(doc, comments, {"c-07": "the netted $2.8M"})
+redline_pdf = redline(doc, new_doc)                       # proves the change
+```
+
+For an `exact` resolution over plain text, only the objected-to phrase is spliced; everything else stays byte-identical. `review_html(comments)` renders a self-contained triage report with the unresolved count loud at the top.
+
+```bash
+emboss render spec.json -o v1.pdf --embed-spec       # embeds spec, layout, text map
+emboss review v1-legal.pdf v1-finance.pdf -o comments.json
+emboss review v1-legal.pdf --html review.html        # triage view, no server
+emboss apply comments.json --spec spec.json                       # propose only
+emboss apply comments.json --spec spec.json --edits edits.json \
+    -o v2.pdf --redline redline.pdf                               # apply and prove
+```
+
+`emboss review` exits non-zero when any comment is unresolved, so a pipeline can gate on it. Flattened annotations (Preview's flattened export) are burned into the page and cannot be recovered by anything; a stripped PDF (no text map) resolves at page-and-rect granularity only, never a wrong guess.
 
 ---
 
