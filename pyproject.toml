@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emboss-pdf"
-version = "0.3.0"
+version = "0.4.0"
 description = "Deterministic, PDF/UA-tagged, veraPDF-conformant PDF generation for Python, built for LLM-driven document pipelines"
 readme = "README.md"
 requires-python = ">=3.10"

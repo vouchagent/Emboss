@@ -1,0 +1,81 @@
+---
+title: Incremental Amendment
+description: Append-only revisions for signatures and approvals, with coverage detection
+---
+
+# Incremental amendment
+
+Keep the distinction sharp: content edits go through the spec (`render`, which produces a new file); attestations append. Signatures, approvals, and annotations are added by appending an incremental revision that never rewrites the bytes already in the file (ISO 32000-1 7.5.6). The original bytes remain a byte-exact prefix of the result, which is what lets a later signature's `/ByteRange` attest to everything before it.
+
+| Operation | Use for | Result |
+|-----------|---------|--------|
+| `render` | Content changed | A new file |
+| `amend` | An attestation added | The same file, one appended revision, prior bytes untouched |
+
+## Sign without rewriting
+
+```python
+from emboss import amend_sign, format_history
+
+signed = amend_sign(pdf_bytes, cert="legal.pem", key="legal.key",
+                    reason="Approved: Legal", name="R. Patel")
+signed = amend_sign(signed, cert="finance.pem", key="finance.key",
+                    reason="Approved: Finance", name="M. Osei")
+
+print(format_history(signed))
+```
+
+`amend_sign` reuses `signing.sign_pdf` for the PKCS#7 signature; it reserves a fixed-width `/ByteRange` object so filling in the real byte offsets never shifts anything. `prepare_signature` does the same but leaves the `/Contents` empty for an external signer. `amend_pdf` appends a non-signature attestation (a placed annotation, an added attachment) the same append-only way.
+
+## Revision history and coverage
+
+```python
+from emboss import revision_history, coverage_report
+
+for rev in revision_history(signed):
+    print(rev.index, rev.kind, rev.byte_range, rev.covered)
+
+report = coverage_report(signed)
+report.uncovered     # revision indices no signature's ByteRange covers
+```
+
+The headline check is coverage. A revision appended *after* a signature that no signature covers is detected and reported:
+
+```
+Rev  Kind         Bytes             Signer        Coverage
+--------------------------------------------------------------
+  0  base         0-6582                          covers by rev 1
+  1  signature    6582-24003        R. Patel      signed
+  2  annotations  24003-24507                     NOT covered by any signature
+```
+
+That last line is the audit question auditors actually ask -- what was added that nobody signed -- and it falls out of the `/Prev` chain for free.
+
+## DocMDP enforcement
+
+If the base revision certifies with a restrictive DocMDP permission, an amendment that exceeds the permitted scope raises a `ValueError` rather than producing an illegal file:
+
+| Base `/P` | Permits |
+|-----------|---------|
+| `1` | No amendments at all |
+| `2` | Signatures only |
+| `3` | Signatures and annotations |
+
+An encrypted base is rejected rather than corrupted.
+
+## Command line
+
+```bash
+emboss amend contract.pdf --sign --cert legal.pem --key legal.key --reason "Approved: Legal"
+emboss history contract.pdf
+emboss verify contract.pdf --revisions   # exits non-zero on uncovered appended content
+```
+
+## Determinism, restated for signing
+
+Each revision is byte-identical to what it was when created. Amendments append; they never rewrite. The document remains reproducible from its embedded spec at any revision. This is stronger than a blanket byte-identical-output claim, because it survives signing, which the blanket phrasing does not.
+
+## Limits
+
+- Amended files are valid but **no longer linearized**: the appended revision sits after the original `%%EOF`, so fast-web-view linearization is lost. This is inherent to incremental updates.
+- The incremental writer emits a classic cross-reference table. `revision_history` reads both classic tables and cross-reference streams, but a base whose latest section is an xref stream is not written back as a stream (Emboss-produced and pikepdf-saved bases use classic xref, so this is not hit in practice).

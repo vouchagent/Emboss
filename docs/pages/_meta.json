@@ -10,6 +10,7 @@
   "accessibility": "Accessibility",
   "provenance": "Self-Describing PDFs",
   "review": "Review Round-Trip",
+  "amendments": "Incremental Amendment",
   "decks": "Executive Decks",
   "diagrams": "Diagrams",
   "markdown": "Markdown Input",

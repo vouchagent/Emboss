@@ -3,6 +3,38 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-07-29
+
+### Added
+- Review round-trip, the review loop for LLM-generated content. A reviewer
+  marks up a rendered PDF in Acrobat, Preview, or Chrome, and each
+  annotation resolves back to the exact node and character range it covers:
+  - Text-position index (`textmap.py`): the renderer records every text
+    fragment's node id, character offsets, and box. `Document.text_index()`
+    resolves any page rectangle to a node and character range;
+    `render(embed_spec=True)` embeds `emboss-textmap.json`.
+  - `annotations.extract_comments()` reads reviewer markup via pikepdf and
+    resolves each to a `Comment` with node id, `char_range`, `anchor_text`,
+    `node_path`, and a required resolution state (`exact` | `node` |
+    `spanning` | `unanchored`). `merge_comments()` unions several reviewers;
+    `unresolved_count()` is surfaced loudly.
+  - `review.propose_patches` / `apply_replacements` / `redline`: comments are
+    never auto-applied; an `exact` edit splices only the objected-to phrase.
+  - `review_html.review_html()`: a self-contained static triage report.
+  - CLI: `emboss review` and `emboss apply`; `emboss render --embed-spec`.
+- Incremental amendment (`amend.py`): append-only revisions for signatures
+  and approvals that never rewrite prior bytes. `amend_sign` /
+  `prepare_signature` / `amend_pdf`, `revision_history`, and
+  `coverage_report` / `format_history` detect content appended after a
+  signature that no signature covers. DocMDP is enforced; encrypted bases are
+  rejected. CLI: `emboss amend`, `emboss history`, `emboss verify
+  --revisions`.
+
+### Fixed
+- Explicit block ids were dropped on the spec-JSON round-trip (`from_json`
+  and `emboss render`), so patch-by-id and annotation resolution could not
+  find a node. Ids now survive both the pydantic and manual parse paths.
+
 ## [0.3.0] - 2026-07-28
 
 ### Added

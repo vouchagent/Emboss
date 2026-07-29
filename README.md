@@ -50,6 +50,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 - [PDF/A Archival Output](#pdfa-archival-output)
 - [CMYK and Print Production](#cmyk-and-print-production)
 - [Digital Signatures](#digital-signatures)
+- [Incremental Amendment](#incremental-amendment)
 - [Redaction](#redaction)
 - [Validation](#validation)
 - [Adapters](#adapters)
@@ -1132,6 +1133,43 @@ Requires `pip install emboss-pdf[signing]`.
 ### DocMDP Certification Signatures
 
 `sign_pdf(..., certify=True, docmdp_permission=2)` produces an ISO 32000-1 12.8.2.3 certification signature: the /DocMDP entry it asserts states what changes (if any) are permitted after signing (`1` forbids any further changes, `2` -- the default -- permits form fill-in and further signing, `3` additionally permits annotations). A certifying signature must be the document's first signature field; `build_docmdp_reference`, `build_certifying_signature`, and `build_perms_dict` (in `emboss.signing`) build the underlying /Reference, signature field, and catalog /Perms entries for callers assembling the PDF at a lower level than `Document.render`.
+
+---
+
+## Incremental Amendment
+
+Keep the distinction sharp: **content edits go through the spec (`render`, a new file); attestations append.** Signatures, approvals, and annotations are added by appending an incremental revision that never rewrites the bytes already in the file. The original bytes stay a byte-exact prefix of the result, which is exactly what lets a signature's `/ByteRange` attest to everything written before it.
+
+```python
+from emboss import amend_sign, revision_history, format_history
+
+signed = amend_sign(pdf_bytes, cert="legal.pem", key="legal.key",
+                    reason="Approved: Legal", name="R. Patel")
+signed = amend_sign(signed, cert="finance.pem", key="finance.key",
+                    reason="Approved: Finance", name="M. Osei")
+
+print(format_history(signed))
+```
+
+```
+Rev  Kind        Bytes             Signer        Coverage
+--------------------------------------------------------------
+  0  base        0-6582                          covers by rev 1,2
+  1  signature   6582-24003        R. Patel      signed
+  2  signature   24003-41560       M. Osei       signed
+```
+
+The headline check is coverage: a revision appended *after* a signature that no signature's `/ByteRange` covers is detected and reported. That is the audit question -- what was added that nobody signed -- and it falls out of the `/Prev` chain for free.
+
+```bash
+emboss amend contract.pdf --sign --cert legal.pem --key legal.key --reason "Approved: Legal"
+emboss history contract.pdf
+emboss verify contract.pdf --revisions      # exits non-zero on uncovered appended content
+```
+
+`amend_pdf` handles non-signature attestations (a placed annotation, an added attachment) the same append-only way. DocMDP is enforced: if the base certifies with `/P=1` (no changes) or `/P=2` (signatures only), an amendment that exceeds the permitted scope raises rather than producing an illegal file. Amended files are valid but no longer linearized, since the appended revision sits after the original `%%EOF` -- inherent to incremental updates, and the price of never rewriting prior bytes.
+
+> **Determinism, restated for signing.** Each revision is byte-identical to what it was when created. Amendments append; they never rewrite. The document remains reproducible from its embedded spec at any revision. This is stronger than a blanket "byte-identical output" claim, because it survives signing.
 
 ---
 
