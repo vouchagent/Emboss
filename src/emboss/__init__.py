@@ -19,6 +19,7 @@ from .constraints import (
     ValidationError,
     ValidationResult,
 )
+from .arithmetic import check_table_totals, parse_number
 from .spec import (
     Abstract,
     Appendix,
@@ -274,6 +275,8 @@ __all__ = [
     "LineBreaker",
     "format_number",
     "ConstraintValidator",
+    "check_table_totals",
+    "parse_number",
     "ValidationResult",
     "ValidationError",
     "Issue",

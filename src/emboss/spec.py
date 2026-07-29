@@ -289,6 +289,7 @@ class Table:
     subtitle: str | None = None
     source_line: str | None = None
     attach_data: bool = False
+    verify_totals: bool = False
 
     @property
     def header_cells(self) -> list:

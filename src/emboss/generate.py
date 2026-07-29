@@ -806,6 +806,7 @@ def _manual_parse(data: dict) -> "Document":
             rows=b.get("rows", []),
             caption=b.get("caption"),
             stripe=b.get("stripe", False),
+            verify_totals=b.get("verify_totals", False),
         ),
         "code_block": lambda b: CodeBlock(
             code=b.get("code", ""),

@@ -388,6 +388,11 @@ class TableSpec(BaseModel):
     attach_data: bool = Field(
         False, description="Embed the table's headers and rows as a CSV /AF attachment."
     )
+    verify_totals: bool = Field(
+        False,
+        description="Refuse to render if a Total row or column does not equal "
+        "the sum of its cells.",
+    )
 
     @model_validator(mode="after")
     def auto_detect_numeric_alignment(self):
@@ -445,6 +450,7 @@ class TableSpec(BaseModel):
             subtitle=self.subtitle,
             source_line=self.source_line,
             attach_data=self.attach_data,
+            verify_totals=self.verify_totals,
         )
 
 

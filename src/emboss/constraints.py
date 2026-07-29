@@ -328,6 +328,16 @@ class ConstraintValidator:
                 )
                 continue
 
+            if getattr(element, "verify_totals", False):
+                from .arithmetic import check_table_totals
+
+                headers = [c.plain_text for c in element.header_cells]
+                body = [[c.plain_text for c in row] for row in element.body_rows]
+                for message in check_table_totals(headers, body):
+                    issues.append(
+                        Issue("error", "structural", message, f"content[{index}]")
+                    )
+
             columns = element.column_count
             for row_index, row in enumerate(element.rows):
                 if len(row) != columns:

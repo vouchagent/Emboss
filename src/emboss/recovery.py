@@ -267,6 +267,8 @@ def _table_block(el: Table) -> dict:
         block["source_line"] = el.source_line
     if el.attach_data:
         block["attach_data"] = True
+    if el.verify_totals:
+        block["verify_totals"] = True
     return block
 
 
