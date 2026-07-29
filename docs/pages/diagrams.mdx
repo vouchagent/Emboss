@@ -169,3 +169,36 @@ doc.er_diagram(
 ```
 
 Each type accepts loose `dict`/tuple input or its dataclass form (`ArchNode`/`ArchGroup`, `SequenceParticipant`/`SequenceMessage`, `Entity`/`EntityAttribute`/`Relationship`), and raises a clear `ValueError` naming the offending id when an edge, message, relationship, or group member points at a node that does not exist.
+
+## Mermaid
+
+A large amount of existing technical documentation already contains diagrams written as [Mermaid](https://mermaid.js.org) source. Rather than asking every document to be rewritten, a ` ```mermaid ` fence (or `parse_mermaid(source)` directly) parses that source onto the diagram builders above, so it renders as native vector graphics, the same way as an Emboss-authored diagram.
+
+````markdown
+```mermaid
+flowchart LR
+  A[Start] --> B{OK?}
+  B -->|yes| C[(Store)]
+  B -.->|no| A
+```
+````
+
+```python
+from emboss import parse_mermaid
+
+block = parse_mermaid(source)   # an SvgBlock; doc.add(block) to place it
+```
+
+### Supported syntax
+
+**`flowchart` / `graph`** (maps to `diagram_svg_block`): direction `TD`/`TB`/`BT` (down) or `LR`/`RL` (right); node shapes `A[Label]` (box), `A(Label)` (rounded), `A{Label}` (decision), `A[(Label)]` (store), `A([Label])` (start_end); edges `A --> B`, `A -->|label| B` (labeled), `A -.-> B` (dashed), and chains (`A --> B --> C`).
+
+**`sequenceDiagram`** (maps to `sequence_svg_block`): `participant X as Label` (or `actor`); messages `A->>B: msg` (sync), `A-->>B: msg` (return, dashed), `A-)B: msg` (async); `+`/`-` or `activate`/`deactivate` for an activation bar.
+
+**`erDiagram`** (maps to `er_svg_block`): entities with an attribute block (`USER { int id PK string email }`) and relationships (`USER ||--o{ ORDER : places`), with cardinality tokens mapped to the same `from_card`/`to_card` values `er_diagram` uses.
+
+### Errors and degraded parsing
+
+An unsupported kind (`classDiagram`, `stateDiagram`, or anything else) raises `MermaidError` naming the kind, rather than guessing at a rendering. Inside Markdown, a ` ```mermaid ` block that fails to parse degrades to a code block showing the raw source and reports the failure through `parse_markdown`'s `on_warning` callback; pass `strict=True` to `parse_markdown` to raise instead of degrading. Styling-only lines (`classDef`, `style`, `click`), `subgraph` containment, and sequence `Note`/`loop`/`alt` grouping are recognized and skipped rather than mis-rendered.
+
+`parse_flowchart`, `parse_sequence`, and `parse_er` are the per-kind entry points `parse_mermaid` dispatches to, if the kind is already known.

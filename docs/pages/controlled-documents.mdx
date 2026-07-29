@@ -1,0 +1,57 @@
+---
+title: Controlled Documents
+description: A document control block for ISO 9001, IEC 62304, and medical-device documentation
+---
+
+import { Callout } from 'nextra/components'
+
+# Controlled documents
+
+The line between a nice-looking PDF and a controlled document is a control block: a document identifier, version and status, an approvals table, and a revision history. `Document.document_control(...)` adds one as a first-class, fully tagged block.
+
+```python
+from emboss import Document, Approval, RevisionEntry
+
+doc = Document(title="Design History File", style="legal")
+doc.document_control(
+    doc_id="DHF-2026-014",
+    version="3.0",
+    status="Approved",
+    effective_date="2026-08-01",
+    classification="Controlled",
+    owner="Quality Engineering",
+    approvals=[
+        Approval(name="R. Patel", role="Quality Manager", date="2026-07-28"),
+        Approval(name="M. Osei", role="Regulatory Affairs", date="2026-07-29"),
+    ],
+    revisions=[
+        RevisionEntry(version="2.0", date="2026-03-01", author="R. Patel",
+                      summary="Added risk analysis section"),
+        RevisionEntry(version="3.0", date="2026-07-28", author="R. Patel",
+                      summary="Updated verification protocol"),
+    ],
+)
+```
+
+Loose input works too: `approvals`/`revisions` accept plain dicts (`{"name": ..., "role": ..., "date": ...}`) in place of `Approval`/`RevisionEntry`.
+
+## What it renders
+
+The block expands, before layout, into three ordinary pieces:
+
+1. a **metadata grid**: Document ID, Title, Version, Status, Effective Date, Classification, and Owner, whichever fields are set;
+2. an **Approvals table** (Name, Role, Statement, Date), if any approvals are given;
+3. a **Revision History table** (Version, Date, Author, Summary), if any revisions are given.
+
+Because these expand into real `Table` and `Paragraph` blocks, pagination, header repetition on a long revision history, column measurement, and PDF/UA `/Table` structure tagging (`/TH` header cells, `/TD` body cells) all come from the same machinery an ordinary `doc.table(...)` uses -- not a hand-drawn panel that would need its own tagging and pagination logic. A control block with a hundred revision rows paginates the same way a hundred-row table does.
+
+## Round-tripping
+
+The block is part of the EmbossSpec vocabulary (`type: "document_control"`), so it survives `document_to_spec_dict` / `Document.from_json`, appears in the LLM spec prompt, and is exposed in the Pydantic schema for structured-output pipelines. It also renders in the HTML and Markdown adapters as a titled section of tables.
+
+<Callout type="info">
+Recovering a document from its PDF/UA structure tree alone (no embedded
+spec) degrades a control block to its constituent tables and paragraphs --
+the same degradation any expanded block undergoes without the spec to
+reconstruct the original element from.
+</Callout>

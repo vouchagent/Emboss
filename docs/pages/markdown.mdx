@@ -77,3 +77,42 @@ Not supported, by design: multi-paragraph list items and raw HTML
 passthrough. Both are left as literal text rather than silently
 restructured.
 </Callout>
+
+## Include-from-source
+
+A code block can load its content from a source file instead of being typed inline, so a documented example cannot silently drift from the code it describes:
+
+````markdown
+```python file=examples/settle.py lines=10-20
+```
+````
+
+The info string after the language accepts `file=PATH` with either `lines=A-B` (a 1-based inclusive range) or `marker=NAME` (the text between `# region NAME` / `# endregion`, or `# BEGIN NAME` / `# END NAME`, recognizing the common comment leaders for several languages). The selected text is dedented and rendered through the normal syntax highlighter for the block's language. A missing file, an out-of-range line span, or an unmatched marker raises `IncludeError`; inside `parse_markdown` this degrades to a code block plus a warning unless `strict=True`.
+
+Relative `file=` paths resolve against `base_dir`, an optional keyword to `parse_markdown(text, base_dir=...)` (default: the current working directory). `emboss build` (below) resolves each file's includes against that Markdown file's own directory automatically.
+
+```python
+from emboss import include_source
+
+code = include_source("examples/settle.py", lines="10-20")
+code = include_source("examples/settle.py", marker="handler")
+```
+
+## Building a directory of Markdown
+
+A documentation team adds a build step rather than calling an API. `emboss build` concatenates every Markdown file in a directory, in order, into one tagged PDF:
+
+```bash
+emboss build ./docs -o handbook.pdf
+```
+
+Order is alphabetical by default, so numeric prefixes (`01-intro.md`, `02-setup.md`, ...) work without configuration; an optional `.order` file in the directory (one file name per line, `#`-comments and blank lines ignored) sets an explicit order instead. The first file's front matter supplies the document title and style unless overridden with `--title`/`--style`. A page break is inserted between files by default (`--no-page-breaks` to disable), and a table of contents is added by default (`--no-toc` to disable).
+
+```python
+from emboss import build_from_directory
+
+doc = build_from_directory("./docs", title="Handbook", toc=True)
+doc.save("handbook.pdf")
+```
+
+`ordered_markdown_files(directory, order=None)` returns the resolved file list, if you want the ordering logic without building.

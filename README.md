@@ -322,6 +322,23 @@ doc.save("report.pdf")
 
 All three tiers produce identical PDF quality -- the typography engine (Knuth-Plass, optical margins, kerning) runs the same regardless of input format.
 
+**A whole directory, one PDF.** A documentation team adds a build step rather than calling an API:
+
+```bash
+emboss build ./docs -o handbook.pdf
+```
+
+Files are concatenated in alphabetical order (numeric prefixes like `01-intro.md` work naturally), or from an explicit `.order` file listing names one per line; the first file's front matter supplies the title and style. Available in Python as `build_from_directory("./docs")`.
+
+**Code that cannot drift from its source.** A fenced code block can load its body from a file instead of being typed inline:
+
+````markdown
+```python file=examples/settle.py lines=10-20
+```
+````
+
+`lines=A-B` selects a 1-based inclusive range; `marker=NAME` selects a `# region NAME` / `# endregion` (or `# BEGIN NAME` / `# END NAME`) block instead. The included text is dedented and flows through the normal syntax highlighter, so a documented example is always the real code, not a copy that quietly went stale. Available directly as `include_source(path, lines=..., marker=...)`.
+
 **Robust parsing.** LLM output is messy; the parser is built for it:
 
 ```python
@@ -902,6 +919,36 @@ doc = Document(
 - **Line numbering**: continuous line numbers in the left margin (court filings)
 - **Watermarks**: diagonal text overlay with configurable opacity
 
+### Controlled Documents
+
+The line between a nice PDF and a controlled document (ISO 9001, IEC 62304, medical device, aerospace) is a control block: a document identifier, version, status, an approvals table, and a revision history.
+
+```python
+from emboss import Document, Approval, RevisionEntry
+
+doc = Document(title="Design History File", style="legal")
+doc.document_control(
+    doc_id="DHF-2026-014",
+    version="3.0",
+    status="Approved",
+    effective_date="2026-08-01",
+    classification="Controlled",
+    owner="Quality Engineering",
+    approvals=[
+        Approval(name="R. Patel", role="Quality Manager", date="2026-07-28"),
+        Approval(name="M. Osei", role="Regulatory Affairs", date="2026-07-29"),
+    ],
+    revisions=[
+        RevisionEntry(version="2.0", date="2026-03-01", author="R. Patel",
+                      summary="Added risk analysis section"),
+        RevisionEntry(version="3.0", date="2026-07-28", author="R. Patel",
+                      summary="Updated verification protocol"),
+    ],
+)
+```
+
+The block expands into real, fully tagged tables before layout -- a metadata grid, an Approvals table, and a Revision History table -- so pagination, header repetition on long revision histories, and PDF/UA `/Table` tagging all come from the same machinery an ordinary `doc.table(...)` uses, not a hand-drawn panel. It round-trips through the JSON spec and renders in the HTML and Markdown adapters.
+
 ### Factur-X / ZUGFeRD e-invoicing
 
 A visual invoice PDF can carry a machine-readable EN 16931 Cross Industry Invoice XML inside it, for the France B2B mandate (September 2026) and EU electronic invoicing. `Document.attach_facturx` embeds the XML as a `factur-x.xml` `/AF` attachment, forces PDF/A-3, and writes the ZUGFeRD/Factur-X XMP metadata.
@@ -1087,6 +1134,27 @@ doc.er_diagram(
 ```
 
 All three are exposed in the Pydantic schema and the LLM spec prompt, so a model can emit them directly as `architecture_diagram` / `sequence_diagram` / `er_diagram` spec blocks.
+
+### Mermaid
+
+A ` ```mermaid ` fence in Markdown, or `parse_mermaid(source)` directly, parses common Mermaid diagram source onto Emboss's own diagram builders above, so the large existing corpus of docs already written in Mermaid renders as native vector graphics, not an image.
+
+````markdown
+```mermaid
+flowchart LR
+  A[Start] --> B{OK?}
+  B -->|yes| C[(Store)]
+  B -.->|no| A
+```
+````
+
+`flowchart`/`graph` (with `TD`/`TB`/`BT`/`LR`/`RL` direction), `sequenceDiagram` (`->>` sync, `-->>` return, `-)` async, `+`/`-` activation), and `erDiagram` (attribute blocks and `||--o{`-style cardinality) are supported. An unsupported kind (`classDiagram`, `stateDiagram`) raises `MermaidError` naming it, rather than rendering something wrong. In Markdown, a diagram that fails to parse degrades to a code block showing the source, with a warning via `on_warning`, unless `strict=True` is passed to `parse_markdown`.
+
+```python
+from emboss import parse_mermaid
+
+block = parse_mermaid(source)   # an SvgBlock, addable with doc.add(block)
+```
 
 ---
 
