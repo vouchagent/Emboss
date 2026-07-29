@@ -36,6 +36,42 @@ just embeds the files normally.
 
 `document_to_spec_dict(doc)` / `spec_dict_to_json(spec)` (in `emboss.recovery`) build the embedded spec payload directly, if you want the canonical dict or its deterministic sorted-key JSON bytes without rendering a PDF.
 
+## Data-carrying tables and charts
+
+A single table or chart can carry its own source data inside the PDF, so the figure a reader sees stays tied to the numbers behind it. Set `attach_data=True` on the element:
+
+```python
+doc.table(
+    headers=["Quarter", "Bookings"],
+    rows=[["Q1", "1,240"], ["Q2", "1,510"], ["Q3", "1,880"]],
+    caption="Bookings by quarter",
+    attach_data=True,
+)
+```
+
+Emboss serializes the table's cells (or the chart's categories and series) to CSV and embeds it as a per-element `/AF` attachment with `/AFRelationship /Data`, named `table-N-data.csv` / `chart-N-data.csv`. The visible page does not change; the data rides inside the same file.
+
+Opening an attachment is a PDF-reader feature, so the steps depend on the reader:
+
+| Reader | How to open the embedded data |
+|--------|-------------------------------|
+| Adobe Acrobat / Reader | View -> Show/Hide -> Side panels -> Attachments, then double-click the CSV |
+| Firefox (built-in viewer) | Click the paperclip icon in the left toolbar, then the file |
+| Preview (macOS), Chrome | No attachment UI; use Acrobat or Firefox, or extract programmatically |
+
+<Callout type="info">
+Preview and Chrome render the page but do not surface `/AF` attachments in
+their UI. The files are present in the PDF regardless -- pull any of them
+straight from the bytes with pikepdf:
+</Callout>
+
+```python
+import io, pikepdf
+
+with pikepdf.open(io.BytesIO(pdf_bytes)) as pdf:
+    csv = pdf.attachments["table-1-data.csv"].get_file().read_bytes()
+```
+
 ## Recovering a document
 
 ```python

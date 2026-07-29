@@ -122,6 +122,7 @@ MATH_SYMBOLS: dict[str, str] = {
     "equiv": "≡",
     "sim": "∼",
     "propto": "∝",
+    "mid": "|",
     "to": "→",
     "leftarrow": "←",
     "rightarrow": "→",
@@ -699,6 +700,8 @@ class MathParser:
                 return SpaceNode(width_em=-0.17)
             elif ch == " ":
                 return SpaceNode(width_em=0.25)
+            elif ch == "|":
+                return TextNode("||")  # \| is the norm double bar
             return TextNode(ch)
 
         if name == "frac":

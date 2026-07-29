@@ -156,6 +156,31 @@ class TestMathSymbols:
         assert "cup" in MATH_SYMBOLS
         assert "emptyset" in MATH_SYMBOLS
 
+    def test_mid_is_vertical_bar(self):
+        # \mid is the conditioning bar; it must set as | not the word "mid".
+        assert MATH_SYMBOLS["mid"] == "|"
+        node = parse_math(r"\mid")
+        assert isinstance(node, SymbolNode) and node.symbol == "mid"
+
+
+class TestNormBars:
+    def test_backslash_pipe_is_double_bar(self):
+        # \| is the norm delimiter; a single | reads as the letter l, so it
+        # must render as a genuine double bar with glyphs the font carries.
+        node = parse_math(r"\|")
+        assert isinstance(node, TextNode)
+        assert node.text == "||"
+
+    def test_norm_renders_end_to_end(self):
+        doc = Document(title="Norm")
+        doc.math(r"\|x\|_2 \leq 1", display=True)
+        assert doc.render().startswith(b"%PDF")
+
+    def test_conditioning_bar_renders_end_to_end(self):
+        doc = Document(title="Cond")
+        doc.math(r"f(x \mid \mu, \sigma^2)", display=True)
+        assert doc.render().startswith(b"%PDF")
+
 
 class TestMathLayout:
     def test_basic_layout(self):

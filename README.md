@@ -585,6 +585,38 @@ clean_bytes = strip_pdf(pdf_bytes)
 
 `strip_pdf` operates on already-rendered bytes: it drops the `/AF` attachments and the `/Names /EmbeddedFiles` tree, clears `/Producer` and `/Creator` plus the XMP `CreatorTool`/document-history fields, and removes the structure tree's `/IDTree` and per-element `/ID` node ids -- while keeping Title, Author, and date fields. Output stays deterministic.
 
+### Data-Carrying Tables and Charts
+
+A single table or chart can carry its own source data inside the PDF, so the numbers a reader sees are one double-click away from the spreadsheet behind them. Set `attach_data=True`:
+
+```python
+doc.table(
+    headers=["Quarter", "Bookings"],
+    rows=[["Q1", "1,240"], ["Q2", "1,510"], ["Q3", "1,880"]],
+    caption="Bookings by quarter",
+    attach_data=True,   # embeds the table as an /AF CSV attachment
+)
+```
+
+Emboss writes the table (or the chart's series) out as a CSV and embeds it as a real `/AF` associated-file attachment on that element -- not a separate side file. The visible page is unchanged; the data rides along inside the same PDF.
+
+**How a reader opens the attachment.** Attachment support is a PDF-reader feature, not something the document controls, so the steps differ by reader:
+
+| Reader | How to open the embedded data |
+|--------|-------------------------------|
+| Adobe Acrobat / Reader | **View -> Show/Hide -> Side panels -> Attachments**, then double-click the CSV |
+| Firefox (built-in viewer) | Click the **paperclip** icon in the left toolbar, then the file |
+| Preview (macOS), Chrome | No attachment UI -- these readers do not surface `/AF` files; use Acrobat or Firefox, or extract programmatically (below) |
+
+Any embedded file can also be pulled out without a viewer, straight from the bytes:
+
+```python
+import io, pikepdf
+
+with pikepdf.open(io.BytesIO(pdf_bytes)) as pdf:
+    csv = pdf.attachments["table-1-data.csv"].get_file().read_bytes()
+```
+
 ### Reproducibility Manifest
 
 Beyond recovering a document's content, `manifest=True` records what it takes to reproduce its exact rendered bytes:

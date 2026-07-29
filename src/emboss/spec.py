@@ -1022,6 +1022,34 @@ class Document:
             diagram_svg_block(nodes, edges, direction=direction, caption=caption, **kw)
         )
 
+    def architecture_diagram(
+        self, nodes, edges=(), groups=None, direction="down", caption=None, **kw
+    ) -> "Document":
+        """Append an architecture diagram of service glyphs, groups, and edges."""
+        from .diagrams import architecture_svg_block
+
+        return self.add(
+            architecture_svg_block(
+                nodes, edges, groups=groups, direction=direction, caption=caption, **kw
+            )
+        )
+
+    def sequence_diagram(
+        self, participants, messages=(), caption=None, **kw
+    ) -> "Document":
+        """Append a sequence diagram of participant lifelines and messages."""
+        from .diagrams import sequence_svg_block
+
+        return self.add(
+            sequence_svg_block(participants, messages, caption=caption, **kw)
+        )
+
+    def er_diagram(self, entities, relationships=(), caption=None, **kw) -> "Document":
+        """Append an entity-relationship diagram of entities and relationships."""
+        from .diagrams import er_svg_block
+
+        return self.add(er_svg_block(entities, relationships, caption=caption, **kw))
+
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))
 

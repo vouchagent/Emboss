@@ -2405,21 +2405,6 @@ class Renderer:
 
         bg_color = THEME_BACKGROUNDS.get(element.theme, "1e1e1e")
         content_width = page_content_width
-        stream.begin_artifact("Background")
-        stream.rect(
-            placed.x,
-            placed.y - placed.height,
-            content_width,
-            placed.height,
-            fill=bg_color,
-        )
-        stream.end_marked()
-
-        code_el = StructureElement(tag="Code")
-        root.children.append(code_el)
-        mcid = stream.next_mcid()
-        code_el.add_mcid(page_index, mcid)
-        stream.begin_marked("Code", mcid)
 
         lines = element.code.split("\n")
         gutter_width = 0.0
@@ -2432,11 +2417,40 @@ class Renderer:
         def _mw(text: str) -> float:
             return metrics.text_width(text, code_size)
 
-        y = placed.y - padding
-        for i, line_text in enumerate(lines):
-            line_num = element.start_line + i
+        line_rows = []
+        max_row_width = 0.0
+        for line_text in lines:
             colored = colorize(tokenize(line_text, element.language), element.theme)
             rows = wrap_colored(colored, _mw, max_text_width) or [[]]
+            line_rows.append(rows)
+            for segments in rows:
+                row_width = sum(_mw(text) for text, _ in segments)
+                if row_width > max_row_width:
+                    max_row_width = row_width
+
+        box_width = min(
+            content_width, gutter_width + max_row_width + 2 * padding
+        )
+
+        stream.begin_artifact("Background")
+        stream.rect(
+            placed.x,
+            placed.y - placed.height,
+            box_width,
+            placed.height,
+            fill=bg_color,
+        )
+        stream.end_marked()
+
+        code_el = StructureElement(tag="Code")
+        root.children.append(code_el)
+        mcid = stream.next_mcid()
+        code_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Code", mcid)
+
+        y = placed.y - padding
+        for i, rows in enumerate(line_rows):
+            line_num = element.start_line + i
 
             for r, segments in enumerate(rows):
                 baseline = y - metrics.ascent(code_size)
@@ -2446,7 +2460,7 @@ class Renderer:
                     stream.rect(
                         placed.x,
                         y - line_height,
-                        content_width,
+                        box_width,
                         line_height,
                         fill="ffffff",
                     )

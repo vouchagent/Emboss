@@ -69,6 +69,46 @@ class TestMathCentering:
         raise AssertionError("equation glyphs not found")
 
 
+class TestCodeBackgroundFit:
+    def _rect_widths(self, pdf: bytes) -> list:
+        import io
+
+        import pytest
+
+        pikepdf = pytest.importorskip("pikepdf")
+        widths = []
+        with pikepdf.open(io.BytesIO(pdf)) as doc:
+            for page in doc.pages:
+                data = pikepdf.parse_content_stream(page)
+                for operands, op in data:
+                    if str(op) == "re":
+                        widths.append(round(float(operands[2]), 1))
+        return widths
+
+    def test_narrow_code_background_hugs_content(self):
+        doc = Document(title="Code")
+        doc.code_block("x = 1", language="python")
+        widths = self._rect_widths(doc.render())
+        # The dark code background must not span the full ~468pt page width
+        # for a five-character line; it hugs the code plus padding.
+        assert widths and max(widths) < 200.0
+
+    def test_wide_code_background_spans_page(self):
+        doc = Document(title="Code")
+        doc.code_block(
+            "result = compute(alpha, beta, gamma, delta, epsilon, zeta, eta)",
+            language="python",
+        )
+        widths = self._rect_widths(doc.render())
+        # A near-full-width line fills the box out toward the page width.
+        assert widths and max(widths) > 300.0
+
+    def test_code_background_deterministic(self):
+        doc = Document(title="Code")
+        doc.code_block("def f():\n    return 1", language="python")
+        assert doc.render() == doc.render()
+
+
 class TestStatTileFit:
     def test_long_value_is_not_broken_midword(self):
         doc = Document(title="Stat")

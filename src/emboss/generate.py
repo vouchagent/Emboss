@@ -455,6 +455,27 @@ Architecture and workflow graphs as node/edge lists; layout, arrow routing, and 
 ```
 Node shapes: box, rounded, decision (diamond), store (database), start_end. Edge "style": "dashed" marks optional/async paths; "direction" is "down" or "right".
 
+### Architecture Diagram
+System/cloud topology with built-in service glyphs and nested boundary zones (VPC / subnet / account). Nodes carry a "service" glyph; "groups" enclose member node/group ids:
+```json
+{{"type": "architecture_diagram", "direction": "down", "nodes": [{{"id": "u", "label": "User", "service": "user"}}, {{"id": "cdn", "label": "CDN", "service": "cdn"}}, {{"id": "api", "label": "API", "service": "compute", "group": "vpc"}}, {{"id": "db", "label": "Postgres", "service": "database", "group": "vpc"}}, {{"id": "q", "label": "Jobs", "service": "queue", "group": "vpc"}}], "groups": [{{"id": "vpc", "label": "VPC", "node_ids": ["api", "db", "q"]}}], "edges": [{{"src": "u", "dst": "cdn"}}, {{"src": "u", "dst": "api", "label": "https"}}, {{"src": "api", "dst": "db", "label": "sql"}}, {{"src": "api", "dst": "q", "style": "dashed"}}], "caption": "Request path"}}
+```
+Services: compute, database, storage, queue, gateway, cache, cdn, function, loadbalancer, user, external, generic. Groups may nest by listing another group id in "node_ids".
+
+### Sequence Diagram
+Participant lifelines with time-ordered messages (top to bottom). Message "style": "sync" (filled arrow), "async" (open arrow), "return" (dashed); "activate": true draws an activation bar:
+```json
+{{"type": "sequence_diagram", "participants": [{{"id": "u", "label": "User"}}, {{"id": "api", "label": "API"}}, {{"id": "db", "label": "Database"}}], "messages": [{{"src": "u", "dst": "api", "label": "POST /login", "style": "sync", "activate": true}}, {{"src": "api", "dst": "db", "label": "SELECT user", "style": "async"}}, {{"src": "db", "dst": "api", "label": "row", "style": "return"}}, {{"src": "api", "dst": "u", "label": "token", "style": "return"}}], "caption": "Login sequence"}}
+```
+A message with equal "src" and "dst" renders as a self-loop.
+
+### Entity-Relationship Diagram
+Entity tables with attributes and cardinality-labeled relationships. Mark keys with "key": "PK" or "FK":
+```json
+{{"type": "er_diagram", "entities": [{{"id": "user", "name": "User", "attributes": [{{"name": "id", "key": "PK", "type": "int"}}, {{"name": "email", "type": "text"}}]}}, {{"id": "order", "name": "Order", "attributes": [{{"name": "id", "key": "PK", "type": "int"}}, {{"name": "user_id", "key": "FK", "type": "int"}}]}}], "relationships": [{{"src": "user", "dst": "order", "label": "places", "src_card": "1", "dst_card": "N"}}]}}
+```
+Cardinality is any short label ("1", "N", "0..1", "1..N").
+
 ### Front Matter & Executive Elements
 "cover_page" fills a page (no header/footer) and forces a page break:
 ```json
@@ -831,6 +852,9 @@ def _manual_parse(data: dict) -> "Document":
         "rule": lambda b: HorizontalRule(),
         "page_break": lambda b: PageBreak(page_style=b.get("page_style")),
         "diagram": lambda b: _parse_diagram(b),
+        "architecture_diagram": lambda b: _parse_architecture(b),
+        "sequence_diagram": lambda b: _parse_sequence(b),
+        "er_diagram": lambda b: _parse_er(b),
     }
     type_map["index"] = lambda b: Index(title=b.get("title", "Index"))
     type_map["glossary"] = lambda b: Glossary(
@@ -869,6 +893,41 @@ def _parse_diagram(block: dict):
         block.get("nodes", []),
         block.get("edges", []),
         direction=block.get("direction", "down"),
+        caption=block.get("caption"),
+    )
+
+
+def _parse_architecture(block: dict):
+    """Parse an architecture_diagram block in the no-pydantic fallback path."""
+    from .diagrams import architecture_svg_block
+
+    return architecture_svg_block(
+        block.get("nodes", []),
+        block.get("edges", []),
+        groups=block.get("groups"),
+        direction=block.get("direction", "down"),
+        caption=block.get("caption"),
+    )
+
+
+def _parse_sequence(block: dict):
+    """Parse a sequence_diagram block in the no-pydantic fallback path."""
+    from .diagrams import sequence_svg_block
+
+    return sequence_svg_block(
+        block.get("participants", []),
+        block.get("messages", []),
+        caption=block.get("caption"),
+    )
+
+
+def _parse_er(block: dict):
+    """Parse an er_diagram block in the no-pydantic fallback path."""
+    from .diagrams import er_svg_block
+
+    return er_svg_block(
+        block.get("entities", []),
+        block.get("relationships", []),
         caption=block.get("caption"),
     )
 

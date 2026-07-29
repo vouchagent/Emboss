@@ -104,6 +104,16 @@ __all__ = [
     "DiagramSpec",
     "DiagramNodeSpec",
     "DiagramEdgeSpec",
+    "ArchitectureDiagramSpec",
+    "ArchNodeSpec",
+    "ArchGroupSpec",
+    "SequenceDiagramSpec",
+    "SequenceParticipantSpec",
+    "SequenceMessageSpec",
+    "ErDiagramSpec",
+    "EntitySpec",
+    "EntityAttributeSpec",
+    "RelationshipSpec",
     "HeaderFooterSpec",
     "TextRunSpec",
     "TableCellSpec",
@@ -1030,6 +1040,393 @@ class DiagramSpec(BaseModel):
         )
 
 
+class ArchNodeSpec(BaseModel):
+    """One service node in an architecture diagram."""
+
+    id: str = Field(..., min_length=1, description="Unique node identifier.")
+    label: str = Field(..., min_length=1, description="Text shown under the glyph.")
+    service: Literal[
+        "compute",
+        "database",
+        "storage",
+        "queue",
+        "gateway",
+        "cache",
+        "cdn",
+        "function",
+        "loadbalancer",
+        "user",
+        "external",
+        "generic",
+    ] = Field(
+        "generic",
+        description=(
+            "Service glyph: compute (server), database (cylinder), storage "
+            "(bucket), queue, gateway (hexagon), cache, cdn, function, "
+            "loadbalancer, user, external (cloud), generic."
+        ),
+    )
+    group: str | None = Field(None, description="Id of the group this node sits in.")
+
+
+class ArchGroupSpec(BaseModel):
+    """A container region enclosing nodes and/or nested groups by id."""
+
+    id: str = Field(..., min_length=1, description="Unique group identifier.")
+    label: str = Field("", description="Title drawn in the group's top-left.")
+    node_ids: list[str] = Field(
+        default_factory=list,
+        description="Ids of member nodes and/or nested group ids.",
+    )
+    color: str | None = Field(
+        None, pattern=r"^#?[0-9a-fA-F]{6}$", description="Border/title hex color."
+    )
+
+
+class ArchitectureDiagramSpec(BaseModel):
+    """A cloud/service architecture diagram with grouped service glyphs.
+
+    Nodes render as built-in vector glyphs (server, database, queue, ...);
+    groups draw labeled boundary zones (VPC / subnet / account) that can
+    nest; edges connect services with labeled solid or dashed arrows.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Architecture Diagram",
+            "examples": [
+                {
+                    "type": "architecture_diagram",
+                    "nodes": [
+                        {"id": "u", "label": "User", "service": "user"},
+                        {
+                            "id": "api",
+                            "label": "API",
+                            "service": "compute",
+                            "group": "vpc",
+                        },
+                        {
+                            "id": "db",
+                            "label": "Store",
+                            "service": "database",
+                            "group": "vpc",
+                        },
+                    ],
+                    "groups": [
+                        {"id": "vpc", "label": "VPC", "node_ids": ["api", "db"]}
+                    ],
+                    "edges": [
+                        {"src": "u", "dst": "api", "label": "https"},
+                        {"src": "api", "dst": "db", "style": "dashed"},
+                    ],
+                    "direction": "down",
+                }
+            ],
+        }
+    }
+
+    type: Literal["architecture_diagram"] = "architecture_diagram"
+    nodes: list[ArchNodeSpec] = Field(..., min_length=1, description="Service nodes.")
+    edges: list[DiagramEdgeSpec] = Field(
+        default_factory=list, description="Directed connections between node ids."
+    )
+    groups: list[ArchGroupSpec] = Field(
+        default_factory=list, description="Boundary zones enclosing nodes/groups."
+    )
+    direction: Literal["down", "right"] = Field(
+        "down", description="Main layout flow direction."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_graph(self) -> "ArchitectureDiagramSpec":
+        node_ids: set[str] = set()
+        for node in self.nodes:
+            if node.id in node_ids:
+                raise ValueError(f"duplicate architecture node id: {node.id!r}")
+            node_ids.add(node.id)
+        group_ids: set[str] = set()
+        for group in self.groups:
+            if group.id in group_ids or group.id in node_ids:
+                raise ValueError(f"duplicate architecture group id: {group.id!r}")
+            group_ids.add(group.id)
+        for edge in self.edges:
+            for endpoint in (edge.src, edge.dst):
+                if endpoint not in node_ids:
+                    raise ValueError(
+                        f"architecture edge references unknown node id: {endpoint!r}"
+                    )
+        for group in self.groups:
+            for member in group.node_ids:
+                if member not in node_ids and member not in group_ids:
+                    raise ValueError(
+                        f"architecture group references unknown id: {member!r}"
+                    )
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import (
+            ArchGroup,
+            ArchNode,
+            DiagramEdge,
+            architecture_svg_block,
+        )
+
+        return architecture_svg_block(
+            [
+                ArchNode(id=n.id, label=n.label, service=n.service, group=n.group)
+                for n in self.nodes
+            ],
+            [
+                DiagramEdge(src=e.src, dst=e.dst, label=e.label, style=e.style)
+                for e in self.edges
+            ],
+            groups=[
+                ArchGroup(
+                    id=g.id,
+                    label=g.label,
+                    node_ids=tuple(g.node_ids),
+                    color=(g.color if not g.color else "#" + g.color.lstrip("#")),
+                )
+                for g in self.groups
+            ],
+            direction=self.direction,
+            caption=self.caption,
+        )
+
+
+class SequenceParticipantSpec(BaseModel):
+    """A participant (lifeline) in a sequence diagram."""
+
+    id: str = Field(..., min_length=1, description="Unique participant identifier.")
+    label: str = Field("", description="Display label (defaults to the id).")
+
+
+class SequenceMessageSpec(BaseModel):
+    """One message between participants at a vertical time step."""
+
+    src: str = Field(..., min_length=1, description="Sending participant id.")
+    dst: str = Field(..., min_length=1, description="Receiving participant id.")
+    label: str = Field("", description="Message label centered above the arrow.")
+    style: Literal["sync", "async", "return"] = Field(
+        "sync",
+        description=(
+            "sync (filled arrowhead), async (open arrowhead), return "
+            "(dashed line, open arrowhead)."
+        ),
+    )
+    activate: bool = Field(
+        False, description="Start an activation bar on the receiver's lifeline."
+    )
+
+
+class SequenceDiagramSpec(BaseModel):
+    """A UML-style sequence diagram: lifelines and time-ordered messages."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Sequence Diagram",
+            "examples": [
+                {
+                    "type": "sequence_diagram",
+                    "participants": [
+                        {"id": "u", "label": "User"},
+                        {"id": "api", "label": "API"},
+                    ],
+                    "messages": [
+                        {
+                            "src": "u",
+                            "dst": "api",
+                            "label": "login",
+                            "style": "sync",
+                            "activate": True,
+                        },
+                        {"src": "api", "dst": "u", "label": "token", "style": "return"},
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["sequence_diagram"] = "sequence_diagram"
+    participants: list[SequenceParticipantSpec] = Field(
+        ..., min_length=1, description="Ordered participants across the top."
+    )
+    messages: list[SequenceMessageSpec] = Field(
+        default_factory=list, description="Ordered messages, top to bottom."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_graph(self) -> "SequenceDiagramSpec":
+        ids: set[str] = set()
+        for part in self.participants:
+            if part.id in ids:
+                raise ValueError(f"duplicate sequence participant id: {part.id!r}")
+            ids.add(part.id)
+        for msg in self.messages:
+            for endpoint in (msg.src, msg.dst):
+                if endpoint not in ids:
+                    raise ValueError(
+                        f"sequence message references unknown participant: {endpoint!r}"
+                    )
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import (
+            SequenceMessage,
+            SequenceParticipant,
+            sequence_svg_block,
+        )
+
+        return sequence_svg_block(
+            [
+                SequenceParticipant(id=p.id, label=p.label or p.id)
+                for p in self.participants
+            ],
+            [
+                SequenceMessage(
+                    src=m.src,
+                    dst=m.dst,
+                    label=m.label,
+                    style=m.style,
+                    activate=m.activate,
+                )
+                for m in self.messages
+            ],
+            caption=self.caption,
+        )
+
+
+class EntityAttributeSpec(BaseModel):
+    """One attribute row of an entity."""
+
+    name: str = Field(..., min_length=1, description="Attribute name.")
+    key: Literal["PK", "FK"] | None = Field(
+        None, description="Key marker: PK (primary) or FK (foreign)."
+    )
+    type: str | None = Field(None, description="Optional data type shown at right.")
+
+
+class EntitySpec(BaseModel):
+    """A named entity box with attribute rows."""
+
+    id: str = Field(..., min_length=1, description="Unique entity identifier.")
+    name: str = Field("", description="Entity name shown in the title bar.")
+    attributes: list[EntityAttributeSpec] = Field(
+        default_factory=list, description="Attribute rows."
+    )
+
+
+class RelationshipSpec(BaseModel):
+    """A relationship line between two entities with cardinality labels."""
+
+    src: str = Field(..., min_length=1, description="Source entity id.")
+    dst: str = Field(..., min_length=1, description="Destination entity id.")
+    label: str | None = Field(None, description="Relationship label at the midpoint.")
+    src_card: str | None = Field(
+        None, description="Cardinality near the source, e.g. '1', 'N', '0..1'."
+    )
+    dst_card: str | None = Field(None, description="Cardinality near the destination.")
+
+
+class ErDiagramSpec(BaseModel):
+    """An entity-relationship diagram: entity tables and their relationships."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Entity-Relationship Diagram",
+            "examples": [
+                {
+                    "type": "er_diagram",
+                    "entities": [
+                        {
+                            "id": "user",
+                            "name": "User",
+                            "attributes": [
+                                {"name": "id", "key": "PK", "type": "int"},
+                                {"name": "email", "type": "text"},
+                            ],
+                        },
+                        {
+                            "id": "order",
+                            "name": "Order",
+                            "attributes": [
+                                {"name": "id", "key": "PK"},
+                                {"name": "user_id", "key": "FK", "type": "int"},
+                            ],
+                        },
+                    ],
+                    "relationships": [
+                        {
+                            "src": "user",
+                            "dst": "order",
+                            "label": "places",
+                            "src_card": "1",
+                            "dst_card": "N",
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["er_diagram"] = "er_diagram"
+    entities: list[EntitySpec] = Field(..., min_length=1, description="Entity tables.")
+    relationships: list[RelationshipSpec] = Field(
+        default_factory=list, description="Relationships between entities."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_graph(self) -> "ErDiagramSpec":
+        ids: set[str] = set()
+        for entity in self.entities:
+            if entity.id in ids:
+                raise ValueError(f"duplicate entity id: {entity.id!r}")
+            ids.add(entity.id)
+        for rel in self.relationships:
+            for endpoint in (rel.src, rel.dst):
+                if endpoint not in ids:
+                    raise ValueError(
+                        f"relationship references unknown entity: {endpoint!r}"
+                    )
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import (
+            Entity,
+            EntityAttribute,
+            Relationship,
+            er_svg_block,
+        )
+
+        return er_svg_block(
+            [
+                Entity(
+                    id=e.id,
+                    name=e.name or e.id,
+                    attributes=tuple(
+                        EntityAttribute(name=a.name, key=a.key, type=a.type)
+                        for a in e.attributes
+                    ),
+                )
+                for e in self.entities
+            ],
+            [
+                Relationship(
+                    src=r.src,
+                    dst=r.dst,
+                    label=r.label,
+                    src_card=r.src_card,
+                    dst_card=r.dst_card,
+                )
+                for r in self.relationships
+            ],
+            caption=self.caption,
+        )
+
+
 class CoverPageSpec(BaseModel):
     """A full-page cover: centered title, subtitle, authors, and accent rule."""
 
@@ -1384,6 +1781,9 @@ ContentBlock = Annotated[
         IndexSpec,
         GlossarySpec,
         DiagramSpec,
+        ArchitectureDiagramSpec,
+        SequenceDiagramSpec,
+        ErDiagramSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],
