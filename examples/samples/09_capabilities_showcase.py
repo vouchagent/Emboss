@@ -9,7 +9,7 @@ capabilities that general-purpose PDF tools do not have because they do
 not know which marks were a heading, a table, or a chart.
 """
 
-from emboss import Document, Series
+from emboss import Document, Series, parse_mermaid
 
 doc = Document(title="Emboss — Capabilities Showcase", author="Emboss", style="corporate")
 
@@ -291,6 +291,19 @@ doc.er_diagram(
     ],
     caption="Entity-relationship diagram: keys, types, and cardinality.",
 )
+doc.paragraph(
+    "A large amount of existing technical documentation is already written "
+    "as Mermaid diagrams. That source parses onto the same diagram engine, "
+    "so it renders as native vector output, not a screenshot."
+)
+doc.add(
+    parse_mermaid(
+        "flowchart LR\n"
+        "  A[Request] --> B{Valid?}\n"
+        "  B -->|yes| C[(Ledger)]\n"
+        "  B -.->|no| A"
+    )
+)
 
 # --------------------------------------------------------------------------
 doc.heading("Research and technical writing", level=1)
@@ -496,6 +509,41 @@ doc.callout(
 )
 
 # --------------------------------------------------------------------------
+doc.heading("Controlled documents, and docs from a build step", level=1)
+doc.paragraph(
+    "A regulated document (ISO 9001, IEC 62304, medical device) needs a "
+    "control block: an identifier, version and status, an approvals table, "
+    "and a revision history. It expands into real, fully tagged tables, so "
+    "pagination and accessibility tagging come from the same machinery an "
+    "ordinary table uses."
+)
+doc.document_control(
+    doc_id="DHF-2026-014",
+    version="3.0",
+    status="Approved",
+    effective_date="2026-08-01",
+    classification="Controlled",
+    owner="Quality Engineering",
+    approvals=[
+        {"name": "R. Patel", "role": "Quality Manager", "date": "2026-07-28"},
+        {"name": "M. Osei", "role": "Regulatory Affairs", "date": "2026-07-29"},
+    ],
+    revisions=[
+        {"version": "2.0", "date": "2026-03-01", "author": "R. Patel",
+         "summary": "Added risk analysis section"},
+        {"version": "3.0", "date": "2026-07-28", "author": "R. Patel",
+         "summary": "Updated verification protocol"},
+    ],
+)
+doc.paragraph(
+    "A documentation team builds a whole folder of Markdown into one PDF as "
+    "a build step (emboss build ./docs -o handbook.pdf), and a code block "
+    "can load its content from a source file by line range or a named "
+    "region, so a documented example cannot drift from the code it "
+    "describes."
+)
+
+# --------------------------------------------------------------------------
 doc.heading("Trust, briefly", level=1)
 doc.paragraph(
     "One section, because it should be assumed rather than sold. Every "
@@ -504,7 +552,7 @@ doc.paragraph(
     "reconstructed later, and it supports a redlined diff between "
     "versions for review. Conformance to PDF/UA-1 and PDF/A is checked "
     "against the real veraPDF validator in continuous integration. The "
-    "project is open source under Apache-2.0 with more than 1,800 "
+    "project is open source under Apache-2.0 with more than 2,000 "
     "automated tests."
 )
 
