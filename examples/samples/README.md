@@ -12,3 +12,4 @@ Each script renders a self-contained PDF exercising a different part of Emboss. 
 | `06_math_notation.py` | LaTeX environments (matrix, cases, aligned), MathML input, math alphabets |
 | `07_llm_markdown_input.py` | The core product loop: raw LLM Markdown (with YAML front matter) to structured PDF |
 | `08_emboss_overview.py` | The product loop end to end: an executive overview drafted by an LLM (Claude Sonnet 5) into an EmbossSpec, fact-checked against the codebase, and rendered by Emboss. The spec is committed in `exec_overview.json` and renders deterministically with no API key |
+| `09_capabilities_showcase.py` | A use-case-driven capabilities showcase for a business audience: real code, math, an architecture diagram, brief and report elements, a cost/utility summary, and the comparison. Demonstrates the novel element-level attachment (the bookings table carries its own source CSV inside the PDF) and renders deterministically |
