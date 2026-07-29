@@ -43,6 +43,7 @@ The one-line version: **an Emboss document is structured data you can also read.
 ## Table of Contents
 
 - [What Makes Emboss Different](#what-makes-emboss-different)
+- [For Decision-Makers](#for-decision-makers)
 - [Built for Enterprise](#built-for-enterprise)
 - [How Emboss Compares](#how-emboss-compares)
 - [Why Emboss](#why-emboss)
@@ -85,6 +86,51 @@ The one-line version: **an Emboss document is structured data you can also read.
 
 ---
 
+## For Decision-Makers
+
+**What it is.** A Python engine that turns structured or LLM-generated content into accessible, print-ready PDFs, and treats the resulting PDF as structured data you can also read, not as final ink.
+
+**The problem it solves.** Enterprises generate documents at scale (reports, invoices, filings, contracts) but lose the structure the moment they become PDFs: the data behind a table is gone, accessibility is a costly afterthought, edits mean regeneration, and "what changed / who signed / is this the real version" become manual audits. Emboss keeps the structure inside the document for its entire life.
+
+### Five outcomes that matter to the business
+
+| Outcome | How Emboss delivers it |
+|---|---|
+| **Trust & audit** | Byte-identical deterministic output (hash-pinnable filings), self-verifying provenance (`reproduce`), append-only signatures that flag anything added but unsigned, and tables that refuse to render if the totals do not add up. |
+| **Lower cost** | LLM edits are node-scoped: changing one paragraph in a 50-page report costs a paragraph's tokens, not the report's. |
+| **Data never drifts** | Tables and charts embed their own source CSV; the figure an executive sees and the data an analyst verifies are the same file, the same version. |
+| **Compliance built in** | PDF/UA accessibility, PDF/A archival, Factur-X/ZUGFeRD e-invoicing, and PAdES/eIDAS signatures, all in one engine (see the table below). |
+| **AI-native distribution** | An MCP server makes every document callable from Claude: generate, query with certainty from the embedded structure, and edit, with explicit "not in this document" grounding so it never fabricates. |
+
+### Standards and regulations covered
+
+| Standard | What it is for | Regulatory driver |
+|---|---|---|
+| **PDF/UA-1** | Accessibility (tagged, assistive-tech ready) | EU Accessibility Act (June 2025), US Section 508, EN 301 549 |
+| **PDF/A-2b, PDF/A-3b** | Archival / long-term retention | Records retention, filing ingest |
+| **Factur-X / ZUGFeRD (EN 16931)** | Electronic invoicing (XML inside the PDF) | France B2B mandate (Sept 2026), EU e-invoicing |
+| **PAdES B-B / B-T (ETSI EN 319 142)** | Legally recognized e-signatures | eIDAS (EU) |
+| **PDF/X-4 (ISO 15930-7)** | Print / prepress output | Commercial print |
+| **WTPDF 1.0 (Reuse)** | Clean re-extraction for RAG / reuse | AI and data pipelines |
+
+Every conformance claim is checkable: `emboss verify out.pdf --conformance ua1` (also `2b`, `3b`) runs the real veraPDF validator, and the CI conformance job runs it on every push, not a mock.
+
+### Impact vs. existing tools
+
+| Capability | Emboss | Typical PDF tools (ReportLab, WeasyPrint, Prince, headless Chrome) |
+|---|---|---|
+| Rendering | Native typesetting engine, no browser | HTML-to-PDF or a browser engine |
+| Determinism | Byte-identical, hash-verifiable | Timestamps / random ids; not guaranteed |
+| Accessibility | PDF/UA tagged by default, veraPDF-checked | Manual or absent |
+| Data in the file | Table carries its own CSV; spec + text index embedded | Table flattened to ink; data gone |
+| Edit after render | Node-scoped patch, structure preserved | Regenerate, or overlay hacks |
+| Review round-trip | Annotation resolves to node + character range | No structure to resolve against |
+| Signatures | PKCS#7, DocMDP, PAdES, append-only coverage check | Basic or none |
+| AI integration | First-class MCP server, grounded answers | None |
+| Dependencies | Pure Python, `fonttools` only (rest optional) | Native libs / a browser runtime |
+
+---
+
 ## Built for Enterprise
 
 Emboss is built around guarantees that matter once a PDF leaves a notebook and enters a filing, an audit trail, or a distribution pipeline -- not marketing claims, but specific, checkable code paths.
@@ -97,6 +143,9 @@ Emboss is built around guarantees that matter once a PDF leaves a notebook and e
 - **A reproducibility manifest.** `doc.render(manifest=True)` attaches a deterministic `emboss-manifest.json`: the spec's sha256, the Emboss version, every embedded font's sha256, and any non-default render options. `emboss.reproduce()` (and `emboss reproduce report.pdf`) closes the loop: recover the document, re-render it, and structurally verify the two PDFs agree.
 - **Redaction by construction.** `Document.redact(rules)` matches whole blocks by node id, regex, predicate, or type and removes or replaces them *before* layout, so redacted text never reaches a content stream -- not a black box painted over extractable text.
 - **DocMDP certification signatures.** `sign_pdf(..., certify=True, docmdp_permission=...)` produces an ISO 32000-1 certification signature declaring what changes (if any) are permitted after signing.
+- **PAdES (eIDAS) baseline signatures.** `sign_pdf_pades(...)` / `amend_sign_pades(...)` produce ETSI EN 319 142 PAdES-BASELINE signatures (B-B, and B-T with an RFC 3161 timestamp): the EU-recognized profile for legal signature validity, on top of the existing append-only signing.
+- **Factur-X / ZUGFeRD e-invoicing.** `Document.attach_facturx(invoice)` embeds an EN 16931 Cross Industry Invoice XML on PDF/A-3, validated for arithmetic consistency before rendering (France B2B mandate, Sept 2026).
+- **PDF/X-4 print output and WTPDF 1.0.** `Document(pdfx=True, ...)` emits an ISO 15930-7 print/prepress file with a CMYK output intent; `Document(wtpdf=True)` declares Well-Tagged PDF 1.0 Reuse conformance, and `verify_wtpdf()` self-checks the tagging.
 - **BrandKit.** A single versioned brand object (palette, fonts, logo) applies across every document built from it, so a rebrand touches one object instead of every document.
 - **CMYK and PDF/A archival output** for print production and long-term retention pipelines.
 - **Long-form apparatus**: numbered appendices, an alphabetized back-of-book index with resolved page numbers, a glossary with auto-linked first occurrences, and a visible table of contents with real page numbers and dot leaders.

@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-29
+
+### Added
+- PAdES (eIDAS) baseline electronic signatures (ETSI EN 319 142),
+  `sign_pdf_pades` / `amend_sign_pades`: a CAdES-BES CMS with the ESS
+  signing-certificate-v2 attribute and `/SubFilter /ETSI.CAdES.detached`
+  (B-B), plus an optional RFC 3161 signature-timestamp (B-T). The
+  EU-recognized profile for legal signature validity. LTV/DSS is out of scope.
+- PDF/X-4 print/prepress output (ISO 15930-7): `Document(pdfx=True,
+  pdfx_condition=..., pdfx_output_profile=...)` emits a `/GTS_PDFX`
+  OutputIntent with a CMYK DestOutputProfile, the `/GTS_PDFXVersion` Info key,
+  and the pdfxid XMP. A caller ICC is used for real prepress; otherwise
+  Emboss's minimal CMYK profile.
+- WTPDF 1.0 Reuse conformance: `Document(wtpdf=True)` declares Well-Tagged PDF
+  1.0 in XMP; `verify_wtpdf()` self-checks the structure tree, document
+  language, reusable structure types, and figure Alt text.
+
 ## [0.5.0] - 2026-07-29
 
 ### Added
