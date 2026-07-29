@@ -2428,9 +2428,7 @@ class Renderer:
                 if row_width > max_row_width:
                     max_row_width = row_width
 
-        box_width = min(
-            content_width, gutter_width + max_row_width + 2 * padding
-        )
+        box_width = min(content_width, gutter_width + max_row_width + 2 * padding)
 
         stream.begin_artifact("Background")
         stream.rect(
