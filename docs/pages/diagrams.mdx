@@ -102,3 +102,70 @@ auth -> ok
 - A malformed line raises `ValueError` quoting the offending line, so an LLM generating this syntax gets a correctable error rather than a silently wrong diagram.
 
 `emboss.diagrams.parse_diagram_source(text)` parses this syntax into `(nodes, edges, direction)`; `diagram_block_from_source(text, caption=None)` does the same and returns the rendered block directly, which is what the Markdown parser calls for a ` ```diagram ` fence.
+
+## Specialized diagram types
+
+The general flowchart above lays out any node/edge graph. Three purpose-built types cover the diagrams a technical design document needs most. Each takes a plain description, lays itself out automatically, rides the same native-vector SVG path, and sets deterministic `/Alt` text. All three are exposed in the fluent API, the JSON spec, the Pydantic schema, and the LLM spec prompt.
+
+### Cloud and deployment architecture
+
+`doc.architecture_diagram(nodes, edges, groups=..., direction="down")`. Each node names a built-in `service` glyph and an optional `group`; groups nest to draw zones (a VPC wrapping public and private subnets, for instance). The twelve glyphs are `compute`, `database`, `storage`, `queue`, `gateway`, `cache`, `cdn`, `function`, `loadbalancer`, `user`, `external`, and `generic` -- each a self-authored vector shape, so the same diagram relabels cleanly to an AWS, Azure, or GCP topology.
+
+```python
+doc.architecture_diagram(
+    nodes=[
+        {"id": "alb", "label": "ALB", "service": "loadbalancer", "group": "public"},
+        {"id": "ec2", "label": "EC2 - App", "service": "compute", "group": "private"},
+        {"id": "rds", "label": "RDS", "service": "database", "group": "private"},
+    ],
+    edges=[("alb", "ec2"), ("ec2", "rds", "SQL")],
+    groups=[
+        {"id": "public", "label": "Public Subnet", "node_ids": ["alb"]},
+        {"id": "private", "label": "Private Subnet", "node_ids": ["ec2", "rds"]},
+        {"id": "vpc", "label": "VPC", "node_ids": ["public", "private"]},
+    ],
+    caption="AWS three-tier architecture",
+)
+```
+
+A group's `node_ids` may list other group ids, which is how zones nest. Edges are solid or `dashed` with optional labels; an `image` field is accepted on a node but falls back to the built-in glyph, since the SVG subset does not embed raster images. Zone titles render on a solid chip above the edges, so a title never collides with an edge label crossing the zone boundary.
+
+### Sequence
+
+`doc.sequence_diagram(participants, messages)`. One dashed lifeline is drawn per participant. Each message has a `style`: `sync` (solid line, filled arrowhead), `async` (solid line, open arrowhead), or `return` (dashed). Setting `activate=True` opens an activation bar on the receiving lifeline that closes at its matching `return`; a message whose `from` and `to` are the same participant renders as a self-loop.
+
+```python
+doc.sequence_diagram(
+    participants=[{"id": "u", "label": "Client"}, {"id": "api", "label": "API"}],
+    messages=[
+        {"from": "u", "to": "api", "label": "POST /settle", "style": "sync",
+         "activate": True},
+        {"from": "api", "to": "u", "label": "202 Accepted", "style": "return"},
+    ],
+)
+```
+
+### Entity-relationship
+
+`doc.er_diagram(entities, relationships)`. Each entity draws as a titled table of attributes; an attribute's `key` of `PK` or `FK` is shown in its own column, and an optional `type` in another. Each relationship draws a connector labeled with its name and `from_card`/`to_card` cardinality (`1`, `N`, `0..1`, and so on).
+
+```python
+doc.er_diagram(
+    entities=[
+        {"id": "account", "name": "Account", "attributes": [
+            {"name": "id", "key": "PK", "type": "uuid"},
+            {"name": "balance", "type": "money"},
+        ]},
+        {"id": "payment", "name": "Payment", "attributes": [
+            {"name": "id", "key": "PK", "type": "uuid"},
+            {"name": "account_id", "key": "FK", "type": "uuid"},
+        ]},
+    ],
+    relationships=[
+        {"from": "account", "to": "payment", "label": "makes",
+         "from_card": "1", "to_card": "N"},
+    ],
+)
+```
+
+Each type accepts loose `dict`/tuple input or its dataclass form (`ArchNode`/`ArchGroup`, `SequenceParticipant`/`SequenceMessage`, `Entity`/`EntityAttribute`/`Relationship`), and raises a clear `ValueError` naming the offending id when an edge, message, relationship, or group member points at a node that does not exist.

@@ -1339,6 +1339,7 @@ def render_architecture_svg(
             cursor = parent.get(cursor)
         return d
 
+    group_titles: list = []
     for gid in sorted(
         group_boxes, key=lambda g: (depth_of(g), group_boxes[g]["index"])
     ):
@@ -1351,7 +1352,15 @@ def render_architecture_svg(
             f' fill="{tint}" stroke="{border}" stroke-width="1"/>'
         )
         if box["group"].label:
-            parts.append(
+            # Draw the zone title last, on a solid chip, so it stays crisp
+            # over any edge or edge-label that crosses the zone boundary.
+            tw = metrics.text_width(box["group"].label, 9.0)
+            group_titles.append(
+                f'<rect x="{_fmt(box["x"] + _GROUP_PAD - 3.0)}" '
+                f'y="{_fmt(box["y"] + 2.0)}" width="{_fmt(tw + 6.0)}" '
+                f'height="{_fmt(_GROUP_TITLE_H - 2.0)}" fill="{tint}"/>'
+            )
+            group_titles.append(
                 _text_el(
                     box["x"] + _GROUP_PAD,
                     box["y"] + _GROUP_TITLE_H - 5.0,
@@ -1407,6 +1416,8 @@ def render_architecture_svg(
                     line,
                 )
             )
+    # Zone titles overlay everything so they never collide with edge labels.
+    parts.extend(group_titles)
     parts.append("</svg>")
     return "\n".join(parts)
 

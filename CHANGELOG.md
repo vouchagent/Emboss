@@ -3,6 +3,38 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-07-28
+
+### Added
+- Specialized diagram types, each described as a plain node/edge list,
+  laid out automatically, rendered as native vector graphics with
+  deterministic `/Alt` text, and exposed in the fluent API, JSON spec,
+  Pydantic schema, and LLM spec prompt:
+  - `Document.architecture_diagram` -- cloud and deployment topologies
+    with twelve built-in service glyphs (`compute`, `database`,
+    `storage`, `queue`, `gateway`, `cache`, `cdn`, `function`,
+    `loadbalancer`, `user`, `external`, `generic`) and nesting groups
+    that draw zones such as a VPC wrapping public and private subnets.
+    Relabels cleanly to AWS, Azure, or GCP.
+  - `Document.sequence_diagram` -- participant lifelines with `sync`,
+    `async`, and `return` message styles, activation bars, and
+    self-loops.
+  - `Document.er_diagram` -- entities with typed `PK`/`FK` attributes and
+    labeled relationships carrying `from_card`/`to_card` cardinality.
+
+### Changed
+- Code-block backgrounds now fit the width of the code instead of always
+  spanning the full page, so short snippets no longer leave a large empty
+  area; wide or wrapped code still fills out to the margin.
+- Architecture zone titles render on a solid chip above the edges, so a
+  zone title never collides with an edge label crossing its boundary.
+
+### Fixed
+- `\|` in math now sets as a double norm bar (a single bar read as the
+  letter `l`), and `\mid` sets as the conditioning bar; both resolve to
+  glyphs the embedded font carries, so neither falls back to a missing
+  glyph box.
+
 ## [0.2.0] - 2026-07-28
 
 ### Added

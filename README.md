@@ -848,6 +848,63 @@ doc.diagram(
 - Also available as a fenced Markdown block: a ` ```diagram ` fence with `id: Label [shape]` node lines, `a -> b: label` (or `-->` for dashed) edge lines, and an optional `direction: right` line.
 - Lower-level API: `emboss.diagrams.layout_diagram`, `render_diagram_svg`, `diagram_alt_text`, and the `DiagramNode`/`DiagramEdge` dataclasses.
 
+### Specialized diagram types
+
+Beyond the general flowchart, three purpose-built diagram types cover most technical-documentation needs. Each is described as a plain node/edge list, laid out automatically, and rendered as native vector graphics with auto-generated `/Alt` text.
+
+**Cloud / deployment architecture** -- `doc.architecture_diagram(nodes, edges, groups=...)`. Nodes carry a `service` glyph (`compute`, `database`, `storage`, `queue`, `gateway`, `cache`, `cdn`, `function`, `loadbalancer`, `user`, `external`, `generic`) and an optional `group`; groups nest to draw zones such as a VPC wrapping public and private subnets. Edges are solid or `dashed` with labels. Relabel the nodes and the same layout describes an AWS, Azure, or GCP topology.
+
+```python
+doc.architecture_diagram(
+    nodes=[
+        {"id": "alb", "label": "ALB", "service": "loadbalancer", "group": "public"},
+        {"id": "ec2", "label": "EC2 - App", "service": "compute", "group": "private"},
+        {"id": "rds", "label": "RDS", "service": "database", "group": "private"},
+    ],
+    edges=[("alb", "ec2"), ("ec2", "rds", "SQL")],
+    groups=[
+        {"id": "public", "label": "Public Subnet", "node_ids": ["alb"]},
+        {"id": "private", "label": "Private Subnet", "node_ids": ["ec2", "rds"]},
+        {"id": "vpc", "label": "VPC", "node_ids": ["public", "private"]},
+    ],
+    caption="AWS three-tier architecture",
+)
+```
+
+**Sequence** -- `doc.sequence_diagram(participants, messages)`. Draws one lifeline per participant; messages carry a `style` of `sync` (solid, filled arrowhead), `async` (open arrowhead), or `return` (dashed), and `activate=True` opens an activation bar on the receiver. Self-messages render as a loop.
+
+```python
+doc.sequence_diagram(
+    participants=[{"id": "u", "label": "Client"}, {"id": "api", "label": "API"}],
+    messages=[
+        {"from": "u", "to": "api", "label": "POST /settle", "style": "sync",
+         "activate": True},
+        {"from": "api", "to": "u", "label": "202 Accepted", "style": "return"},
+    ],
+)
+```
+
+**Entity-relationship** -- `doc.er_diagram(entities, relationships)`. Each entity lists typed attributes with a `key` of `PK`/`FK`; each relationship carries a label and `from_card`/`to_card` cardinality (`1`, `N`, ...).
+
+```python
+doc.er_diagram(
+    entities=[
+        {"id": "account", "name": "Account", "attributes": [
+            {"name": "id", "key": "PK", "type": "uuid"},
+        ]},
+        {"id": "payment", "name": "Payment", "attributes": [
+            {"name": "account_id", "key": "FK", "type": "uuid"},
+        ]},
+    ],
+    relationships=[
+        {"from": "account", "to": "payment", "label": "makes",
+         "from_card": "1", "to_card": "N"},
+    ],
+)
+```
+
+All three are exposed in the Pydantic schema and the LLM spec prompt, so a model can emit them directly as `architecture_diagram` / `sequence_diagram` / `er_diagram` spec blocks.
+
 ---
 
 ## Multi-Column Layout
