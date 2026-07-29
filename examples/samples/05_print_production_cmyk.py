@@ -45,5 +45,5 @@ doc.chart(
     source_line="Source: 2026 marketing operating plan",
 )
 
-doc.save("examples/samples/05_print_production_cmyk.pdf")
+doc.save("examples/output/05_print_production_cmyk.pdf")
 print("wrote 05_print_production_cmyk.pdf")

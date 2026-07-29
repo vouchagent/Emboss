@@ -57,5 +57,5 @@ deck.quote_slide(
 
 deck.closing_slide("Thank you", contact="ceo@example.com")
 
-deck.save("examples/samples/04_investor_deck.pdf")
+deck.save("examples/output/04_investor_deck.pdf")
 print("wrote 04_investor_deck.pdf")

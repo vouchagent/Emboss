@@ -56,5 +56,5 @@ doc.paragraph(
     "$\\mathfrak{g}$ for a Lie algebra."
 )
 
-doc.save("examples/samples/06_math_notation.pdf")
+doc.save("examples/output/06_math_notation.pdf")
 print("wrote 06_math_notation.pdf")

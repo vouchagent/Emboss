@@ -61,5 +61,5 @@ doc.table(
     source_line="Source: latency dashboards, 30-day trailing window",
 )
 
-doc.save("examples/samples/03_architecture_doc.pdf")
+doc.save("examples/output/03_architecture_doc.pdf")
 print("wrote 03_architecture_doc.pdf")

@@ -1,6 +1,6 @@
 # Sample documents
 
-Each script renders a self-contained PDF exercising a different part of Emboss. Run any of them directly (`python examples/samples/01_research_paper.py`); output lands next to the script.
+Each script renders a self-contained PDF exercising a different part of Emboss. Run any of them directly (`python examples/samples/01_research_paper.py`); output is written to `examples/output/`.
 
 | Script | Demonstrates |
 |---|---|

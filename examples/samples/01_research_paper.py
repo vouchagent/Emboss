@@ -64,5 +64,5 @@ doc.bibliography([
     {"key": "donoho2006", "authors": ["D. Donoho"], "title": "Compressed sensing", "year": "2006", "journal": "IEEE Trans. Info. Theory"},
 ])
 
-doc.save("examples/samples/01_research_paper.pdf")
+doc.save("examples/output/01_research_paper.pdf")
 print("wrote 01_research_paper.pdf")

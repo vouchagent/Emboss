@@ -73,5 +73,5 @@ Full context available in the linked runbook.[^1]
 """
 
 doc = Document.from_markdown(llm_output)
-doc.save("examples/samples/07_llm_markdown_input.pdf")
+doc.save("examples/output/07_llm_markdown_input.pdf")
 print("wrote 07_llm_markdown_input.pdf")

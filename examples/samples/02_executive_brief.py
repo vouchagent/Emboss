@@ -54,5 +54,5 @@ doc.bullets([
     "Headcount growth capped at 8% through year-end.",
 ])
 
-doc.save("examples/samples/02_executive_brief.pdf")
+doc.save("examples/output/02_executive_brief.pdf")
 print("wrote 02_executive_brief.pdf")
