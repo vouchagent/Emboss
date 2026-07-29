@@ -17,7 +17,7 @@ from dataclasses import dataclass, field, replace
 
 from .constraints import ConstraintValidator
 from .crossref import CrossReferenceIndex
-from .numbering import NumberingContext
+from .numbering import AppendixNumberingContext, NumberingContext
 from .layout.engine import LayoutEngine, PlacedBlock, annotation_sizes
 from .nodeid import assign_node_ids, round_bbox
 from .pdf.assembler import PDFAssembler
@@ -33,6 +33,7 @@ from .pdf.streams import ContentStream
 from .pdf.tags import StructureElement, StructureTreeBuilder
 from .spec import (
     Abstract,
+    Appendix,
     Authors,
     BibliographyBlock,
     BlockQuote,
@@ -43,9 +44,11 @@ from .spec import (
     CoverPage,
     Document,
     Footnote,
+    Glossary,
     Heading,
     HorizontalRule,
     Image,
+    Index,
     MathBlock,
     NumberedList,
     PageBreak,
@@ -120,10 +123,20 @@ def _csv_bytes(rows: list) -> bytes:
 
 
 def render_document(
-    document: Document, *, strict: bool = False, return_result: bool = False
+    document: Document,
+    *,
+    strict: bool = False,
+    return_result: bool = False,
+    embed_files: list | None = None,
 ):
-    """Render a document to PDF bytes."""
-    renderer = Renderer(document, strict=strict)
+    """Render a document to PDF bytes.
+
+    ``embed_files`` are ``FileAttachment``s embedded at the document level
+    (not tied to a specific structure element) — used by
+    ``Document.render(embed_spec=True)`` to attach the EmbossSpec JSON,
+    layout map, and Markdown twin.
+    """
+    renderer = Renderer(document, strict=strict, embed_files=embed_files)
     result = renderer.run()
     return result if return_result else result.data
 
@@ -131,7 +144,12 @@ def render_document(
 class Renderer:
     """Owns one render pass over one document."""
 
-    def __init__(self, document: Document, strict: bool = False) -> None:
+    def __init__(
+        self,
+        document: Document,
+        strict: bool = False,
+        embed_files: list | None = None,
+    ) -> None:
         self.fonts = document.fonts
         if document.pdfa:
             self.fonts.enable_pdfa_embedding()
@@ -154,8 +172,9 @@ class Renderer:
         self._svg_fonts: dict = {}
         # node id -> list of {page, x0, y0, x1, y1} placements
         self._layout_map: dict = {}
-        # (FileAttachment, StructureElement) pairs awaiting embedding
-        self._pending_attachments: list = []
+        # (FileAttachment, StructureElement | None) pairs awaiting embedding;
+        # a None target is a document-level attachment (e.g. embed_spec=True).
+        self._pending_attachments: list = [(fa, None) for fa in (embed_files or [])]
         # id(element) of chart/table elements already fully drawn once,
         # so a split table's headline/attachment fire only on its first page
         self._chart_table_seen: set = set()
@@ -171,7 +190,9 @@ class Renderer:
         engine = LayoutEngine(self.fonts, sheet, hyphenator=hyphenator)
 
         content = list(document.content)
+        content = self._expand_appendices(content)
         content = self._resolve_references(document, content)
+        content = self._link_glossary_terms(content)
         content = self._prepend_title_block(document, sheet, content)
         self._prepare_footnotes(sheet, content)
         # Stable ids are assigned on the validator's deep copy, before
@@ -182,9 +203,10 @@ class Renderer:
         toc_indices = [
             i for i, el in enumerate(content) if isinstance(el, TableOfContents)
         ]
-        if toc_indices:
+        index_indices = [i for i, el in enumerate(content) if isinstance(el, Index)]
+        if toc_indices or index_indices:
             pages = self._paginate_with_toc(
-                engine, document, content, width, toc_indices
+                engine, document, content, width, toc_indices, index_indices
             )
         else:
             pages = self._paginate_sections(engine, document, content)
@@ -201,6 +223,117 @@ class Renderer:
             issues=issues,
             layout_map=self._layout_map,
         )
+
+    # -- appendices --
+
+    @staticmethod
+    def _expand_appendices(content: list) -> list:
+        """Flatten `Appendix` blocks into a lettered heading plus content.
+
+        Headings inside get flat `A.1`, `A.2` prefixes baked into their
+        text (matching how `number_sections` bakes numeric prefixes), so
+        both the visible TOC and PDF bookmarks pick them up unchanged.
+        Expanded headings are marked so a later `number_sections` pass
+        does not also number them.
+        """
+        if not any(isinstance(el, Appendix) for el in content):
+            return content
+        out: list = []
+        numbering = AppendixNumberingContext()
+        for element in content:
+            if not isinstance(element, Appendix):
+                out.append(element)
+                continue
+            letter = numbering.next_appendix()
+            title_text = (
+                f"Appendix {letter}: {element.title}"
+                if element.title
+                else (f"Appendix {letter}")
+            )
+            title_heading = Heading(
+                text=title_text, level=1, style=element.style, id=element.id
+            )
+            title_heading._is_appendix = True
+            out.append(title_heading)
+            for child in element.content:
+                if isinstance(child, Heading):
+                    prefix = numbering.next_heading(child.level)
+                    child = replace(child, text=f"{prefix} {child.text}")
+                child._is_appendix = True
+                out.append(child)
+        return out
+
+    # -- glossary auto-linking --
+
+    def _link_glossary_terms(self, content: list) -> list:
+        """Register a glossary anchor and link each term's first occurrence.
+
+        Body paragraphs are scanned in document order for exact,
+        word-bounded, case-sensitive matches of each glossary term; only
+        the first document-wide occurrence of a term is linked, via the
+        same `#anchor` internal-link mechanism `@key` cross-references use.
+        """
+        glossaries = [el for el in content if isinstance(el, Glossary)]
+        for gi, glossary in enumerate(glossaries):
+            anchor = f"glossary-{gi}"
+            self._element_keys[id(glossary)] = anchor
+            terms = sorted(
+                {e.term for e in glossary.entry_list if e.term},
+                key=len,
+                reverse=True,
+            )
+            if not terms:
+                continue
+            pattern = re.compile("|".join(rf"\b{re.escape(t)}\b" for t in terms))
+            linked: set = set()
+            for element in content:
+                if element is glossary or not isinstance(element, Paragraph):
+                    continue
+                resolved = self._link_terms_in_runs(
+                    element.runs, pattern, linked, anchor
+                )
+                if resolved is not None:
+                    element.runs = resolved
+        return content
+
+    @staticmethod
+    def _link_terms_in_runs(
+        runs: list, pattern, linked: set, anchor: str
+    ) -> list | None:
+        """Split runs so each unlinked term's first match becomes a link."""
+        changed = False
+        out: list = []
+        for run in runs:
+            if run.link or not run.text:
+                out.append(run)
+                continue
+            pieces: list = []
+            cursor = 0
+            any_new = False
+            for match in pattern.finditer(run.text):
+                term = match.group(0)
+                if match.start() > cursor:
+                    pieces.append((run.text[cursor : match.start()], None))
+                if term not in linked:
+                    linked.add(term)
+                    pieces.append((term, f"#{anchor}"))
+                    any_new = True
+                else:
+                    pieces.append((term, None))
+                cursor = match.end()
+            if not any_new:
+                out.append(run)
+                continue
+            changed = True
+            if cursor < len(run.text):
+                pieces.append((run.text[cursor:], None))
+            for text, link in pieces:
+                out.append(
+                    replace(run, text=text, link=link)
+                    if link
+                    else replace(run, text=text)
+                )
+        return out if changed else None
 
     @staticmethod
     def _prepend_title_block(document, sheet, content: list) -> list:
@@ -384,7 +517,9 @@ class Renderer:
         if number_sections:
             context = NumberingContext()
             for idx, element in enumerate(content):
-                if isinstance(element, Heading):
+                if isinstance(element, Heading) and not getattr(
+                    element, "_is_appendix", False
+                ):
                     section_numbers[idx] = context.next_heading(element.level)
 
         index = CrossReferenceIndex(document, section_numbers=section_numbers or None)
@@ -547,11 +682,36 @@ class Renderer:
         sections.append((current_spec, chunk))
         return sections
 
+    @staticmethod
+    def _collect_index_targets(content: list, index_indices: list) -> dict:
+        """Map id(element) -> set of index terms carried by its runs."""
+        if not index_indices:
+            return {}
+        targets: dict = {}
+        for element in content:
+            runs = getattr(element, "runs", None)
+            if not runs:
+                continue
+            terms = {
+                term for run in runs for term in getattr(run, "index_terms", ()) or ()
+            }
+            if terms:
+                targets[id(element)] = terms
+        return targets
+
     def _paginate_with_toc(
-        self, engine, document, content, width: float, toc_indices: list
+        self,
+        engine,
+        document,
+        content,
+        width: float,
+        toc_indices: list,
+        index_indices: list | None = None,
     ) -> list:
-        """Two-pass layout: fill real page numbers into visible TOC blocks."""
+        """Two-pass layout: fill real page numbers into TOC and Index blocks."""
+        index_indices = index_indices or []
         toc_index_set = set(toc_indices)
+        index_index_set = set(index_indices)
         entries_by_toc = {
             i: self._toc_entries(content, content[i]) for i in toc_indices
         }
@@ -561,7 +721,11 @@ class Renderer:
             for target, _t, _l, _k in entries
         }
 
+        index_targets = self._collect_index_targets(content, index_indices)
+        all_terms = sorted({term for terms in index_targets.values() for term in terms})
+
         page_map: dict = {}
+        term_pages: dict = {}
         pages: list = []
         for _ in range(self.TOC_MAX_PASSES):
             measured = []
@@ -572,10 +736,18 @@ class Renderer:
                         for target, text, level, key in entries_by_toc[i]
                     ]
                     measured.append(engine.measure_toc(element, width, rows))
+                elif i in index_index_set:
+                    rows = [
+                        (term, ", ".join(term_pages.get(term, [])))
+                        for term in all_terms
+                    ]
+                    measured.append(engine.measure_index(element, width, rows))
                 else:
                     measured.append(engine.measure(element, width))
             pages = engine.paginate(measured, document.page)
+
             new_map = {}
+            new_term_pages: dict = {}
             for pidx, page in enumerate(pages):
                 for placed in page.blocks:
                     eid = id(placed.block.element)
@@ -583,9 +755,17 @@ class Renderer:
                         new_map[eid] = self._page_number_labels(
                             document, pidx, len(pages)
                         )[0]
-            if new_map == page_map:
+                    terms = index_targets.get(eid)
+                    if terms:
+                        label = self._page_number_labels(document, pidx, len(pages))[0]
+                        for term in terms:
+                            lst = new_term_pages.setdefault(term, [])
+                            if label not in lst:
+                                lst.append(label)
+            if new_map == page_map and new_term_pages == term_pages:
                 break
             page_map = new_map
+            term_pages = new_term_pages
         return pages
 
     # -- assembly --
@@ -671,7 +851,8 @@ class Renderer:
                 relationship=file_attachment.relationship,
             )
             attachment_entries.append((file_attachment.name, filespec_ref))
-            target_el.af_refs = [filespec_ref]
+            if target_el is not None:
+                target_el.af_refs = [filespec_ref]
 
         struct_ref = None
         if document.tagged:
@@ -734,9 +915,10 @@ class Renderer:
                 catalog["Outlines"] = outline_ref
 
         if document.pdfa:
-            from .pdfa import pdfa_catalog_entries
+            from .pdfa import pdfa_catalog_entries, pdfa_part_for
 
-            pdfa_entries = pdfa_catalog_entries(assembler, document)
+            part = pdfa_part_for(bool(attachment_entries))
+            pdfa_entries = pdfa_catalog_entries(assembler, document, part=part)
             for key, value in pdfa_entries.items():
                 catalog[key] = value
         elif document.tagged:
@@ -972,6 +1154,10 @@ class Renderer:
                 self._draw_stat_tiles(stream, placed, page_index, root, font_registry)
             elif isinstance(element, TableOfContents):
                 self._draw_toc(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, Glossary):
+                self._draw_glossary(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, Index):
+                self._draw_index(stream, placed, page_index, root, font_registry)
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, page_spec.content_width)
 
@@ -2455,6 +2641,88 @@ class Renderer:
                         gid_map=run_metrics.gid_map,
                     )
                 y -= line.height
+            stream.end_marked()
+
+    def _draw_glossary(self, stream, placed, page_index, root, registry) -> None:
+        """Draw a glossary's title and term/definition entries as paragraphs.
+
+        Runs already carry their own weight, size, and color (baked in at
+        measurement), so this loop resolves fonts per-fragment exactly like
+        a plain paragraph, grouped one structure element per entry.
+        """
+        block = placed.block
+        style = block.style
+
+        div_el = StructureElement(tag="Div")
+        root.children.append(div_el)
+
+        lines = list(placed.lines)
+        groups = block.line_groups or [("entry", len(lines))]
+
+        y = placed.y
+        position = 0
+        for _kind, count in groups:
+            if position >= len(lines):
+                break
+            group_lines = lines[position : position + count]
+            position += count
+
+            group_el = StructureElement(tag="P")
+            div_el.children.append(group_el)
+            mcid = stream.next_mcid()
+            group_el.add_mcid(page_index, mcid)
+            stream.begin_marked("P", mcid)
+
+            for line in group_lines:
+                baseline = y - line.ascent
+                for text, run, offset in line.fragments:
+                    run_metrics, run_size, run_key = self._resolve_font(
+                        style, run, registry
+                    )
+                    stream.text_line(
+                        text,
+                        run_key,
+                        run_size,
+                        placed.x + offset,
+                        baseline,
+                        run.color or style.require("color"),
+                        kern_pairs=run_metrics.kern_pairs(text),
+                        gid_map=run_metrics.gid_map,
+                    )
+                y -= line.height
+            stream.end_marked()
+
+    def _draw_index(self, stream, placed, page_index, root, registry) -> None:
+        """Draw an index's title, then its two columns of term/page entries."""
+        data = placed.block.extras["index"]
+        style = placed.block.style
+        color = style.require("color")
+
+        div = StructureElement(tag="Div")
+        root.children.append(div)
+
+        title_para = StructureElement(tag="P")
+        div.children.append(title_para)
+        mcid = stream.next_mcid()
+        title_para.add_mcid(page_index, mcid)
+        stream.begin_marked("P", mcid)
+        y = self._emit_lines(
+            stream, data["title_lines"], placed.x, placed.y, registry, style, color
+        )
+        stream.end_marked()
+
+        col_w = data["col_w"]
+        gap = data["gap"]
+        for col_index, col_lines in enumerate((data["left"], data["right"])):
+            if not col_lines:
+                continue
+            x = placed.x + col_index * (col_w + gap)
+            para = StructureElement(tag="P")
+            div.children.append(para)
+            mcid = stream.next_mcid()
+            para.add_mcid(page_index, mcid)
+            stream.begin_marked("P", mcid)
+            self._emit_lines(stream, col_lines, x, y, registry, style, color)
             stream.end_marked()
 
     # -- front matter --

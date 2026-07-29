@@ -120,6 +120,27 @@ def _verify(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _strip(args: argparse.Namespace) -> int:
+    from .recovery import strip_pdf
+
+    path = Path(args.input)
+    if not path.exists():
+        print(f"error: file not found: {path}", file=sys.stderr)
+        return 1
+
+    try:
+        stripped = strip_pdf(path.read_bytes())
+    except ImportError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    output = Path(args.output)
+    output.write_bytes(stripped)
+    if not args.quiet:
+        print(f"{output} — {len(stripped):,} bytes, attachments and provenance removed")
+    return 0
+
+
 def _export(args: argparse.Namespace) -> int:
     try:
         from .adapters.pydantic_schema import DocumentSpec
@@ -281,6 +302,25 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    strip_p = sub.add_parser(
+        "strip",
+        help="Remove embedded files, provenance metadata, and node ids from a PDF",
+        description=(
+            "Strip an Emboss-produced PDF of /AF attachments, provenance "
+            "XMP/Info fields, and structure-tree node ids, in place."
+        ),
+    )
+    strip_p.add_argument("input", help="PDF file path")
+    strip_p.add_argument(
+        "-o",
+        "--output",
+        default="stripped.pdf",
+        help="Output PDF path (default: stripped.pdf)",
+    )
+    strip_p.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress status output"
+    )
+
     export_p = sub.add_parser(
         "export",
         help="Export a JSON spec to HTML, Markdown, or Office-ready JSON",
@@ -322,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         "render": _render,
         "schema": _schema,
         "verify": _verify,
+        "strip": _strip,
         "export": _export,
         "analyze": _analyze,
         "validate": _validate,

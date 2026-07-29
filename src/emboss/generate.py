@@ -480,6 +480,20 @@ Node shapes: box, rounded, decision (diamond), store (database), start_end. Edge
 ```
 Renders a visible listing with dot leaders, real page numbers, and clickable links. "source" is "headings", "figures", or "tables".
 
+### Appendix, Index, Glossary
+```json
+{{"type": "appendix", "title": "Survey Instrument", "content": [{{"type": "paragraph", "text": "..."}}]}}
+```
+Wraps nested blocks in a lettered section ("Appendix A", "Appendix B", ...) with its own headings numbered "A.1", "A.2".
+```json
+{{"type": "index", "title": "Index"}}
+```
+Renders a two-column back-of-book index. Mark index terms on a paragraph's "runs" with `"index_terms": ["term"]` (no visible effect); include at most one "index" block, near the end.
+```json
+{{"type": "glossary", "entries": [{{"term": "Latency", "definition": "Time to first byte."}}]}}
+```
+Alphabetized bold-term/definition list; each term's first body occurrence is auto-linked to its entry.
+
 ## Rules
 1. Always output valid JSON — no comments, no trailing commas.
 2. The "type" field is required on every content block.
@@ -700,6 +714,7 @@ def _manual_parse(data: dict) -> "Document":
     """Fallback parser when pydantic is not installed."""
     from .spec import (
         Abstract,
+        Appendix,
         Author,
         Authors,
         BlockQuote,
@@ -709,9 +724,12 @@ def _manual_parse(data: dict) -> "Document":
         CodeBlock,
         CoverPage,
         Document,
+        Glossary,
+        GlossaryEntry,
         Heading,
         HorizontalRule,
         Image,
+        Index,
         MathBlock,
         NumberedList,
         PageBreak,
@@ -814,6 +832,23 @@ def _manual_parse(data: dict) -> "Document":
         "page_break": lambda b: PageBreak(page_style=b.get("page_style")),
         "diagram": lambda b: _parse_diagram(b),
     }
+    type_map["index"] = lambda b: Index(title=b.get("title", "Index"))
+    type_map["glossary"] = lambda b: Glossary(
+        title=b.get("title", "Glossary"),
+        entries=[
+            GlossaryEntry(term=e.get("term", ""), definition=e.get("definition", ""))
+            for e in b.get("entries", [])
+            if isinstance(e, dict)
+        ],
+    )
+    type_map["appendix"] = lambda b: Appendix(
+        title=b.get("title", ""),
+        content=[
+            type_map[child["type"]](child)
+            for child in b.get("content", [])
+            if isinstance(child, dict) and child.get("type") in type_map
+        ],
+    )
 
     for block in data.get("content", []):
         if not isinstance(block, dict):

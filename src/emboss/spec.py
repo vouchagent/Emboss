@@ -48,6 +48,10 @@ __all__ = [
     "ListOfTables",
     "PageBreak",
     "HorizontalRule",
+    "Appendix",
+    "Index",
+    "GlossaryEntry",
+    "Glossary",
     "PageSpec",
     "Document",
     "BrandKit",
@@ -73,6 +77,7 @@ class TextRun:
     color: str | None = None
     link: str | None = None
     strikethrough: bool = False
+    index_terms: tuple = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not isinstance(self.text, str):
@@ -249,6 +254,7 @@ class TableCell:
                     color=r.color,
                     link=r.link,
                     strikethrough=r.strikethrough,
+                    index_terms=r.index_terms,
                 )
                 for r in runs
             ]
@@ -683,6 +689,86 @@ def ListOfTables(title: str = "List of Tables", **kw) -> TableOfContents:
     return TableOfContents(title=title, source="tables", **kw)
 
 
+@dataclass
+class Appendix:
+    """A titled section with alphabetic numbering (Appendix A, B, ...).
+
+    Expanded before layout into a lettered title heading followed by its
+    content, with any headings inside numbered ``A.1``, ``A.2``, restarting
+    at the next top-level ``Appendix``.
+    """
+
+    title: str
+    content: list = field(default_factory=list)
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Sect"
+
+
+@dataclass
+class Index:
+    """A back-of-book index: alphabetized terms with page numbers.
+
+    Terms are gathered from ``TextRun.index_terms`` marks anywhere in the
+    document and resolved to real page numbers in a two-pass layout, the
+    same mechanism the visible `TableOfContents` uses. Use at most one
+    per document.
+    """
+
+    title: str = "Index"
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
+@dataclass
+class GlossaryEntry:
+    """One glossary term and its definition."""
+
+    term: str
+    definition: str = ""
+
+
+@dataclass
+class Glossary:
+    """A definition list of terms, alphabetized by term, tagged /Div.
+
+    The bold term is rendered inline with its regular-weight definition,
+    hanging-indented so wrapped lines align under the definition. The
+    first document-wide body-text occurrence of each term is linked to
+    this block.
+    """
+
+    entries: Sequence = field(default_factory=list)
+    title: str = "Glossary"
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def entry_list(self) -> list:
+        out = []
+        for entry in self.entries:
+            if isinstance(entry, GlossaryEntry):
+                out.append(entry)
+            elif isinstance(entry, dict):
+                out.append(GlossaryEntry(**entry))
+            elif isinstance(entry, (list, tuple)) and len(entry) == 2:
+                out.append(GlossaryEntry(term=str(entry[0]), definition=str(entry[1])))
+            else:
+                out.append(GlossaryEntry(term=str(entry), definition=""))
+        return out
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+
 from .bibliography import BibliographyBlock, Citation  # noqa: E402
 
 
@@ -709,6 +795,9 @@ BlockElement = Union[
     TableOfContents,
     PageBreak,
     HorizontalRule,
+    Appendix,
+    Index,
+    Glossary,
 ]
 
 
@@ -949,6 +1038,17 @@ class Document:
     def table_of_contents(self, **kw) -> "Document":
         return self.add(TableOfContents(**kw))
 
+    def appendix(self, title: str, *blocks) -> "Document":
+        """Append a lettered appendix (Appendix A, B, ...) wrapping `blocks`."""
+        return self.add(Appendix(title=title, content=list(blocks)))
+
+    def index(self, title: str = "Index", **kw) -> "Document":
+        """Append the document's index, resolved from `TextRun.index_terms` marks."""
+        return self.add(Index(title=title, **kw))
+
+    def glossary(self, entries, title: str = "Glossary", **kw) -> "Document":
+        return self.add(Glossary(entries=entries, title=title, **kw))
+
     @property
     def stylesheet(self) -> StyleSheet:
         if isinstance(self.style, StyleSheet):
@@ -959,20 +1059,65 @@ class Document:
             return apply_brand(base, self.brand)
         return base
 
-    def render(self, linearize: bool = False) -> bytes:
-        """Render to PDF bytes; linearize=True rewrites for Fast Web View."""
+    def render(self, linearize: bool = False, *, embed_spec: bool = False) -> bytes:
+        """Render to PDF bytes.
+
+        ``linearize=True`` rewrites the output for Fast Web View.
+        ``embed_spec=True`` attaches the document's own EmbossSpec JSON,
+        layout map, and a Markdown twin as /AF files — ``from_pdf`` uses
+        the first to reconstruct an equivalent Document even if the
+        original spec is lost. It forces PDF/A part 3 when ``pdfa`` is
+        also set, since PDF/A-2 forbids arbitrary attachments; on a
+        non-PDF/A document it embeds normally without forcing anything.
+        """
         from .writer import render_document
 
-        data = render_document(self)
+        embed_files = self._embed_spec_files() if embed_spec else None
+        data = render_document(self, embed_files=embed_files)
         if linearize:
             data = _linearize_pdf(data)
         return data
 
-    def save(self, path, linearize: bool = False) -> None:
-        """Render and write to path; linearize=True enables Fast Web View."""
+    def save(self, path, linearize: bool = False, *, embed_spec: bool = False) -> None:
+        """Render and write to path.
+
+        See ``render`` for what ``linearize`` and ``embed_spec`` do.
+        """
         from pathlib import Path
 
-        Path(path).write_bytes(self.render(linearize=linearize))
+        Path(path).write_bytes(self.render(linearize=linearize, embed_spec=embed_spec))
+
+    def _embed_spec_files(self) -> list:
+        """Build the /AF attachments for ``render(embed_spec=True)``."""
+        from .nodeid import layout_map_json
+        from .pdf.attachments import FileAttachment
+        from .recovery import document_to_spec_dict, spec_dict_to_json
+        from .adapters.markdown_export import to_markdown
+
+        spec_json = spec_dict_to_json(document_to_spec_dict(self))
+        return [
+            FileAttachment(
+                name="emboss-spec.json",
+                data=spec_json,
+                mime="application/json",
+                description="EmbossSpec source document, for exact reconstruction.",
+                relationship="Source",
+            ),
+            FileAttachment(
+                name="emboss-layout.json",
+                data=layout_map_json(self).encode("utf-8"),
+                mime="application/json",
+                description="Node id to page/bounding-box layout map.",
+                relationship="Supplement",
+            ),
+            FileAttachment(
+                name="emboss-doc.md",
+                data=to_markdown(self).encode("utf-8"),
+                mime="text/markdown",
+                description="Reflowable Markdown twin of the document.",
+                relationship="Alternative",
+            ),
+        ]
 
     def layout_map(self) -> dict:
         """Return node id -> list of {page, x0, y0, x1, y1} placements.
@@ -1039,6 +1184,30 @@ class Document:
         from .generate import parse_spec_json
 
         return parse_spec_json(json_str, **kw)
+
+    @classmethod
+    def from_pdf(cls, source, *, strict: bool = False) -> "Document":
+        """Reconstruct a Document from a rendered PDF (bytes, path, or str).
+
+        Tries the embedded ``emboss-spec.json`` /AF attachment first — an
+        exact reconstruction, present when the PDF was made with
+        ``render(embed_spec=True)``. Failing that, falls back to a
+        degraded reconstruction from the PDF/UA structure tree: headings,
+        paragraphs, tables, and lists come back with correct text and
+        order, but styling and exact spec fields are lost. Pass
+        ``strict=True`` to raise instead of taking that degraded path.
+        """
+        from .recovery import recover_from_attachment, recover_from_structure_tree
+
+        document = recover_from_attachment(source)
+        if document is not None:
+            return document
+        if strict:
+            raise ValueError(
+                "no emboss-spec.json attachment found; strict=True refuses "
+                "the degraded structure-tree recovery path"
+            )
+        return recover_from_structure_tree(source)
 
 
 def _linearize_pdf(data: bytes) -> bytes:

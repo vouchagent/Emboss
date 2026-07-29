@@ -24,6 +24,7 @@ from ..spec import (
     CodeBlock,
     CoverPage,
     Footnote,
+    Glossary,
     Heading,
     HorizontalRule,
     Image,
@@ -323,6 +324,8 @@ class LayoutEngine:
             return self._measure_pullquote(element, width)
         if isinstance(element, StatTiles):
             return self._measure_stat_tiles(element, width)
+        if isinstance(element, Glossary):
+            return self._measure_glossary(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
                 element=element,
@@ -821,6 +824,55 @@ class LayoutEngine:
             space_after=8.0,
         )
 
+    GLOSSARY_HANGING_INDENT = 18.0
+    GLOSSARY_ENTRY_GAP = 6.0
+
+    def _measure_glossary(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        title_style = self.sheet.resolved(self.sheet.h2, element.style)
+
+        title_lines = self._styled_lines(
+            element.title,
+            style,
+            width,
+            title_style.require("font_size"),
+            bold=True,
+            color=title_style.require("color"),
+            align="left",
+        )
+        if title_lines:
+            title_lines[-1].height += 8.0
+
+        all_lines: list = list(title_lines)
+        groups: list = [("title", len(title_lines))] if title_lines else []
+
+        entries = sorted(element.entry_list, key=lambda e: e.term.lower())
+        for entry in entries:
+            runs = [
+                TextRun(entry.term, bold=True),
+                TextRun("  " + entry.definition),
+            ]
+            lines = self._layout_runs(
+                runs, style, width, hanging_indent=self.GLOSSARY_HANGING_INDENT
+            )
+            for run in runs:
+                self._metrics(style, run).note_usage(run.text)
+            if lines:
+                lines[-1].height += self.GLOSSARY_ENTRY_GAP
+                all_lines.extend(lines)
+                groups.append(("entry", len(lines)))
+
+        return MeasuredBlock(
+            element=element,
+            height=sum(line.height for line in all_lines),
+            style=style,
+            lines=all_lines,
+            line_groups=groups,
+            can_split=len(groups) > 1,
+            space_before=12.0,
+            space_after=12.0,
+        )
+
     def _measure_svg(self, element, width: float) -> MeasuredBlock:
         from ..svg import parse_svg
 
@@ -1176,6 +1228,85 @@ class LayoutEngine:
             can_split=len(lines) > (self.MIN_WIDOW_LINES + self.MIN_ORPHAN_LINES),
             space_before=10.0,
             space_after=12.0,
+        )
+
+    INDEX_COLUMN_GAP = 24.0
+
+    def measure_index(self, element, width: float, rows: list) -> MeasuredBlock:
+        """Lay out a two-column back-of-book index.
+
+        `rows` are (term, comma_joined_pages) tuples, alphabetized by the
+        caller, with real page numbers filled in after each pagination
+        pass of the same two-pass loop the visible TOC uses.
+        """
+        sheet = self.sheet
+        style = sheet.resolved(sheet.body, element.style)
+        size = style.require("font_size") * 0.92
+        title_style = sheet.resolved(sheet.h2, element.style)
+
+        title_lines = self._styled_lines(
+            element.title,
+            style,
+            width,
+            title_style.require("font_size"),
+            bold=True,
+            color=title_style.require("color"),
+            align="left",
+        )
+        for line in title_lines:
+            line.height += 8.0
+
+        gap = self.INDEX_COLUMN_GAP
+        col_w = (width - gap) / 2.0
+        entry_metrics = self._metrics(style)
+        line_height = entry_metrics.line_height(size, style.require("line_height"))
+
+        entry_lines: list = []
+        for term, pages_label in rows:
+            rest = f", {pages_label}" if pages_label else ""
+            term_run = TextRun(term, bold=True, font_size=size)
+            rest_run = TextRun(rest, font_size=size)
+            entry_metrics.note_usage(term)
+            if rest:
+                entry_metrics.note_usage(rest)
+            term_w = entry_metrics.text_width(term, size)
+            fragments = [(term, term_run, 0.0)]
+            if rest:
+                fragments.append((rest, rest_run, term_w))
+            entry_lines.append(
+                LaidOutLine(
+                    fragments=fragments,
+                    width=col_w,
+                    height=line_height,
+                    ascent=entry_metrics.ascent(size),
+                )
+            )
+
+        half = -(-len(entry_lines) // 2)  # ceil division
+        left_col = entry_lines[:half]
+        right_col = entry_lines[half:]
+        col_height = max(
+            sum(line.height for line in left_col),
+            sum(line.height for line in right_col),
+        )
+        total = sum(line.height for line in title_lines) + col_height
+
+        return MeasuredBlock(
+            element=element,
+            height=total,
+            style=style,
+            can_split=False,
+            space_before=12.0,
+            space_after=12.0,
+            extras={
+                "index": {
+                    "title_lines": title_lines,
+                    "left": left_col,
+                    "right": right_col,
+                    "col_w": col_w,
+                    "gap": gap,
+                }
+            },
         )
 
     @staticmethod

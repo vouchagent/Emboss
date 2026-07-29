@@ -40,3 +40,34 @@ class NumberingContext:
         for i in range(level, 6):
             self._heading[i] = 0
         return ".".join(str(self._heading[i]) for i in range(level))
+
+
+def _alpha_upper(value: int) -> str:
+    """Spreadsheet-style uppercase letters: 1 -> A, 26 -> Z, 27 -> AA."""
+    label = ""
+    while value > 0:
+        value, rem = divmod(value - 1, 26)
+        label = chr(ord("A") + rem) + label
+    return label
+
+
+@dataclass
+class AppendixNumberingContext:
+    """Letters top-level appendices (A, B, ...) with flat `A.1` sub-numbers.
+
+    Sub-heading numbering is flat within each appendix regardless of
+    heading level, restarting whenever `next_appendix` starts a new one.
+    """
+
+    _letter_index: int = 0
+    _sub_counter: int = 0
+
+    def next_appendix(self) -> str:
+        self._letter_index += 1
+        self._sub_counter = 0
+        return _alpha_upper(self._letter_index)
+
+    def next_heading(self, level: int = 1) -> str:
+        self._sub_counter += 1
+        letter = _alpha_upper(self._letter_index) if self._letter_index else "A"
+        return f"{letter}.{self._sub_counter}"

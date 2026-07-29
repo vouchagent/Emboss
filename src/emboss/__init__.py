@@ -21,6 +21,7 @@ from .constraints import (
 )
 from .spec import (
     Abstract,
+    Appendix,
     Author,
     Authors,
     BibliographyBlock,
@@ -32,10 +33,13 @@ from .spec import (
     CoverPage,
     Document,
     Footnote,
+    Glossary,
+    GlossaryEntry,
     HeaderFooter,
     Heading,
     HorizontalRule,
     Image,
+    Index,
     LegalFeatures,
     ListOfFigures,
     ListOfTables,
@@ -77,7 +81,7 @@ from .diagrams import (
     render_diagram_svg,
 )
 from .svg import SvgImage, parse_svg, render_svg
-from .numbering import NumberingContext
+from .numbering import AppendixNumberingContext, NumberingContext
 from .styles import PRESETS, Style, StyleSheet, apply_brand, resolve_preset
 from .typography.font_metrics import FontMetrics, FontRegistry
 from .typography.hyphenation import Hyphenator
@@ -109,6 +113,13 @@ from .generate import (
     parse_spec_json,
     parse_spec_dict,
     spec_schema,
+)
+from .recovery import (
+    document_from_spec_dict,
+    document_to_spec_dict,
+    recover_from_attachment,
+    recover_from_structure_tree,
+    strip_pdf,
 )
 from .writer import RenderResult, render_document
 
@@ -146,6 +157,10 @@ __all__ = [
     "ListOfTables",
     "PageBreak",
     "HorizontalRule",
+    "Appendix",
+    "Index",
+    "GlossaryEntry",
+    "Glossary",
     "LegalFeatures",
     "HeaderFooter",
     "SvgImage",
@@ -158,6 +173,7 @@ __all__ = [
     "diagram_alt_text",
     "diagram_svg_block",
     "NumberingContext",
+    "AppendixNumberingContext",
     "format_citation",
     "format_bibliography",
     "tokenize",
@@ -215,6 +231,11 @@ __all__ = [
     "parse_spec_json",
     "parse_spec_dict",
     "spec_schema",
+    "document_to_spec_dict",
+    "document_from_spec_dict",
+    "recover_from_attachment",
+    "recover_from_structure_tree",
+    "strip_pdf",
     "ContentAnalyzer",
     "QualityScorer",
     "SmartTypography",

@@ -17,6 +17,7 @@ from typing import Literal
 
 from .spec import (
     Abstract,
+    Appendix,
     Authors,
     BibliographyBlock,
     BlockQuote,
@@ -27,9 +28,11 @@ from .spec import (
     CoverPage,
     Document,
     Footnote,
+    Glossary,
     Heading,
     HorizontalRule,
     Image,
+    Index,
     MathBlock,
     NumberedList,
     PageBreak,
@@ -220,6 +223,9 @@ class ConstraintValidator:
             TableOfContents,
             PageBreak,
             HorizontalRule,
+            Appendix,
+            Index,
+            Glossary,
         )
         for index, element in enumerate(document.content):
             if not isinstance(element, known):

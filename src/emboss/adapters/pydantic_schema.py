@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..spec import (
     Abstract,
+    Appendix,
     Author,
     Authors,
     BibliographyBlock,
@@ -45,10 +46,13 @@ from ..spec import (
     CoverPage,
     Document,
     Footnote,
+    Glossary,
+    GlossaryEntry,
     HeaderFooter,
     Heading,
     HorizontalRule,
     Image,
+    Index,
     LegalFeatures,
     MathBlock,
     NumberedList,
@@ -93,6 +97,10 @@ __all__ = [
     "StatSpec",
     "StatTilesSpec",
     "TableOfContentsSpec",
+    "AppendixSpec",
+    "IndexSpec",
+    "GlossaryEntrySpec",
+    "GlossarySpec",
     "DiagramSpec",
     "DiagramNodeSpec",
     "DiagramEdgeSpec",
@@ -182,6 +190,13 @@ class TextRunSpec(BaseModel):
         description="Hex color without '#', e.g. 'cc0000' for red.",
     )
     link: str | None = Field(None, description="URL this text links to.")
+    index_terms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Tag this run's text as index term(s) with no visible effect; "
+            "collected into a document's Index block by page number."
+        ),
+    )
 
     def to_text_run(self) -> TextRun:
         return TextRun(
@@ -192,6 +207,7 @@ class TextRunSpec(BaseModel):
             font_family=self.font_family,
             color=self.color,
             link=self.link,
+            index_terms=tuple(self.index_terms),
         )
 
 
@@ -1240,6 +1256,108 @@ class HeaderFooterSpec(BaseModel):
         )
 
 
+class AppendixSpec(BaseModel):
+    """A titled section using alphabetic numbering (Appendix A, B, ...).
+
+    Headings nested in ``content`` get flat ``A.1``, ``A.2`` prefixes,
+    restarting at the next top-level appendix.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Appendix",
+            "examples": [
+                {
+                    "type": "appendix",
+                    "title": "Survey Instrument",
+                    "content": [
+                        {"type": "heading", "text": "Questions", "level": 2},
+                        {"type": "paragraph", "text": "1. How satisfied are you?"},
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["appendix"] = "appendix"
+    title: str = Field(..., min_length=1, description="Appendix title.")
+    content: list["ContentBlock"] = Field(
+        default_factory=list, description="Blocks nested inside this appendix."
+    )
+
+    def to_element(self) -> Appendix:
+        return Appendix(
+            title=self.title, content=[b.to_element() for b in self.content]
+        )
+
+
+class IndexSpec(BaseModel):
+    """A back-of-book index page.
+
+    Entries come from ``index_terms`` marks on paragraph text runs
+    elsewhere in the document, resolved to real page numbers automatically.
+    Include at most one per document.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Index",
+            "examples": [{"type": "index", "title": "Index"}],
+        }
+    }
+
+    type: Literal["index"] = "index"
+    title: str = Field("Index", description="Heading shown above the index.")
+
+    def to_element(self) -> Index:
+        return Index(title=self.title)
+
+
+class GlossaryEntrySpec(BaseModel):
+    """One glossary term and its definition."""
+
+    term: str = Field(..., min_length=1, description="The term being defined.")
+    definition: str = Field(..., min_length=1, description="The term's definition.")
+
+    def to_glossary_entry(self) -> GlossaryEntry:
+        return GlossaryEntry(term=self.term, definition=self.definition)
+
+
+class GlossarySpec(BaseModel):
+    """A glossary of terms and definitions, alphabetized by term.
+
+    The first document-wide body-text occurrence of each term is
+    automatically linked to its entry here.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Glossary",
+            "examples": [
+                {
+                    "type": "glossary",
+                    "entries": [
+                        {"term": "Latency", "definition": "Time to first byte."},
+                        {"term": "Throughput", "definition": "Requests per second."},
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["glossary"] = "glossary"
+    title: str = Field("Glossary", description="Heading shown above the glossary.")
+    entries: list[GlossaryEntrySpec] = Field(
+        ..., min_length=1, description="Term/definition entries."
+    )
+
+    def to_element(self) -> Glossary:
+        return Glossary(
+            title=self.title,
+            entries=[e.to_glossary_entry() for e in self.entries],
+        )
+
+
 ContentBlock = Annotated[
     Union[
         HeadingSpec,
@@ -1262,12 +1380,17 @@ ContentBlock = Annotated[
         PullQuoteSpec,
         StatTilesSpec,
         TableOfContentsSpec,
+        AppendixSpec,
+        IndexSpec,
+        GlossarySpec,
         DiagramSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
     ],
     Field(discriminator="type"),
 ]
+
+AppendixSpec.model_rebuild()
 
 
 class PageConfig(BaseModel):
