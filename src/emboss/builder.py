@@ -74,7 +74,8 @@ def build_from_directory(
     doc = Document(title=doc_title, style=doc_style, toc=toc)
     for index, path in enumerate(files):
         matter = parse_front_matter(path.read_text(encoding="utf-8"))
-        elements = parse_markdown(matter.body)
+        # Resolve file= includes relative to each Markdown file's own folder.
+        elements = parse_markdown(matter.body, base_dir=path.parent)
         if index > 0 and page_break_between:
             doc.page_break()
         for element in elements:

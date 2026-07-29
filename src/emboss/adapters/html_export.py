@@ -42,6 +42,7 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
         Callout,
         Chart,
         CodeBlock,
+        DocumentControl,
         Footnote,
         Heading,
         HorizontalRule,
@@ -215,6 +216,15 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
             if element.caption:
                 parts.append(f"  <figcaption>{_esc(element.caption)}</figcaption>")
             parts.append("</figure>")
+
+        elif isinstance(element, DocumentControl):
+            parts.append('<section class="document-control">')
+            for sub in element.to_blocks():
+                if isinstance(sub, Table):
+                    parts.append(_render_table(sub, sheet))
+                else:
+                    parts.append(f"<p>{_render_runs(sub.runs)}</p>")
+            parts.append("</section>")
 
         elif isinstance(element, PageBreak):
             parts.append('<div style="page-break-before:always"></div>')

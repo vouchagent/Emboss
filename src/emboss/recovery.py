@@ -45,6 +45,7 @@ from .spec import (
     CodeBlock,
     CoverPage,
     Document,
+    DocumentControl,
     Footnote,
     Glossary,
     Heading,
@@ -531,6 +532,43 @@ def _glossary_block(el: Glossary) -> dict:
     return block
 
 
+def _document_control_block(el: DocumentControl) -> dict:
+    block: dict = {"type": "document_control"}
+    for key in (
+        "doc_id",
+        "title",
+        "version",
+        "status",
+        "effective_date",
+        "classification",
+        "owner",
+    ):
+        value = getattr(el, key)
+        if value is not None:
+            block[key] = value
+    if el.approvals:
+        block["approvals"] = [
+            {
+                "name": a.name,
+                "role": a.role,
+                "date": a.date,
+                "statement": a.statement,
+            }
+            for a in el.approval_list
+        ]
+    if el.revisions:
+        block["revisions"] = [
+            {
+                "version": r.version,
+                "date": r.date,
+                "author": r.author,
+                "summary": r.summary,
+            }
+            for r in el.revision_list
+        ]
+    return block
+
+
 _BLOCK_SERIALIZERS: dict[type, Callable[[Any], dict]] = {
     Heading: _heading_block,
     Paragraph: _paragraph_block,
@@ -557,6 +595,7 @@ _BLOCK_SERIALIZERS: dict[type, Callable[[Any], dict]] = {
     Appendix: _appendix_block,
     Index: _index_block,
     Glossary: _glossary_block,
+    DocumentControl: _document_control_block,
 }
 
 

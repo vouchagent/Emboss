@@ -52,6 +52,9 @@ __all__ = [
     "Index",
     "GlossaryEntry",
     "Glossary",
+    "Approval",
+    "RevisionEntry",
+    "DocumentControl",
     "PageSpec",
     "Document",
     "BrandKit",
@@ -771,6 +774,144 @@ class Glossary:
         return "Div"
 
 
+@dataclass
+class Approval:
+    """One approver's sign-off row in a controlled document."""
+
+    name: str = ""
+    role: str = ""
+    date: str = ""
+    statement: str = "Approved"
+
+
+@dataclass
+class RevisionEntry:
+    """One row of a controlled document's revision history."""
+
+    version: str = ""
+    date: str = ""
+    author: str = ""
+    summary: str = ""
+
+
+@dataclass
+class DocumentControl:
+    """A controlled-document control block: metadata, approvals, revisions.
+
+    Renders as a labeled panel: a metadata grid of label/value pairs, an
+    approvals table, and a revision-history table, each reusing the table
+    machinery so pagination and PDF/UA /Table tagging come for free. Dates
+    are plain string fields, never computed, so output stays deterministic.
+    """
+
+    doc_id: str | None = None
+    title: str | None = None
+    version: str | None = None
+    status: str | None = None
+    effective_date: str | None = None
+    classification: str | None = None
+    owner: str | None = None
+    approvals: Sequence = field(default_factory=list)
+    revisions: Sequence = field(default_factory=list)
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
+
+    @property
+    def approval_list(self) -> list:
+        out = []
+        for entry in self.approvals:
+            if isinstance(entry, Approval):
+                out.append(entry)
+            elif isinstance(entry, dict):
+                out.append(Approval(**entry))
+            elif isinstance(entry, (list, tuple)):
+                out.append(Approval(*entry))
+            else:
+                out.append(Approval(name=str(entry)))
+        return out
+
+    @property
+    def revision_list(self) -> list:
+        out = []
+        for entry in self.revisions:
+            if isinstance(entry, RevisionEntry):
+                out.append(entry)
+            elif isinstance(entry, dict):
+                out.append(RevisionEntry(**entry))
+            elif isinstance(entry, (list, tuple)):
+                out.append(RevisionEntry(*entry))
+            else:
+                out.append(RevisionEntry(version=str(entry)))
+        return out
+
+    @property
+    def metadata_pairs(self) -> list:
+        """Return present (label, value) metadata pairs in display order."""
+        fields = [
+            ("Document ID", self.doc_id),
+            ("Title", self.title),
+            ("Version", self.version),
+            ("Status", self.status),
+            ("Effective Date", self.effective_date),
+            ("Classification", self.classification),
+            ("Owner", self.owner),
+        ]
+        return [(label, value) for label, value in fields if value]
+
+    def to_blocks(self) -> list:
+        """Expand into concrete label paragraphs and tables for rendering."""
+        label_style = Style(bold=True, space_before=10.0, space_after=2.0)
+        sub_style = Style(bold=True, space_before=8.0, space_after=1.0)
+        blocks: list = [
+            Paragraph(
+                [TextRun("Document Control", bold=True)],
+                style=label_style,
+                id=self.id,
+            )
+        ]
+        pairs = self.metadata_pairs
+        if pairs:
+            blocks.append(
+                Table(
+                    headers=[],
+                    rows=[
+                        [TableCell(label, bold=True), TableCell(str(value))]
+                        for label, value in pairs
+                    ],
+                    column_widths=[0.32, 0.68],
+                )
+            )
+        approvals = self.approval_list
+        if approvals:
+            blocks.append(Paragraph([TextRun("Approvals", bold=True)], style=sub_style))
+            blocks.append(
+                Table(
+                    headers=["Name", "Role", "Statement", "Date"],
+                    rows=[[a.name, a.role, a.statement, a.date] for a in approvals],
+                    repeat_header=True,
+                    stripe=True,
+                )
+            )
+        revisions = self.revision_list
+        if revisions:
+            blocks.append(
+                Paragraph([TextRun("Revision History", bold=True)], style=sub_style)
+            )
+            blocks.append(
+                Table(
+                    headers=["Version", "Date", "Author", "Summary"],
+                    rows=[[r.version, r.date, r.author, r.summary] for r in revisions],
+                    repeat_header=True,
+                    stripe=True,
+                )
+            )
+        return blocks
+
+
 from .bibliography import BibliographyBlock, Citation  # noqa: E402
 
 
@@ -800,6 +941,7 @@ BlockElement = Union[
     Appendix,
     Index,
     Glossary,
+    DocumentControl,
 ]
 
 
@@ -1088,6 +1230,10 @@ class Document:
 
     def glossary(self, entries, title: str = "Glossary", **kw) -> "Document":
         return self.add(Glossary(entries=entries, title=title, **kw))
+
+    def document_control(self, **kwargs) -> "Document":
+        """Append a controlled-document control block (metadata + tables)."""
+        return self.add(DocumentControl(**kwargs))
 
     @property
     def stylesheet(self) -> StyleSheet:

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .spec import (
     BlockQuote,
@@ -43,7 +44,13 @@ from .spec import (
 )
 from .styles import Style
 
-__all__ = ["parse_markdown", "parse_front_matter", "FrontMatter", "BLOCKQUOTE_NATIVE"]
+__all__ = [
+    "parse_markdown",
+    "parse_front_matter",
+    "FrontMatter",
+    "MarkdownWarning",
+    "BLOCKQUOTE_NATIVE",
+]
 
 # When False, plain blockquotes map to indented italic paragraphs; when
 # True they emit the dedicated BlockQuote element, rendered natively by
@@ -93,6 +100,40 @@ class FrontMatter:
     fields: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     body: str = ""
+
+
+@dataclass
+class MarkdownWarning:
+    """A construct that parse_markdown dropped or degraded, with its source."""
+
+    kind: str
+    message: str
+    source: str = ""
+
+
+_FENCE_ATTR_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)=(.*)$")
+
+
+def _resolve_include_path(file: str, base_dir) -> Path:
+    """Resolve a fence file= path against base_dir (default: cwd)."""
+    target = Path(file)
+    if target.is_absolute():
+        return target
+    root = Path(base_dir) if base_dir is not None else Path.cwd()
+    return root / target
+
+
+def _parse_fence_info(info: str) -> tuple[str, dict]:
+    """Split a fence info string into (language, key=value attributes)."""
+    language = ""
+    attrs: dict = {}
+    for token in info.split():
+        match = _FENCE_ATTR_RE.match(token)
+        if match:
+            attrs[match.group(1)] = match.group(2)
+        elif not language:
+            language = token
+    return language or "text", attrs
 
 
 def _parse_fm_scalar(raw: str) -> str | bool | int | float:
@@ -458,7 +499,13 @@ def _extract_definitions(text: str) -> tuple[list[str], dict, dict]:
     return lines, refs, footnotes
 
 
-def parse_markdown(text: str) -> list:
+def parse_markdown(
+    text: str,
+    *,
+    base_dir=None,
+    on_warning=None,
+    strict: bool = False,
+) -> list:
     """Parse a Markdown string into a list of Emboss block elements.
 
     Supports: ATX and setext headings, paragraphs, nested bullet/numbered
@@ -467,11 +514,23 @@ def parse_markdown(text: str) -> list:
     horizontal rules, and page breaks. A leading --- front-matter block is
     stripped (Document.from_markdown applies its metadata). Multi-paragraph
     list items and raw HTML passthrough are not supported and stay literal.
+
+    A ```mermaid fence is parsed into a diagram block; a code fence whose
+    info string carries ``file=PATH`` (with optional ``lines=A-B`` or
+    ``marker=NAME``) loads its body from that file. Relative paths resolve
+    against ``base_dir`` (default: the current working directory). When a
+    mermaid parse or an include fails, the block degrades to a plain code
+    block and, if given, ``on_warning`` is called with a MarkdownWarning;
+    with ``strict=True`` the failure is raised instead.
     """
     lines, refs, footnote_defs = _extract_definitions(parse_front_matter(text).body)
     elements: list = []
     emitted_footnotes: set[str] = set()
     i = 0
+
+    def warn(kind: str, message: str, source: str) -> None:
+        if on_warning is not None:
+            on_warning(MarkdownWarning(kind=kind, message=message, source=source))
 
     def emit_footnotes(source_text: str) -> None:
         for label in _FOOTNOTE_REF_RE.findall(source_text):
@@ -509,21 +568,50 @@ def parse_markdown(text: str) -> list:
             continue
 
         if line.strip().startswith("```"):
-            language = line.strip()[3:].strip() or "text"
+            info = line.strip()[3:].strip()
+            language, attrs = _parse_fence_info(info)
             code_lines = []
             i += 1
             while i < len(lines) and not lines[i].strip().startswith("```"):
                 code_lines.append(lines[i])
                 i += 1
             i += 1
+            source_text = "\n".join(code_lines)
             if language == "diagram":
                 from .diagrams import diagram_block_from_source
 
-                elements.append(diagram_block_from_source("\n".join(code_lines)))
+                elements.append(diagram_block_from_source(source_text))
+            elif language == "mermaid":
+                from .mermaid import MermaidError, parse_mermaid
+
+                try:
+                    elements.append(parse_mermaid(source_text))
+                except MermaidError as exc:
+                    if strict:
+                        raise
+                    warn("mermaid", str(exc), source_text)
+                    elements.append(CodeBlock(code=source_text, language="mermaid"))
+            elif "file" in attrs:
+                from .include import IncludeError, include_source
+
+                lang = language
+                target = _resolve_include_path(attrs["file"], base_dir)
+                try:
+                    loaded = include_source(
+                        target,
+                        lines=attrs.get("lines"),
+                        marker=attrs.get("marker"),
+                    )
+                    elements.append(CodeBlock(code=loaded, language=lang))
+                except IncludeError as exc:
+                    if strict:
+                        raise
+                    warn("include", str(exc), info)
+                    elements.append(
+                        CodeBlock(code=f"# include failed: {exc}", language=lang)
+                    )
             else:
-                elements.append(
-                    CodeBlock(code="\n".join(code_lines), language=language)
-                )
+                elements.append(CodeBlock(code=source_text, language=language))
             continue
 
         if _MATH_BLOCK_RE.match(line.strip()):

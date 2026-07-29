@@ -23,6 +23,7 @@ from .arithmetic import check_table_totals, parse_number
 from .spec import (
     Abstract,
     Appendix,
+    Approval,
     Author,
     Authors,
     BibliographyBlock,
@@ -33,6 +34,7 @@ from .spec import (
     CodeBlock,
     CoverPage,
     Document,
+    DocumentControl,
     Footnote,
     Glossary,
     GlossaryEntry,
@@ -50,6 +52,7 @@ from .spec import (
     PageSpec,
     Paragraph,
     PullQuote,
+    RevisionEntry,
     Series,
     Stat,
     StatTiles,
@@ -122,7 +125,20 @@ from .templates import (
     slide_deck,
     data_sheet,
 )
-from .markdown import parse_markdown, parse_front_matter, FrontMatter
+from .markdown import (
+    parse_markdown,
+    parse_front_matter,
+    FrontMatter,
+    MarkdownWarning,
+)
+from .mermaid import (
+    parse_mermaid,
+    parse_flowchart,
+    parse_sequence,
+    parse_er,
+    MermaidError,
+)
+from .include import include_source, IncludeError
 from .builder import build_from_directory, ordered_markdown_files
 from .nodeid import assign_node_ids, derive_node_id, layout_map_json
 from .textmap import TextIndex, Resolution, reconstruct_node_text, text_map_json
@@ -245,6 +261,9 @@ __all__ = [
     "Index",
     "GlossaryEntry",
     "Glossary",
+    "Approval",
+    "RevisionEntry",
+    "DocumentControl",
     "LegalFeatures",
     "HeaderFooter",
     "SvgImage",
@@ -332,6 +351,14 @@ __all__ = [
     "parse_markdown",
     "parse_front_matter",
     "FrontMatter",
+    "MarkdownWarning",
+    "parse_mermaid",
+    "parse_flowchart",
+    "parse_sequence",
+    "parse_er",
+    "MermaidError",
+    "include_source",
+    "IncludeError",
     "build_from_directory",
     "ordered_markdown_files",
     "assign_node_ids",

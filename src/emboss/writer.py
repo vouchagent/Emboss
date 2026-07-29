@@ -43,6 +43,7 @@ from .spec import (
     CodeBlock,
     CoverPage,
     Document,
+    DocumentControl,
     Footnote,
     Glossary,
     Heading,
@@ -202,6 +203,7 @@ class Renderer:
 
         content = list(document.content)
         content = self._expand_appendices(content)
+        content = self._expand_document_control(content)
         content = self._resolve_references(document, content)
         content = self._link_glossary_terms(content)
         content = self._prepend_title_block(document, sheet, content)
@@ -273,6 +275,26 @@ class Renderer:
                     child = replace(child, text=f"{prefix} {child.text}")
                 child._is_appendix = True
                 out.append(child)
+        return out
+
+    # -- controlled documents --
+
+    @staticmethod
+    def _expand_document_control(content: list) -> list:
+        """Flatten `DocumentControl` blocks into label paragraphs and tables.
+
+        The metadata grid and the approvals/revision tables become real
+        `Table` blocks, so pagination, /Table and /TH tagging, and styling
+        come from the existing table machinery unchanged.
+        """
+        if not any(isinstance(el, DocumentControl) for el in content):
+            return content
+        out: list = []
+        for element in content:
+            if isinstance(element, DocumentControl):
+                out.extend(element.to_blocks())
+            else:
+                out.append(element)
         return out
 
     # -- glossary auto-linking --

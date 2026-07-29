@@ -27,6 +27,7 @@ from .spec import (
     CodeBlock,
     CoverPage,
     Document,
+    DocumentControl,
     Footnote,
     Glossary,
     Heading,
@@ -226,6 +227,7 @@ class ConstraintValidator:
             Appendix,
             Index,
             Glossary,
+            DocumentControl,
         )
         for index, element in enumerate(document.content):
             if not isinstance(element, known):

@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..spec import (
     Abstract,
     Appendix,
+    Approval,
     Author,
     Authors,
     BibliographyBlock,
@@ -45,6 +46,7 @@ from ..spec import (
     CodeBlock,
     CoverPage,
     Document,
+    DocumentControl,
     Footnote,
     Glossary,
     GlossaryEntry,
@@ -60,6 +62,7 @@ from ..spec import (
     PageSpec,
     Paragraph,
     PullQuote,
+    RevisionEntry,
     Series,
     Stat,
     StatTiles,
@@ -101,6 +104,9 @@ __all__ = [
     "IndexSpec",
     "GlossaryEntrySpec",
     "GlossarySpec",
+    "ApprovalSpec",
+    "RevisionEntrySpec",
+    "DocumentControlSpec",
     "DiagramSpec",
     "DiagramNodeSpec",
     "DiagramEdgeSpec",
@@ -1761,6 +1767,101 @@ class GlossarySpec(BaseModel):
         )
 
 
+class ApprovalSpec(BaseModel):
+    """One approver's sign-off row in a controlled document."""
+
+    name: str = Field(..., min_length=1, description="Approver's name.")
+    role: str = Field("", description="Approver's role or title.")
+    date: str = Field("", description="Approval date as a display string.")
+    statement: str = Field("Approved", description="Sign-off statement.")
+
+    def to_approval(self) -> Approval:
+        return Approval(
+            name=self.name, role=self.role, date=self.date, statement=self.statement
+        )
+
+
+class RevisionEntrySpec(BaseModel):
+    """One row of a controlled document's revision history."""
+
+    version: str = Field(..., min_length=1, description="Version or revision label.")
+    date: str = Field("", description="Revision date as a display string.")
+    author: str = Field("", description="Who made the revision.")
+    summary: str = Field("", description="Summary of what changed.")
+
+    def to_revision(self) -> RevisionEntry:
+        return RevisionEntry(
+            version=self.version,
+            date=self.date,
+            author=self.author,
+            summary=self.summary,
+        )
+
+
+class DocumentControlSpec(BaseModel):
+    """A controlled-document control block for ISO 9001 / IEC 62304 workflows."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Document Control",
+            "examples": [
+                {
+                    "type": "document_control",
+                    "doc_id": "QMS-001",
+                    "version": "3.0",
+                    "status": "Released",
+                    "effective_date": "2026-01-15",
+                    "classification": "Controlled",
+                    "owner": "Quality",
+                    "approvals": [
+                        {"name": "A. Reviewer", "role": "QA Lead", "date": "2026-01-10"}
+                    ],
+                    "revisions": [
+                        {
+                            "version": "3.0",
+                            "date": "2026-01-15",
+                            "author": "J. Doe",
+                            "summary": "Annual review.",
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    type: Literal["document_control"] = "document_control"
+    doc_id: str | None = Field(None, description="Document identifier.")
+    title: str | None = Field(None, description="Document title.")
+    version: str | None = Field(None, description="Version or revision label.")
+    status: str | None = Field(None, description="Status, e.g. 'Released', 'Draft'.")
+    effective_date: str | None = Field(
+        None, description="Effective date as a display string."
+    )
+    classification: str | None = Field(
+        None, description="Classification, e.g. 'Controlled'."
+    )
+    owner: str | None = Field(None, description="Owning person or department.")
+    approvals: list[ApprovalSpec] = Field(
+        default_factory=list, description="Approver sign-off rows."
+    )
+    revisions: list[RevisionEntrySpec] = Field(
+        default_factory=list, description="Revision-history rows."
+    )
+
+    def to_element(self) -> DocumentControl:
+        return DocumentControl(
+            doc_id=self.doc_id,
+            title=self.title,
+            version=self.version,
+            status=self.status,
+            effective_date=self.effective_date,
+            classification=self.classification,
+            owner=self.owner,
+            approvals=[a.to_approval() for a in self.approvals],
+            revisions=[r.to_revision() for r in self.revisions],
+        )
+
+
 ContentBlock = Annotated[
     Union[
         HeadingSpec,
@@ -1786,6 +1887,7 @@ ContentBlock = Annotated[
         AppendixSpec,
         IndexSpec,
         GlossarySpec,
+        DocumentControlSpec,
         DiagramSpec,
         ArchitectureDiagramSpec,
         SequenceDiagramSpec,

@@ -26,6 +26,7 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
         Callout,
         Chart,
         CodeBlock,
+        DocumentControl,
         Footnote,
         Heading,
         HorizontalRule,
@@ -148,6 +149,14 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
         elif isinstance(element, PageBreak):
             parts.append("\\newpage")
             parts.append("")
+
+        elif isinstance(element, DocumentControl):
+            for sub in element.to_blocks():
+                if isinstance(sub, Table):
+                    parts.append(_render_table_md(sub))
+                else:
+                    parts.append(_render_runs_md(sub.runs))
+                parts.append("")
 
     return "\n".join(parts).rstrip() + "\n"
 

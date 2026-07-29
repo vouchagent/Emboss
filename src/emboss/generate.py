@@ -514,6 +514,10 @@ Renders a two-column back-of-book index. Mark index terms on a paragraph's "runs
 {{"type": "glossary", "entries": [{{"term": "Latency", "definition": "Time to first byte."}}]}}
 ```
 Alphabetized bold-term/definition list; each term's first body occurrence is auto-linked to its entry.
+```json
+{{"type": "document_control", "doc_id": "QMS-001", "version": "3.0", "status": "Released", "effective_date": "2026-01-15", "classification": "Controlled", "owner": "Quality", "approvals": [{{"name": "A. Reviewer", "role": "QA Lead", "date": "2026-01-10"}}], "revisions": [{{"version": "3.0", "date": "2026-01-15", "author": "J. Doe", "summary": "Annual review."}}]}}
+```
+A controlled-document panel: a metadata grid plus an approvals table and a revision-history table (for ISO 9001, IEC 62304, and similar).
 
 ## Rules
 1. Always output valid JSON — no comments, no trailing commas.
@@ -758,6 +762,7 @@ def _manual_parse(data: dict) -> "Document":
     from .spec import (
         Abstract,
         Appendix,
+        Approval,
         Author,
         Authors,
         BlockQuote,
@@ -767,6 +772,7 @@ def _manual_parse(data: dict) -> "Document":
         CodeBlock,
         CoverPage,
         Document,
+        DocumentControl,
         Glossary,
         GlossaryEntry,
         Heading,
@@ -777,6 +783,7 @@ def _manual_parse(data: dict) -> "Document":
         NumberedList,
         PageBreak,
         PullQuote,
+        RevisionEntry,
         Stat,
         StatTiles,
         Table,
@@ -886,6 +893,21 @@ def _manual_parse(data: dict) -> "Document":
             GlossaryEntry(term=e.get("term", ""), definition=e.get("definition", ""))
             for e in b.get("entries", [])
             if isinstance(e, dict)
+        ],
+    )
+    type_map["document_control"] = lambda b: DocumentControl(
+        doc_id=b.get("doc_id"),
+        title=b.get("title"),
+        version=b.get("version"),
+        status=b.get("status"),
+        effective_date=b.get("effective_date"),
+        classification=b.get("classification"),
+        owner=b.get("owner"),
+        approvals=[
+            Approval(**a) for a in b.get("approvals", []) if isinstance(a, dict)
+        ],
+        revisions=[
+            RevisionEntry(**r) for r in b.get("revisions", []) if isinstance(r, dict)
         ],
     )
     type_map["appendix"] = lambda b: Appendix(
