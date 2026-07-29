@@ -1101,14 +1101,34 @@ class LayoutEngine:
         pad = 10.0
         inner = tile_w - 2 * pad
 
+        from ..spec import TextRun as _TextRun
+
+        reg_metrics = self._metrics(style)
+        bold_metrics = self._metrics(style, _TextRun("", bold=True))
+
+        def _fit(text: str, base: float, floor: float, m) -> float:
+            """Shrink the font so the widest word fits, never breaking a word.
+
+            Measures with the weight the value renders in, so a bold value
+            is not sized against the narrower regular metrics.
+            """
+            target = inner * 0.92
+            words = text.split() or [text]
+            widest = max((m.text_width(w, base) for w in words), default=0.0)
+            if widest <= target or widest <= 0 or target <= 0:
+                return base
+            return max(floor, base * target / widest)
+
         tiles: list = []
         content_h = 0.0
         for stat in stats:
+            value_size = _fit(stat.value, size * 1.9, size, bold_metrics)
+            label_size = _fit(stat.label.upper(), size * 0.78, size * 0.6, reg_metrics)
             value_lines = self._styled_lines(
-                stat.value, style, inner, size * 1.9, bold=True, color=accent
+                stat.value, style, inner, value_size, bold=True, color=accent
             )
             label_lines = self._styled_lines(
-                stat.label.upper(), style, inner, size * 0.78, color=muted
+                stat.label.upper(), style, inner, label_size, color=muted
             )
             delta_lines: list = []
             delta_color = muted

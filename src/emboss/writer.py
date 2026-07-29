@@ -81,6 +81,12 @@ _ROMAN_NUMERALS = (
 )
 
 
+_CAPTION_LABEL_RE = re.compile(
+    r"^\s*(figure|table|equation|listing|chart|diagram|exhibit|fig)\b\s*[\dA-Za-z.]*\s*[:.\-–—]",
+    re.IGNORECASE,
+)
+
+
 def roman(value: int, upper: bool = False) -> str:
     """Format a positive integer as a roman numeral, lowercase by default."""
     if value <= 0:
@@ -544,9 +550,11 @@ class Renderer:
                             element.alt_text = (
                                 f"{element.chart_type} chart: {element.title}"
                             )
-                        element.title = f"{entry.label}: {element.title}"
+                        if not _CAPTION_LABEL_RE.match(element.title):
+                            element.title = f"{entry.label}: {element.title}"
                 elif auto_number and getattr(element, "caption", None):
-                    element.caption = f"{entry.label}: {element.caption}"
+                    if not _CAPTION_LABEL_RE.match(element.caption):
+                        element.caption = f"{entry.label}: {element.caption}"
                 if isinstance(element, MathBlock):
                     element._assigned_number = entry.number
                 self._element_keys[id(element)] = entry.anchor
@@ -1128,7 +1136,14 @@ class Renderer:
                     page_spec.content_width,
                 )
             elif isinstance(element, MathBlock):
-                self._draw_math(stream, placed, page_index, root, font_registry)
+                self._draw_math(
+                    stream,
+                    placed,
+                    page_index,
+                    root,
+                    font_registry,
+                    page_spec.content_width,
+                )
             elif isinstance(element, BibliographyBlock):
                 self._draw_bibliography(stream, placed, page_index, root, font_registry)
             elif isinstance(element, SvgBlock):
@@ -2519,7 +2534,15 @@ class Renderer:
                 gid_map=body_metrics.gid_map,
             )
 
-    def _draw_math(self, stream, placed, page_index, root, registry) -> None:
+    def _draw_math(
+        self,
+        stream,
+        placed,
+        page_index,
+        root,
+        registry,
+        page_content_width: float = 468.0,
+    ) -> None:
         from .math_render import (
             MathExpression,
             render_math,
@@ -2553,7 +2576,7 @@ class Renderer:
 
         expr = MathExpression(source=element.source, display=element.display)
         baseline_y = placed.y - size
-        content_width = style.require("font_size") * 30
+        content_width = page_content_width
 
         node = parse_math(element.source)
         engine = MathLayoutEngine(base_size=size)

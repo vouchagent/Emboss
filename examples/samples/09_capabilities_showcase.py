@@ -43,6 +43,7 @@ doc.stat_tiles([
     {"label": "Look", "value": "Designed by default"},
     {"label": "Made by", "value": "Emboss itself"},
 ])
+
 doc.callout(
     "The pitch is not a feature list. It is that a non-designer, or a "
     "language model, can hand Emboss content and get back a document that "
@@ -87,8 +88,11 @@ doc.table(
     ],
     attach_data=True,
     headline="Bookings by region, with the source CSV attached",
-    source_line="Open the attachment in your PDF reader to get this table as data",
-    caption="Table 1: The numbers behind this table are embedded in the file.",
+    caption="The numbers behind this table are embedded in the file.",
+)
+doc.paragraph(
+    "To view it in Acrobat: View then Show/Hide then Side panels then "
+    "Attachments (or click the paperclip icon), then open table-1-data.csv."
 )
 doc.callout(
     "For an enterprise this closes a real gap. The figure an executive "
@@ -159,7 +163,7 @@ doc.diagram(
         {"src": "ledger", "dst": "queue"},
         {"src": "queue", "dst": "bank", "label": "T+1"},
     ],
-    caption="Figure 1: A workflow described as nodes and edges, laid out automatically.",
+    caption="A workflow described as nodes and edges, laid out automatically.",
 )
 
 # --------------------------------------------------------------------------
