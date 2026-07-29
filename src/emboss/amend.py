@@ -50,6 +50,7 @@ __all__ = [
     "amend_pdf",
     "prepare_signature",
     "amend_sign",
+    "amend_sign_pades",
     "revision_history",
     "coverage_report",
     "format_history",
@@ -596,13 +597,16 @@ def amend_pdf(
 # -- signature revisions -----------------------------------------------------
 
 
-def _build_signature_value(sig: SignatureField, timestamp: str) -> tuple[PdfDict, list]:
+def _build_signature_value(
+    sig: SignatureField, timestamp: str, *, pades: bool = False
+) -> tuple[PdfDict, list]:
     """Build a /V signature dict with a fixed-width /ByteRange placeholder."""
     byte_range = [_FixedInt(), _FixedInt(), _FixedInt(), _FixedInt()]
     value = PdfDict()
     value["Type"] = PdfName("Sig")
     value["Filter"] = PdfName("Adobe.PPKLite")
-    value["SubFilter"] = PdfName("adbe.pkcs7.detached")
+    subfilter = "ETSI.CAdES.detached" if pades else "adbe.pkcs7.detached"
+    value["SubFilter"] = PdfName(subfilter)
     if sig.signer_name:
         value["Name"] = sig.signer_name
     if sig.reason:
@@ -672,13 +676,16 @@ def prepare_signature(
     field_name: str = "Signature1",
     timestamp: str | None = None,
     enforce_docmdp: bool = True,
+    pades: bool = False,
 ) -> bytes:
     """Append a signature revision with a real /ByteRange, empty /Contents.
 
     The returned PDF is ready for external signing: its /ByteRange spans the
     whole file except the /Contents placeholder, and its prefix is *pdf_bytes*
     byte-for-byte. ``amend_sign`` calls this then fills /Contents with a PKCS#7
-    signature. Deterministic given a fixed ``timestamp``.
+    signature. Passing ``pades=True`` marks the field's /SubFilter as
+    ``ETSI.CAdES.detached`` for a PAdES-BASELINE signature. Deterministic given
+    a fixed ``timestamp``.
     """
     _ensure_not_encrypted(pdf_bytes)
     if enforce_docmdp:
@@ -699,7 +706,7 @@ def prepare_signature(
     stamp = timestamp or _DEFAULT_TIMESTAMP
 
     inc = _Increment(_next=base.size)
-    value, byte_range = _build_signature_value(sig, stamp)
+    value, byte_range = _build_signature_value(sig, stamp, pades=pades)
     value_ref = inc.add(value)
     root_ref = _wire_signature_field(inc, base, pdf_bytes, sig, value_ref)
 
@@ -761,6 +768,58 @@ def amend_sign(
         enforce_docmdp=enforce_docmdp,
     )
     return sign_pdf(prepared, key, cert, password)
+
+
+def amend_sign_pades(
+    pdf_bytes: bytes,
+    *,
+    cert: str,
+    key: str,
+    reason: str = "",
+    location: str = "",
+    name: str = "",
+    password: bytes | None = None,
+    page_index: int = 0,
+    rect: tuple[float, float, float, float] | None = None,
+    field_name: str = "Signature1",
+    timestamp: str | None = None,
+    enforce_docmdp: bool = True,
+    tsa_url: str | None = None,
+    timestamp_token: bytes | None = None,
+    signing_time=None,
+) -> bytes:
+    """Append a PAdES-BASELINE signed revision, reusing ``pades.sign_pdf_pades``.
+
+    Prepares a signature revision whose field is marked ``ETSI.CAdES.detached``
+    and whose /ByteRange covers every prior revision, then injects a CAdES-BES
+    CMS into the /Contents placeholder. Passing ``tsa_url`` or a pre-fetched
+    ``timestamp_token`` upgrades the signature from B-B to B-T. The result's
+    prefix is *pdf_bytes* byte-for-byte. Requires
+    ``pip install emboss-pdf[signing]``.
+    """
+    from .pades import sign_pdf_pades
+
+    prepared = prepare_signature(
+        pdf_bytes,
+        page_index=page_index,
+        rect=rect,
+        name=name,
+        reason=reason,
+        location=location,
+        field_name=field_name,
+        timestamp=timestamp,
+        enforce_docmdp=enforce_docmdp,
+        pades=True,
+    )
+    return sign_pdf_pades(
+        prepared,
+        key,
+        cert,
+        password,
+        tsa_url=tsa_url,
+        timestamp_token=timestamp_token,
+        signing_time=signing_time,
+    )
 
 
 # -- DocMDP enforcement ------------------------------------------------------

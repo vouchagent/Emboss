@@ -175,11 +175,22 @@ from .amend import (
     Revision,
     amend_pdf,
     amend_sign,
+    amend_sign_pades,
     coverage_report,
     format_history,
     prepare_signature,
     revision_history,
     verify_amended,
+)
+from .pades import (
+    PADES_SUBFILTER,
+    TimestampError,
+    build_cades_cms,
+    build_signing_certificate_v2,
+    build_signing_certificate_v2_attribute,
+    build_timestamp_request,
+    parse_timestamp_response,
+    sign_pdf_pades,
 )
 
 try:
@@ -362,9 +373,18 @@ __all__ = [
     "amend_pdf",
     "prepare_signature",
     "amend_sign",
+    "amend_sign_pades",
     "revision_history",
     "coverage_report",
     "format_history",
     "verify_amended",
+    "PADES_SUBFILTER",
+    "TimestampError",
+    "sign_pdf_pades",
+    "build_cades_cms",
+    "build_signing_certificate_v2",
+    "build_signing_certificate_v2_attribute",
+    "build_timestamp_request",
+    "parse_timestamp_response",
     "__version__",
 ]
