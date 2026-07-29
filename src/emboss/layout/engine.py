@@ -197,6 +197,8 @@ class LayoutEngine:
     NESTED_LIST_INDENT = 14.0
     BLOCKQUOTE_INDENT = 14.0
     FOOTNOTE_SEPARATION = 8.0
+    CHECKBOX_SIZE = 7.0
+    CHECKBOX_GAP = 5.0
 
     def __init__(
         self, fonts, sheet, hyphenator=None, breaker=None, optimize_layout=True
@@ -522,7 +524,10 @@ class LayoutEngine:
         indent = style.require("indent_left")
         metrics = self._metrics(style)
         size = self._size(style)
-        bullet_width = metrics.text_width(element.bullet + " ", size)
+        if getattr(element, "checked", None):
+            bullet_width = self.CHECKBOX_SIZE + self.CHECKBOX_GAP
+        else:
+            bullet_width = metrics.text_width(element.bullet + " ", size)
         usable = width - indent - bullet_width
 
         items, total = [], 0.0

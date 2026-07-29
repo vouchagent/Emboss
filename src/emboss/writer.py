@@ -1216,10 +1216,13 @@ class Renderer:
         root.children.append(list_el)
 
         metrics, size, key = self._resolve_font(style, None, registry)
-        bullet_width = metrics.text_width(element.bullet + " ", size)
+        checked = list(getattr(element, "checked", None) or [])
+        if checked:
+            bullet_width = LayoutEngine.CHECKBOX_SIZE + LayoutEngine.CHECKBOX_GAP
+        else:
+            bullet_width = metrics.text_width(element.bullet + " ", size)
         indent = style.require("indent_left")
         color = style.require("color")
-        checked = list(getattr(element, "checked", None) or [])
 
         y = placed.y
         for item_index, entry in enumerate(block.list_items):
