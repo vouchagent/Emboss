@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-07-29
+
+### Added
+- MCP server (`pip install emboss-pdf[mcp]`, `emboss-mcp`): makes Emboss
+  documents callable from an AI assistant over the Model Context Protocol
+  (standard FastMCP API). An assistant can generate PDFs and answer
+  questions about them from their embedded structure, not from guessing at
+  pixels. Query tools (`get_document_spec`, `get_document_text`,
+  `list_embedded_data` / `extract_embedded_data`, `extract_review_comments`,
+  `revision_history`, `verify_document`) return explicit found/available
+  signals so an out-of-document question is answered "not present", never
+  hallucinated. Editing tools (`edit_document_text`, `patch_node`,
+  `insert_block`, `remove_node`) let a user change a document without
+  regenerating it; every edit goes through the declarative spec, so the
+  result is re-validated and re-tagged and unchanged blocks keep their ids.
+- Factur-X / ZUGFeRD EN 16931 e-invoicing (`facturx.py`,
+  `Document.attach_facturx`): a visual invoice PDF that carries a valid
+  machine-readable CII invoice XML as a `factur-x.xml` /AF attachment on
+  PDF/A-3, with the ZUGFeRD/Factur-X XMP. `Invoice.validate()` reconciles
+  line nets, tax, and totals before any XML is produced.
+- Table arithmetic validation: a table with `verify_totals=True` is refused
+  if a Total row or column does not equal the sum of its cells
+  (`arithmetic.check_table_totals`, `parse_number`).
+
 ## [0.4.0] - 2026-07-29
 
 ### Added

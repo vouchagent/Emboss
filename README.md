@@ -831,6 +831,33 @@ doc = Document(
 - **Line numbering**: continuous line numbers in the left margin (court filings)
 - **Watermarks**: diagonal text overlay with configurable opacity
 
+### Factur-X / ZUGFeRD e-invoicing
+
+A visual invoice PDF can carry a machine-readable EN 16931 Cross Industry Invoice XML inside it, for the France B2B mandate (September 2026) and EU electronic invoicing. `Document.attach_facturx` embeds the XML as a `factur-x.xml` `/AF` attachment, forces PDF/A-3, and writes the ZUGFeRD/Factur-X XMP metadata.
+
+```python
+from emboss import Document, Invoice, Party, InvoiceLine
+
+invoice = Invoice(
+    invoice_number="INV-2026-001",
+    issue_date="20260115",
+    currency="EUR",
+    seller=Party(name="Acme GmbH", country_code="DE", vat_id="DE123456789"),
+    buyer=Party(name="Beispiel SA", country_code="FR"),
+    lines=[
+        InvoiceLine(name="Consulting", quantity="10", unit_price="150.00",
+                    net_amount="1500.00", tax_rate_percent="19"),
+    ],
+)
+
+doc = Document(title="Invoice INV-2026-001", style="finance")
+# ... render the human-readable invoice with tables/stat tiles ...
+doc.attach_facturx(invoice)          # embeds factur-x.xml, forces PDF/A-3
+doc.save("invoice.pdf")
+```
+
+`Invoice.validate()` (called before any XML is produced) reconciles the line net amounts, the per-rate tax, and the grand total, so an invoice whose numbers do not add up raises rather than emitting a non-conformant document. The default profile is EN 16931 (COMFORT); MINIMUM, BASIC, and EXTENDED select the guideline URN. `build_cii_xml(invoice)` returns the XML directly if you want to inspect or transmit it on its own.
+
 ### Custom Headers and Footers
 
 ```python

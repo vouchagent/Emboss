@@ -1,0 +1,80 @@
+---
+title: Factur-X / ZUGFeRD
+description: Embed an EN 16931 electronic-invoice XML inside a PDF/A-3 invoice
+---
+
+# Factur-X / ZUGFeRD e-invoicing
+
+A Factur-X (in Germany, ZUGFeRD) invoice is an ordinary human-readable PDF that also carries a machine-readable EN 16931 invoice XML inside it, so one file serves both a person and an accounts-payable system. This is the format behind the France B2B e-invoicing mandate (September 2026) and broader EU electronic invoicing.
+
+Emboss already produces PDF/A-3 with `/AF` file attachments and XMP metadata; `Document.attach_facturx` adds the standardized invoice layer on top.
+
+## Build an invoice
+
+```python
+from emboss import Document, Invoice, Party, InvoiceLine
+
+invoice = Invoice(
+    invoice_number="INV-2026-001",
+    issue_date="20260115",          # YYYYMMDD
+    currency="EUR",
+    seller=Party(name="Acme GmbH", country_code="DE", vat_id="DE123456789",
+                 postcode="10115", city="Berlin", street="Hauptstr. 1"),
+    buyer=Party(name="Beispiel SA", country_code="FR"),
+    lines=[
+        InvoiceLine(name="Consulting", quantity="10", unit_price="150.00",
+                    net_amount="1500.00", tax_rate_percent="19"),
+        InvoiceLine(name="License", quantity="1", unit_price="500.00",
+                    net_amount="500.00", tax_rate_percent="19"),
+    ],
+)
+```
+
+## Attach it to a document
+
+```python
+doc = Document(title="Invoice INV-2026-001", style="finance")
+doc.heading("Invoice INV-2026-001", level=1)
+# ... render the human-readable invoice with tables and stat tiles ...
+
+doc.attach_facturx(invoice)          # embeds factur-x.xml, forces PDF/A-3
+doc.save("invoice.pdf")
+```
+
+`attach_facturx`:
+
+- builds the EN 16931 Cross Industry Invoice XML and embeds it as `factur-x.xml` with `/AFRelationship /Alternative`,
+- sets `pdfa` so PDF/A part 3 is declared (PDF/A-3 permits arbitrary attachments), and
+- writes the ZUGFeRD/Factur-X XMP: the `fx` namespace values (DocumentType, DocumentFileName, Version, ConformanceLevel) plus the matching `pdfaExtension` schema.
+
+## Arithmetic integrity
+
+`Invoice.validate()` runs before any XML is produced (from `build_cii_xml` and `attach_facturx`). It raises if:
+
+- a line's `net_amount` does not equal `quantity * unit_price`,
+- the sum of line nets does not equal the tax basis,
+- a tax-rate group's tax does not equal `basis * rate / 100`, or
+- the grand total does not equal basis + tax.
+
+So an invoice whose numbers do not reconcile is rejected rather than turned into a non-conformant document.
+
+## Profiles
+
+The default is **EN 16931** (COMFORT), with per-line detail. Other ZUGFeRD/Factur-X profiles select the guideline URN:
+
+| Profile | Guideline |
+|---------|-----------|
+| `MINIMUM` | `urn:factur-x.eu:1p0:minimum` |
+| `BASIC` | `urn:cen.eu:en16931:2017#compliant#urn:factur-x.eu:1p0:basic` |
+| `EN 16931` (default) | `urn:cen.eu:en16931:2017` |
+| `EXTENDED` | `urn:cen.eu:en16931:2017#conformant#urn:factur-x.eu:1p0:extended` |
+
+```python
+from emboss import build_cii_xml
+
+xml = build_cii_xml(invoice, profile="EN 16931")   # inspect or transmit directly
+```
+
+## Scope
+
+The implemented profile emits standard-rated (category `S`) tax. Per-line reduced/exempt/zero categories, payment terms, delivery dates, document-level allowances and charges, and line-level discounts are not modeled; amounts are fixed at two decimals and quantities at four, with a single currency per invoice.
