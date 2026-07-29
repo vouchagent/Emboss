@@ -188,6 +188,115 @@ def tool_verify_document(pdf_path: str) -> dict:
     }
 
 
+def tool_edit_document_text(
+    pdf_path: str, node_id: str, new_text: str, output_path: str
+) -> dict:
+    """Edit one block's text by node id and re-render, keeping everything else.
+
+    Works because a self-describing Emboss PDF carries its own spec: the
+    document is recovered, the one block is patched, and the result is
+    re-rendered. Only that block changes; the rest stays byte-identical.
+    """
+    from .review import _find, _text_field
+    from .spec import Document
+
+    doc = Document.from_pdf(pdf_path)
+    doc.layout_map()  # assign node ids so the patch resolves
+    element = _find(doc, node_id)
+    field = _text_field(element)
+    if field is None:
+        return {
+            "error": f"node {node_id} is a {type(element).__name__} with no "
+            "editable text field; use patch_node for other fields"
+        }
+    edited = doc.patch(node_id, **{field: new_text})
+    Path(output_path).write_bytes(edited.render(embed_spec=True))
+    return {"output_path": output_path, "node_id": node_id, "edited_field": field}
+
+
+def tool_patch_node(
+    pdf_path: str, node_id: str, changes: dict, output_path: str
+) -> dict:
+    """Patch any fields of one block by node id and re-render (advanced).
+
+    ``changes`` maps element fields to new values, e.g. {"chart_type": "line"}
+    for a chart or {"content": "..."} for a paragraph. Everything else stays.
+    """
+    from .spec import Document
+
+    doc = Document.from_pdf(pdf_path)
+    doc.layout_map()
+    edited = doc.patch(node_id, **changes)
+    Path(output_path).write_bytes(edited.render(embed_spec=True))
+    return {"output_path": output_path, "node_id": node_id, "changed": sorted(changes)}
+
+
+def _embedded_spec(pdf_path: str) -> dict | None:
+    files = _attachments(_read_pdf(pdf_path))
+    raw = files.get("emboss-spec.json")
+    return json.loads(raw.decode("utf-8")) if raw else None
+
+
+def tool_insert_block(
+    pdf_path: str, block: dict, output_path: str, after_node_id: str | None = None
+) -> dict:
+    """Add a new block to a document and re-render, keeping the rest intact.
+
+    Adds a section (or any block) to the document's own spec, then re-renders.
+    Because the spec is declarative, Emboss re-validates, re-paginates, and
+    re-tags the whole document, so the structure and accessibility stay
+    correct by construction; every unchanged block keeps its stable id.
+    ``after_node_id`` places the block after that node, or at the end if None.
+    """
+    from .generate import parse_spec_dict
+
+    spec = _embedded_spec(pdf_path)
+    if spec is None:
+        return {"error": "no embedded spec; render with embed_spec=True first"}
+    content = spec.setdefault("content", [])
+    if after_node_id is None:
+        content.append(block)
+        position = len(content) - 1
+    else:
+        idx = next(
+            (
+                i
+                for i, b in enumerate(content)
+                if isinstance(b, dict) and b.get("id") == after_node_id
+            ),
+            None,
+        )
+        if idx is None:
+            return {"error": f"no block with id {after_node_id!r}"}
+        content.insert(idx + 1, block)
+        position = idx + 1
+    doc = parse_spec_dict(spec)
+    Path(output_path).write_bytes(doc.render(embed_spec=True))
+    return {
+        "output_path": output_path,
+        "inserted": block.get("type", "block"),
+        "position": position,
+        "total_blocks": len(content),
+    }
+
+
+def tool_remove_node(pdf_path: str, node_id: str, output_path: str) -> dict:
+    """Remove one block by node id and re-render, keeping the rest intact."""
+    from .generate import parse_spec_dict
+
+    spec = _embedded_spec(pdf_path)
+    if spec is None:
+        return {"error": "no embedded spec; render with embed_spec=True first"}
+    content = spec.get("content", [])
+    kept = [b for b in content if not (isinstance(b, dict) and b.get("id") == node_id)]
+    if len(kept) == len(content):
+        return {"error": f"no block with id {node_id!r}"}
+    spec["content"] = kept
+    doc = parse_spec_dict(spec)
+    Path(output_path).write_bytes(doc.render(embed_spec=True))
+    return {"output_path": output_path, "removed": node_id, "total_blocks": len(kept)}
+
+
 def tool_get_spec_schema() -> dict:
     """Return the EmbossSpec JSON Schema, so a spec can be authored correctly."""
     from .adapters.pydantic_schema import generate_json_schema
@@ -293,6 +402,71 @@ _TOOLS: dict = {
             "type": "object",
             "properties": {"pdf_path": {"type": "string"}},
             "required": ["pdf_path"],
+        },
+    ),
+    "edit_document_text": (
+        tool_edit_document_text,
+        "Edit one block's text by node id and re-render. Recovers the document "
+        "from its embedded spec, patches just that block, and keeps the rest "
+        "byte-identical. Find the node id with get_document_spec first.",
+        {
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string"},
+                "node_id": {"type": "string"},
+                "new_text": {"type": "string"},
+                "output_path": {"type": "string"},
+            },
+            "required": ["pdf_path", "node_id", "new_text", "output_path"],
+        },
+    ),
+    "patch_node": (
+        tool_patch_node,
+        "Patch any fields of one block by node id and re-render (advanced): "
+        "e.g. a chart's type/colors or a paragraph's content. Everything else "
+        "stays unchanged.",
+        {
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string"},
+                "node_id": {"type": "string"},
+                "changes": {"type": "object"},
+                "output_path": {"type": "string"},
+            },
+            "required": ["pdf_path", "node_id", "changes", "output_path"],
+        },
+    ),
+    "insert_block": (
+        tool_insert_block,
+        "Add a new block (section, paragraph, table, chart, ...) to a document "
+        "and re-render. The whole document is re-validated, re-paginated, and "
+        "re-tagged, so structure and accessibility stay correct; unchanged "
+        "blocks keep their ids. Use get_spec_schema for the block shape.",
+        {
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string"},
+                "block": {"type": "object", "description": "One EmbossSpec block"},
+                "after_node_id": {
+                    "type": "string",
+                    "description": "Insert after this node (end of document if omitted)",
+                },
+                "output_path": {"type": "string"},
+            },
+            "required": ["pdf_path", "block", "output_path"],
+        },
+    ),
+    "remove_node": (
+        tool_remove_node,
+        "Remove one block by node id and re-render; everything else is kept.",
+        {
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string"},
+                "node_id": {"type": "string"},
+                "output_path": {"type": "string"},
+            },
+            "required": ["pdf_path", "node_id", "output_path"],
         },
     ),
     "get_spec_schema": (

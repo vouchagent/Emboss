@@ -118,6 +118,121 @@ class TestReviewTool:
         assert c["resolution"] == "exact"
 
 
+class TestEditTools:
+    def test_edit_document_text(self, tmp_path):
+        spec = {
+            "title": "Doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "text": "Q3 exposure exceeds four million.",
+                    "id": "p1",
+                }
+            ],
+        }
+        src = str(tmp_path / "src.pdf")
+        dispatch("render_document", {"spec": spec, "output_path": src})
+        out = str(tmp_path / "edited.pdf")
+        result = dispatch(
+            "edit_document_text",
+            {
+                "pdf_path": src,
+                "node_id": "p1",
+                "new_text": "Q3 exposure is 2.8 million.",
+                "output_path": out,
+            },
+        )
+        assert result["edited_field"] == "content"
+        text = dispatch("get_document_text", {"pdf_path": out})["nodes"]["p1"]
+        assert text == "Q3 exposure is 2.8 million."
+
+    def test_patch_node_changes_chart(self, tmp_path):
+        spec = {
+            "title": "Doc",
+            "content": [
+                {
+                    "type": "chart",
+                    "chart_type": "bar",
+                    "labels": ["A", "B"],
+                    "values": [1, 2],
+                    "title": "C",
+                    "id": "c1",
+                }
+            ],
+        }
+        src = str(tmp_path / "src.pdf")
+        dispatch("render_document", {"spec": spec, "output_path": src})
+        out = str(tmp_path / "patched.pdf")
+        result = dispatch(
+            "patch_node",
+            {
+                "pdf_path": src,
+                "node_id": "c1",
+                "changes": {"chart_type": "line"},
+                "output_path": out,
+            },
+        )
+        assert "chart_type" in result["changed"]
+        spec_back = dispatch("get_document_spec", {"pdf_path": out})["spec"]
+        chart = next(b for b in spec_back["content"] if b.get("id") == "c1")
+        assert chart["chart_type"] == "line"
+
+
+class TestStructuralEdits:
+    def _two_block_pdf(self, tmp_path):
+        spec = {
+            "title": "Doc",
+            "content": [
+                {"type": "heading", "text": "Intro", "level": 1, "id": "h1"},
+                {"type": "paragraph", "text": "Body.", "id": "p1"},
+            ],
+        }
+        out = str(tmp_path / "src.pdf")
+        dispatch("render_document", {"spec": spec, "output_path": out})
+        return out
+
+    def test_insert_block_keeps_ids_and_stays_tagged(self, tmp_path):
+        src = self._two_block_pdf(tmp_path)
+        out = str(tmp_path / "ins.pdf")
+        result = dispatch(
+            "insert_block",
+            {
+                "pdf_path": src,
+                "after_node_id": "p1",
+                "block": {"type": "heading", "text": "Risks", "level": 1, "id": "h2"},
+                "output_path": out,
+            },
+        )
+        assert result["total_blocks"] == 3
+        spec = dispatch("get_document_spec", {"pdf_path": out})["spec"]
+        assert [b.get("id") for b in spec["content"]] == ["h1", "p1", "h2"]
+        # Structure stays valid and accessibility-tagged after the edit.
+        assert dispatch("verify_document", {"pdf_path": out})["tagged"]
+
+    def test_remove_node(self, tmp_path):
+        src = self._two_block_pdf(tmp_path)
+        out = str(tmp_path / "rm.pdf")
+        result = dispatch(
+            "remove_node", {"pdf_path": src, "node_id": "p1", "output_path": out}
+        )
+        assert result["removed"] == "p1"
+        spec = dispatch("get_document_spec", {"pdf_path": out})["spec"]
+        assert [b.get("id") for b in spec["content"]] == ["h1"]
+
+    def test_insert_unknown_anchor_errors(self, tmp_path):
+        src = self._two_block_pdf(tmp_path)
+        result = dispatch(
+            "insert_block",
+            {
+                "pdf_path": src,
+                "after_node_id": "nope",
+                "block": {"type": "paragraph", "text": "x"},
+                "output_path": str(tmp_path / "x.pdf"),
+            },
+        )
+        assert "error" in result
+
+
 class TestDispatch:
     def test_unknown_tool_raises(self):
         with pytest.raises(ValueError, match="unknown tool"):

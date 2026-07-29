@@ -90,12 +90,34 @@ Restart Claude Desktop. The Emboss tools now appear in the client.
 
    The assistant calls `revision_history`, which flags any content appended after a signature that no signature covers.
 
+## Editing an existing PDF
+
+A business user does not have to regenerate a whole document to change it. Because an Emboss PDF carries its own spec and a stable id on every block, an edit is a real node-scoped change, not an overlay.
+
+**Who supplies the intelligence?** The assistant (Claude, the MCP client) is the language model. It reads the document's structure with `get_document_spec`, decides *what* to change and *to what*, and calls a deterministic edit tool. The server never runs its own model; it applies exact edits. So "make the heading punchier" is the assistant's judgement, and the byte-clean patch is the server's.
+
+- **Change existing text or a block's fields.** `edit_document_text` rewrites one paragraph or heading by id; `patch_node` changes any field (a chart's type or colors, say). Everything else stays byte-identical.
+
+  > "Reword the heading of report.pdf to be more direct."
+
+  The assistant finds the heading's node id, writes the new wording, and calls `edit_document_text`.
+
+- **Add or remove sections.** `insert_block` adds a section (or any block) after a given node; `remove_node` deletes one.
+
+  > "Add a Risks section after the summary in report.pdf."
+
+**How does the structure stay intact when you add sections or edit a chart?** Every edit goes through the document's declarative spec, and Emboss rebuilds the PDF from that spec on each render: it re-validates, re-paginates, re-tags for PDF/UA, and re-embeds the spec and text index. You never hand-edit PDF bytes, so a structurally broken or untagged document cannot result. Unchanged blocks keep their stable ids (so cross-references, the layout map, and diffs stay coherent), new blocks get fresh deterministic ids, and validation -- including table-total arithmetic -- runs every time. For a free-form restructure, the assistant can also read the spec with `get_document_spec`, edit the JSON, and call `render_document`; the same guarantees apply.
+
 ## Tools
 
 | Tool | What it does |
 |------|--------------|
 | `render_document` | Render an EmbossSpec JSON document to a PDF (self-describing by default) |
 | `render_markdown` | Render a Markdown document to a PDF |
+| `edit_document_text` | Rewrite one paragraph or heading by node id; the rest stays byte-identical |
+| `patch_node` | Change any fields of one block by node id (e.g. a chart's type or colors) |
+| `insert_block` | Add a section or block after a given node; the document is re-tagged and re-validated |
+| `remove_node` | Remove one block by node id |
 | `get_document_spec` | Return the exact EmbossSpec JSON embedded in a PDF |
 | `get_document_text` | Return each node's exact text from the embedded text-position index |
 | `list_embedded_data` | List embedded files: the spec, layout/text maps, and any table/chart CSVs |
