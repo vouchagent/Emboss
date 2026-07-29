@@ -113,6 +113,49 @@ def tool_get_document_text(pdf_path: str) -> dict:
     }
 
 
+def tool_search_document(pdf_path: str, query: str) -> dict:
+    """Find the nodes whose text contains a query, for grounded answers.
+
+    Returns the matching nodes and their exact text. An empty ``matches`` is a
+    definite "this document does not contain that", so an assistant can say so
+    instead of guessing. Requires an embedded text map (embed_spec=True).
+    """
+    from .textmap import TextIndex
+
+    index = TextIndex.from_pdf(_read_pdf(pdf_path))
+    if index is None:
+        return {
+            "found": False,
+            "reason": "no emboss-textmap.json; render with embed_spec=True",
+        }
+    needle = (query or "").lower().strip()
+    matches = []
+    if needle:
+        for node_id in index.node_ids():
+            text = index.node_text(node_id)
+            if needle in text.lower():
+                matches.append({"node_id": node_id, "text": text})
+    if matches:
+        message = (
+            f"Found {len(matches)} passage(s) in this document matching "
+            f"{query!r}. Answer only from the matched text below."
+        )
+    else:
+        message = (
+            f"This document contains no text matching {query!r}. The "
+            "information is not present in the document (it may be worded "
+            "differently, or simply not covered). Do not answer from outside "
+            "the document; tell the user it is not in this document, and "
+            "optionally offer what the document does cover via get_document_text."
+        )
+    return {
+        "query": query,
+        "match_count": len(matches),
+        "matches": matches,
+        "message": message,
+    }
+
+
 def tool_list_embedded_data(pdf_path: str) -> dict:
     """List the files embedded in a PDF: spec, maps, and any table/chart CSVs."""
     files = _attachments(_read_pdf(pdf_path))
@@ -128,7 +171,12 @@ def tool_extract_embedded_data(pdf_path: str, name: str) -> dict:
     files = _attachments(_read_pdf(pdf_path))
     data = files.get(name)
     if data is None:
-        return {"found": False, "available": sorted(files), "reason": f"no {name!r}"}
+        return {
+            "found": False,
+            "available": sorted(files),
+            "message": f"No embedded file named {name!r} in this PDF. The files "
+            "it does carry are listed in 'available'.",
+        }
     try:
         text = data.decode("utf-8")
         return {"found": True, "name": name, "text": text}
@@ -351,6 +399,20 @@ _TOOLS: dict = {
             "type": "object",
             "properties": {"pdf_path": {"type": "string"}},
             "required": ["pdf_path"],
+        },
+    ),
+    "search_document": (
+        tool_search_document,
+        "Find the nodes whose text contains a query. An empty result means the "
+        "document does not contain it, so answer from matches only and say "
+        "'not in this document' when there are none, rather than guessing.",
+        {
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string"},
+                "query": {"type": "string"},
+            },
+            "required": ["pdf_path", "query"],
         },
     ),
     "list_embedded_data": (

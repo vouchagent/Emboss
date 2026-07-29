@@ -79,6 +79,24 @@ class TestRenderAndQuery:
         result = dispatch("get_spec_schema", {})
         assert "schema" in result
 
+    def test_search_hit_and_miss_are_grounded(self, tmp_path):
+        spec = {
+            "title": "Doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "text": "Bookings grew fourteen percent.",
+                    "id": "p1",
+                }
+            ],
+        }
+        out = str(tmp_path / "s.pdf")
+        dispatch("render_document", {"spec": spec, "output_path": out})
+        hit = dispatch("search_document", {"pdf_path": out, "query": "fourteen"})
+        assert hit["match_count"] == 1 and hit["matches"][0]["node_id"] == "p1"
+        miss = dispatch("search_document", {"pdf_path": out, "query": "quantum"})
+        assert miss["match_count"] == 0 and miss["matches"] == []
+
 
 class TestReviewTool:
     def test_extract_review_comments(self, tmp_path):
