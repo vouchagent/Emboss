@@ -371,6 +371,48 @@ doc.table(
     headline="Quarterly results, figures in thousands",
     source_line="Source: audited management accounts",
 )
+doc.paragraph(
+    "A financial table can be checked as it renders. With verify_totals set, "
+    "Emboss refuses to produce the document if a Total row does not equal the "
+    "sum of its cells, so an internally inconsistent statement never ships."
+)
+doc.table(
+    headers=["Segment", "Bookings", "Costs", "Margin"],
+    rows=[
+        ["Platform", "12,400", "7,100", "5,300"],
+        ["Services", "6,800", "4,200", "2,600"],
+        ["Total", "19,200", "11,300", "7,900"],
+    ],
+    verify_totals=True,
+    headline="Totals verified as the page renders",
+)
+
+# --------------------------------------------------------------------------
+doc.heading("Compliance and standards, built in", level=1)
+doc.paragraph(
+    "One engine covers the standards an enterprise document has to meet, and "
+    "every conformance claim is checkable against the real veraPDF validator "
+    "in continuous integration, not a simulated check."
+)
+doc.table(
+    headers=["Standard", "For", "Driver"],
+    rows=[
+        ["PDF/UA-1", "Accessibility", "EU Accessibility Act, Section 508"],
+        ["PDF/A-2b, 3b", "Archival", "Records retention, filing ingest"],
+        ["Factur-X / ZUGFeRD", "E-invoicing", "France B2B mandate, Sept 2026"],
+        ["PAdES B-B / B-T", "E-signatures", "eIDAS (EU)"],
+        ["PDF/X-4", "Print production", "Commercial print"],
+        ["WTPDF 1.0", "Reuse for RAG", "AI and data pipelines"],
+    ],
+    headline="Standards and regulations, in one library",
+)
+doc.paragraph(
+    "An invoice carries its EN 16931 XML inside the PDF for the France mandate "
+    "(doc.attach_facturx), and a document can be signed with an "
+    "eIDAS-recognized PAdES signature that appends without rewriting prior "
+    "bytes (sign_pdf_pades), so a coverage check can later prove nothing was "
+    "added after signing that no signature covers."
+)
 
 # --------------------------------------------------------------------------
 doc.heading("What it saves", level=1)
