@@ -1,0 +1,1929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emboss PDF Library - Evaluation &amp; Comparative Analysis</title>
+    <style>
+        :root {
+            --primary: #0052CC;
+            --primary-dark: #003d99;
+            --accent: #FF991F;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --code-bg: #1e1e2e;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 48px 0;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+
+        .header .meta {
+            margin-top: 16px;
+            font-size: 0.9rem;
+            opacity: 0.7;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .nav-bar {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 12px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .nav-bar .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .nav-bar a {
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 4px 12px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .nav-bar a:hover {
+            background: #e8f0fe;
+        }
+
+        section {
+            margin: 40px 0;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: var(--primary);
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 3px solid var(--accent);
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            color: var(--primary-dark);
+            margin: 24px 0 12px;
+        }
+
+        h4 {
+            font-size: 1.1rem;
+            color: var(--text);
+            margin: 16px 0 8px;
+        }
+
+        p {
+            margin-bottom: 12px;
+            color: var(--text);
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 24px;
+            margin: 24px 0;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
+        }
+
+        .stat-card .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-card .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background: var(--primary);
+            color: white;
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        th:first-child { border-radius: 8px 0 0 0; }
+        th:last-child { border-radius: 0 8px 0 0; }
+
+        td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tr:nth-child(even) { background: #f1f5f9; }
+        tr:hover { background: #e8f0fe; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-yes {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-no {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge-partial {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-limited {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-unique {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .badge-best {
+            background: #dcfce7;
+            color: #166534;
+            border: 2px solid #22c55e;
+        }
+
+        .highlight-row td {
+            background: #e8f0fe !important;
+            font-weight: 600;
+        }
+
+        .code-block {
+            background: var(--code-bg);
+            color: #cdd6f4;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.7;
+            overflow-x: auto;
+            margin: 16px 0;
+        }
+
+        .code-block .keyword { color: #cba6f7; }
+        .code-block .string { color: #a6e3a1; }
+        .code-block .comment { color: #6c7086; font-style: italic; }
+        .code-block .function { color: #89b4fa; }
+        .code-block .number { color: #fab387; }
+
+        .pros-cons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 16px 0;
+        }
+
+        .pros, .cons {
+            padding: 16px;
+            border-radius: 8px;
+        }
+
+        .pros {
+            background: #f0fdf4;
+            border-left: 4px solid var(--success);
+        }
+
+        .cons {
+            background: #fef2f2;
+            border-left: 4px solid var(--danger);
+        }
+
+        .pros h4, .cons h4 {
+            margin-top: 0;
+        }
+
+        .pros li, .cons li {
+            margin: 6px 0;
+            padding-left: 4px;
+        }
+
+        ul, ol {
+            padding-left: 24px;
+            margin-bottom: 12px;
+        }
+
+        li {
+            margin: 4px 0;
+        }
+
+        .callout {
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 16px 0;
+            border-left: 4px solid;
+        }
+
+        .callout-info {
+            background: #eff6ff;
+            border-color: var(--primary);
+        }
+
+        .callout-success {
+            background: #f0fdf4;
+            border-color: var(--success);
+        }
+
+        .callout-warning {
+            background: #fffbeb;
+            border-color: var(--warning);
+        }
+
+        .rating-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rating-bar .bar {
+            flex: 1;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .rating-bar .bar .fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s;
+        }
+
+        .rating-bar .score {
+            font-weight: 700;
+            font-size: 0.85rem;
+            min-width: 36px;
+            text-align: right;
+        }
+
+        .verdict-box {
+            background: linear-gradient(135deg, #eff6ff, #e0e7ff);
+            border: 2px solid var(--primary);
+            border-radius: 12px;
+            padding: 32px;
+            margin: 32px 0;
+            text-align: center;
+        }
+
+        .verdict-box h3 {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+        }
+
+        .footer {
+            background: var(--primary-dark);
+            color: white;
+            padding: 32px 0;
+            text-align: center;
+            margin-top: 48px;
+        }
+
+        .footer p {
+            color: rgba(255,255,255,0.7);
+            font-size: 0.85rem;
+        }
+
+        .toc-list {
+            columns: 2;
+            column-gap: 32px;
+        }
+
+        .toc-list li {
+            break-inside: avoid;
+        }
+
+        .toc-list a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .toc-list a:hover {
+            text-decoration: underline;
+        }
+
+        .sample-output {
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 16px 0;
+        }
+
+        .sample-output .output-header {
+            background: #1e293b;
+            color: #22c55e;
+            padding: 12px 16px;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .sample-output .output-body {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 16px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            white-space: pre;
+        }
+
+        .output-pass { color: #22c55e; }
+        .output-info { color: #60a5fa; }
+
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.8rem; }
+            .pros-cons { grid-template-columns: 1fr; }
+            .card-grid { grid-template-columns: 1fr; }
+            .toc-list { columns: 1; }
+            .stat-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media print {
+            .nav-bar { display: none; }
+            .header { padding: 24px 0; }
+            section { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="container">
+        <h1>Emboss PDF Library</h1>
+        <div class="subtitle">Evaluation Report &amp; Comparative Analysis</div>
+        <div class="meta">Prepared by Gaurav Gupta | July 2026 | POC Assessment</div>
+    </div>
+</div>
+
+<nav class="nav-bar">
+    <div class="container">
+        <a href="#overview">Overview</a>
+        <a href="#capabilities">Capabilities</a>
+        <a href="#sample-app">Sample App</a>
+        <a href="#comparison">Comparison</a>
+        <a href="#feature-matrix">Feature Matrix</a>
+        <a href="#ratings">Ratings</a>
+        <a href="#code-comparison">Code Comparison</a>
+        <a href="#unique">Unique Features</a>
+        <a href="#gaps">Gaps &amp; Risks</a>
+        <a href="#verdict">Verdict</a>
+    </div>
+</nav>
+
+<div class="container">
+
+    <!-- TABLE OF CONTENTS -->
+    <section>
+        <div class="card">
+            <h3>Table of Contents</h3>
+            <ol class="toc-list">
+                <li><a href="#overview">Executive Overview</a></li>
+                <li><a href="#capabilities">Emboss Capabilities</a></li>
+                <li><a href="#sample-app">Sample Application Results</a></li>
+                <li><a href="#comparison">Library-by-Library Comparison</a></li>
+                <li><a href="#feature-matrix">Feature Matrix</a></li>
+                <li><a href="#ratings">Dimensional Ratings</a></li>
+                <li><a href="#code-comparison">Code Comparison</a></li>
+                <li><a href="#unique">Unique Differentiators</a></li>
+                <li><a href="#standards">Standards &amp; Compliance</a></li>
+                <li><a href="#gaps">Gaps, Issues &amp; Risks</a></li>
+                <li><a href="#verdict">Verdict &amp; Recommendation</a></li>
+            </ol>
+        </div>
+    </section>
+
+    <!-- 1. EXECUTIVE OVERVIEW -->
+    <section id="overview">
+        <h2>1. Executive Overview</h2>
+        <p>
+            <strong>Emboss</strong> is a Python PDF generation library that treats a PDF as structured, self-describing data
+            with a deterministic, accessible, verifiable lifecycle. It uses a native typesetting engine (Knuth-Plass line breaking),
+            produces byte-identical output across runs, and generates PDF/UA accessibility tags by default.
+        </p>
+        <p>
+            This report evaluates Emboss against five established Python PDF libraries: <strong>ReportLab</strong>,
+            <strong>WeasyPrint</strong>, <strong>FPDF2</strong>, <strong>borb</strong>, and <strong>xhtml2pdf</strong>.
+        </p>
+
+        <div class="stat-grid">
+            <div class="stat-card">
+                <div class="stat-value">1.1.0</div>
+                <div class="stat-label">Current Version</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">2,127</div>
+                <div class="stat-label">Test Cases</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">1</div>
+                <div class="stat-label">Hard Dependency (fonttools)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">~50ms</div>
+                <div class="stat-label">10-Page Render Time</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">Apache 2.0</div>
+                <div class="stat-label">License</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">Python 3.10+</div>
+                <div class="stat-label">Requirement</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 2. EMBOSS CAPABILITIES -->
+    <section id="capabilities">
+        <h2>2. Emboss Capabilities</h2>
+
+        <div class="card-grid">
+            <div class="card">
+                <h4>Core Document Elements</h4>
+                <ul>
+                    <li>Headings (6 levels), paragraphs, rich text runs</li>
+                    <li>Bullet and numbered lists</li>
+                    <li>Tables with striping, alignment, captions, cell spanning</li>
+                    <li>Images (PNG, JPEG) with captions</li>
+                    <li>Horizontal rules and page breaks</li>
+                    <li>Footnotes with auto-numbering</li>
+                    <li>Table of contents generation</li>
+                    <li>Cross-references and auto-numbering</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Typography Engine</h4>
+                <ul>
+                    <li>Knuth-Plass optimal line breaking</li>
+                    <li>Knuth-Liang hyphenation</li>
+                    <li>fi/fl/ffi/ffl ligature substitution</li>
+                    <li>GPOS kerning from OpenType tables</li>
+                    <li>CJK text support with CIDFont subsetting</li>
+                    <li>Base-14 + custom TrueType/OpenType fonts</li>
+                    <li>Bundled OFL font set</li>
+                    <li>Deterministic number formatting</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Visualizations</h4>
+                <ul>
+                    <li>Bar, line, pie, stacked bar charts</li>
+                    <li>Node-and-edge diagrams (SVG-based)</li>
+                    <li>SVG embedding and rendering</li>
+                    <li>LaTeX math notation rendering</li>
+                    <li>MathML (Presentation) parsing</li>
+                    <li>Syntax-highlighted code blocks</li>
+                    <li>Chart fact extraction and caption verification</li>
+                    <li>Data binding: CSV to tables/charts</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Enterprise &amp; Compliance</h4>
+                <ul>
+                    <li>PDF/UA-1 accessibility tagging (default)</li>
+                    <li>PDF/A-2b, PDF/A-3b archival output</li>
+                    <li>Factur-X / ZUGFeRD e-invoicing</li>
+                    <li>PAdES B-B / B-T digital signatures</li>
+                    <li>PKCS#7, DocMDP certification signatures</li>
+                    <li>Content redaction</li>
+                    <li>Bates numbering, line numbers, watermarks</li>
+                    <li>Interactive AcroForm fields</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Self-Describing PDFs</h4>
+                <ul>
+                    <li>Embedded spec for full document recovery</li>
+                    <li>Per-character text index</li>
+                    <li>Node-keyed document diff and redline</li>
+                    <li>Reproducibility manifest</li>
+                    <li>Node-scoped patching (edit one paragraph)</li>
+                    <li>Annotation round-trip</li>
+                    <li>Incremental amendment with signature coverage</li>
+                    <li>AI provenance / content credentials</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>AI &amp; Integration</h4>
+                <ul>
+                    <li>MCP server for Claude / LLM integration</li>
+                    <li>EmbossSpec JSON format for structured generation</li>
+                    <li>Markdown-to-PDF parser</li>
+                    <li>HTML export adapter</li>
+                    <li>DOCX export adapter</li>
+                    <li>Pydantic JSON Schema for LLM tooling</li>
+                    <li>Prompt generation for LLM document creation</li>
+                    <li>Grounded Q&A (explicit "not in this document")</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. SAMPLE APPLICATION RESULTS -->
+    <section id="sample-app">
+        <h2>3. Sample Application Results</h2>
+        <p>
+            A sample application was built using Emboss to demonstrate its capabilities. The application generates a
+            multi-page PDF showcasing typography, tables, charts, code blocks, math notation, diagrams, callouts,
+            footnotes, and bibliography.
+        </p>
+
+        <div class="sample-output">
+            <div class="output-header">$ python sample_app.py</div>
+            <div class="output-body">============================================================
+  Emboss Sample Application
+  Generating comprehensive capability showcase...
+============================================================
+
+============================================================
+  Emboss Sample Output
+============================================================
+  <span class="output-pass">[PASS]</span> valid_header
+  <span class="output-pass">[PASS]</span> has_eof
+  <span class="output-pass">[PASS]</span> has_xref
+  <span class="output-pass">[PASS]</span> has_catalog
+  <span class="output-pass">[PASS]</span> has_pages
+  <span class="output-pass">[PASS]</span> has_font
+  <span class="output-pass">[PASS]</span> is_tagged
+  <span class="output-pass">[PASS]</span> has_title
+  <span class="output-pass">[PASS]</span> has_lang
+  <span class="output-info">[INFO]</span> size_bytes: 46,007
+
+  Result: 9/9 checks passed
+  Size: 46,007 bytes (44.9 KB)
+
+  Determinism Check:
+  <span class="output-pass">[PASS]</span> Two renders produced identical bytes
+
+  Total time: 0.103 seconds
+  Output: emboss_sample_output.pdf
+============================================================</div>
+        </div>
+
+        <div class="callout callout-success">
+            <strong>Key Results:</strong> All 9 structural checks passed. The PDF is PDF/UA tagged, has proper metadata,
+            and two independent renders produced byte-identical output, confirming determinism. Total generation time
+            was 103 milliseconds for a multi-page document with charts, diagrams, math, code blocks, and tables.
+        </div>
+
+        <h3>Sample Code (Excerpt)</h3>
+        <div class="code-block"><span class="keyword">from</span> emboss <span class="keyword">import</span> Document, TextRun, TableCell, Chart
+
+doc = Document(
+    title=<span class="string">"Emboss Sample Application"</span>,
+    author=<span class="string">"Gaurav Gupta"</span>,
+    style=<span class="string">"corporate"</span>,
+    tagged=<span class="keyword">True</span>,       <span class="comment"># PDF/UA accessibility</span>
+    toc=<span class="keyword">True</span>,          <span class="comment"># Auto table of contents</span>
+    page_numbers=<span class="keyword">True</span>,
+)
+
+<span class="comment"># Rich text with mixed formatting</span>
+doc.heading(<span class="string">"Revenue Analysis"</span>, level=<span class="number">1</span>)
+doc.paragraph([
+    TextRun(<span class="string">"Revenue grew "</span>),
+    TextRun(<span class="string">"24%"</span>, bold=<span class="keyword">True</span>, color=<span class="string">"22c55e"</span>),
+    TextRun(<span class="string">" year over year."</span>),
+])
+
+<span class="comment"># Tables with decimal alignment</span>
+doc.table(
+    headers=[<span class="string">"Region"</span>, TableCell(<span class="string">"Revenue"</span>, align=<span class="string">"decimal"</span>)],
+    rows=[[<span class="string">"North America"</span>, <span class="string">"$2,431,000.00"</span>],
+          [<span class="string">"Europe"</span>,        <span class="string">"$1,204,300.50"</span>]],
+    stripe=<span class="keyword">True</span>,
+)
+
+<span class="comment"># Native vector charts</span>
+doc.chart(<span class="string">"bar"</span>, labels=[<span class="string">"Q1"</span>,<span class="string">"Q2"</span>,<span class="string">"Q3"</span>,<span class="string">"Q4"</span>],
+          values=[<span class="number">2.4</span>, <span class="number">3.1</span>, <span class="number">2.8</span>, <span class="number">3.7</span>],
+          title=<span class="string">"Quarterly Revenue ($M)"</span>)
+
+<span class="comment"># Math notation</span>
+doc.math(r<span class="string">"E = mc^{2}"</span>)
+
+<span class="comment"># One call to save</span>
+doc.save(<span class="string">"report.pdf"</span>)</div>
+    </section>
+
+    <!-- 4. LIBRARY-BY-LIBRARY COMPARISON -->
+    <section id="comparison">
+        <h2>4. Library-by-Library Comparison</h2>
+
+        <!-- Emboss -->
+        <div class="card">
+            <h3>Emboss <span class="badge badge-unique">Under Evaluation</span></h3>
+            <p>
+                Precision PDF generation for Python. Declarative specs, Knuth-Plass typography, PDF/UA tagging,
+                deterministic output. Treats a PDF as structured data you can also read.
+            </p>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Byte-identical deterministic output</li>
+                        <li>PDF/UA accessibility by default</li>
+                        <li>Knuth-Plass optimal typography</li>
+                        <li>Self-describing PDFs (embedded spec, text index)</li>
+                        <li>Pure Python, single hard dependency</li>
+                        <li>MCP server for AI integration</li>
+                        <li>PDF/A, digital signatures, e-invoicing in one package</li>
+                        <li>2,127 tests, veraPDF-verified conformance</li>
+                        <li>Node-scoped editing (change one paragraph cheaply)</li>
+                        <li>Data embedded at element level (table carries its CSV)</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Considerations</h4>
+                    <ul>
+                        <li>Newer library (v1.1.0, released July 2026)</li>
+                        <li>Smaller community (15 stars, growing)</li>
+                        <li>No HTML/CSS input mode (by design)</li>
+                        <li>RTL/complex-script shaping not yet supported</li>
+                        <li>Single primary maintainer currently</li>
+                        <li>No radio-button groups, XFA, or JS form actions</li>
+                    </ul>
+                </div>
+            </div>
+            <p><strong>License:</strong> Apache 2.0 | <strong>API Style:</strong> Declarative/Fluent | <strong>Dependencies:</strong> fonttools only</p>
+        </div>
+
+        <!-- ReportLab -->
+        <div class="card">
+            <h3>ReportLab <span class="badge badge-yes">Established</span></h3>
+            <p>
+                The most established Python PDF library, available since 2000. Offers both an open-source toolkit
+                and a commercial add-on (ReportLab PLUS/RML) for enterprise features.
+            </p>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Battle-tested for 20+ years in production</li>
+                        <li>Comprehensive feature set (canvas + platypus)</li>
+                        <li>Built-in charting library</li>
+                        <li>Barcode/QR code generation</li>
+                        <li>Strong commercial support available</li>
+                        <li>Good performance with C extensions</li>
+                        <li>CJK font support (CID fonts)</li>
+                        <li>Interactive form fields (AcroForm)</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>No PDF/UA accessibility support</li>
+                        <li>Non-deterministic output (timestamps, random IDs)</li>
+                        <li>Steep learning curve, verbose imperative API</li>
+                        <li>Aging API design</li>
+                        <li>Commercial license for advanced features (RML)</li>
+                        <li>C extensions complicate deployment</li>
+                        <li>No digital signatures in open-source version</li>
+                        <li>No PDF/A support</li>
+                    </ul>
+                </div>
+            </div>
+            <p><strong>License:</strong> BSD (open-source), Commercial (PLUS) | <strong>API Style:</strong> Imperative | <strong>Stars:</strong> ~500 | <strong>Dependencies:</strong> Pillow, C extensions</p>
+        </div>
+
+        <!-- WeasyPrint -->
+        <div class="card">
+            <h3>WeasyPrint <span class="badge badge-yes">Popular</span></h3>
+            <p>
+                CSS-based HTML-to-PDF rendering engine. Takes HTML and CSS as input and produces PDF output,
+                acting like a headless browser focused on print media.
+            </p>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Intuitive for web developers (HTML/CSS input)</li>
+                        <li>Excellent CSS Paged Media support</li>
+                        <li>Good typography with HarfBuzz shaping</li>
+                        <li>Active development, responsive maintainers</li>
+                        <li>Large community (7,000+ stars)</li>
+                        <li>SVG rendering support</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Heavy system dependencies (cairo, Pango, GDK-PixBuf)</li>
+                        <li>Painful installation on Windows</li>
+                        <li>Slow performance for large documents</li>
+                        <li>No interactive forms or digital signatures</li>
+                        <li>No built-in chart generation</li>
+                        <li>No PDF/UA conformance</li>
+                        <li>Non-deterministic output</li>
+                        <li>No PDF/A support</li>
+                    </ul>
+                </div>
+            </div>
+            <p><strong>License:</strong> BSD 3-Clause | <strong>API Style:</strong> Declarative (HTML/CSS) | <strong>Stars:</strong> ~7,000 | <strong>Dependencies:</strong> cairo, Pango, GDK-PixBuf, HarfBuzz</p>
+        </div>
+
+        <!-- FPDF2 -->
+        <div class="card">
+            <h3>FPDF2 <span class="badge badge-yes">Lightweight</span></h3>
+            <p>
+                Lightweight, pure-Python PDF generation library. Modern successor to PyFPDF, focused on simplicity
+                and minimal dependencies.
+            </p>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Ultra-lightweight, essentially zero dependencies</li>
+                        <li>Simplest API, easiest to learn</li>
+                        <li>Pure Python, installs anywhere</li>
+                        <li>Active development with frequent releases</li>
+                        <li>Excellent tutorials and documentation</li>
+                        <li>Small memory footprint</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Limited typography (no Knuth-Plass)</li>
+                        <li>No built-in charting</li>
+                        <li>No PDF/UA accessibility</li>
+                        <li>No digital signatures</li>
+                        <li>No interactive forms</li>
+                        <li>Cell-based layout model is limiting</li>
+                        <li>Not suitable for complex documents</li>
+                        <li>LGPL license (copyleft concerns)</li>
+                    </ul>
+                </div>
+            </div>
+            <p><strong>License:</strong> LGPL 3.0 | <strong>API Style:</strong> Imperative | <strong>Stars:</strong> ~1,100 | <strong>Dependencies:</strong> None (defusedxml, Pillow optional)</p>
+        </div>
+
+        <!-- borb -->
+        <div class="card">
+            <h3>borb <span class="badge badge-partial">Niche</span></h3>
+            <p>
+                Pure Python PDF library supporting both reading and writing. Object-oriented API that maps closely
+                to the PDF specification.
+            </p>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Read + write capability (unique)</li>
+                        <li>Pure Python, no system dependencies</li>
+                        <li>Can modify existing PDFs</li>
+                        <li>PDF merging, splitting, extraction</li>
+                        <li>Comprehensive author documentation (book)</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>AGPL/commercial dual license</li>
+                        <li>Slower performance</li>
+                        <li>Single maintainer risk</li>
+                        <li>No PDF/UA, no PDF/A, no signatures</li>
+                        <li>Limited charting</li>
+                        <li>Verbose API in places</li>
+                    </ul>
+                </div>
+            </div>
+            <p><strong>License:</strong> AGPL v3 / Commercial | <strong>API Style:</strong> Object-oriented | <strong>Stars:</strong> ~3,400 | <strong>Dependencies:</strong> Pillow, fonttools, requests</p>
+        </div>
+
+        <!-- xhtml2pdf -->
+        <div class="card">
+            <h3>xhtml2pdf (pisa) <span class="badge badge-partial">Legacy</span></h3>
+            <p>
+                HTML/CSS-to-PDF converter built on top of ReportLab. Popular in Django projects for converting
+                HTML templates to PDF output.
+            </p>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Easiest HTML-to-PDF pipeline</li>
+                        <li>Good Django/Flask integration</li>
+                        <li>One-line conversion API</li>
+                        <li>Built on ReportLab's rendering engine</li>
+                        <li>Mature project with long history</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Limited and outdated CSS support</li>
+                        <li>Many CSS rendering bugs</li>
+                        <li>Slow development pace</li>
+                        <li>No accessibility, no forms, no signatures</li>
+                        <li>Inherits ReportLab's dependency overhead</li>
+                        <li>Not suitable for complex layouts</li>
+                    </ul>
+                </div>
+            </div>
+            <p><strong>License:</strong> Apache 2.0 | <strong>API Style:</strong> Declarative (HTML) | <strong>Stars:</strong> ~2,200 | <strong>Dependencies:</strong> ReportLab, html5lib, pypdf</p>
+        </div>
+    </section>
+
+    <!-- 5. FEATURE MATRIX -->
+    <section id="feature-matrix">
+        <h2>5. Feature Comparison Matrix</h2>
+
+        <div class="card">
+            <h3>Core Features</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Emboss</th>
+                        <th>ReportLab</th>
+                        <th>WeasyPrint</th>
+                        <th>FPDF2</th>
+                        <th>borb</th>
+                        <th>xhtml2pdf</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Tables</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                    </tr>
+                    <tr>
+                        <td>Charts (Built-in)</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-limited">Limited</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Images</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                    </tr>
+                    <tr>
+                        <td>SVG Rendering</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Math Notation</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Code Highlighting</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Diagrams</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>CJK Text</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-limited">Limited</span></td>
+                        <td><span class="badge badge-limited">Limited</span></td>
+                    </tr>
+                    <tr>
+                        <td>Bibliography/Citations</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Slide/Presentation Mode</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Enterprise &amp; Compliance Features</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Emboss</th>
+                        <th>ReportLab</th>
+                        <th>WeasyPrint</th>
+                        <th>FPDF2</th>
+                        <th>borb</th>
+                        <th>xhtml2pdf</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="highlight-row">
+                        <td>PDF/UA Accessibility</td>
+                        <td><span class="badge badge-best">Default</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-partial">Partial</span></td>
+                        <td><span class="badge badge-partial">Minimal</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td>Deterministic Output</td>
+                        <td><span class="badge badge-best">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-partial">Partial</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>PDF/A Archival</td>
+                        <td><span class="badge badge-yes">2b, 3b</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Digital Signatures</td>
+                        <td><span class="badge badge-yes">PAdES, PKCS#7</span></td>
+                        <td><span class="badge badge-no">No*</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Interactive Forms</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-partial">Read-only</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>E-Invoicing (Factur-X)</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Content Redaction</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Bates Numbering</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Embedded Data (CSV in PDF)</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Self-Describing (embed spec)</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>MCP / AI Integration</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="margin-top: 12px; font-size: 0.85rem; color: var(--text-muted);">
+                * ReportLab commercial version has limited signature support. Open-source version does not.
+            </p>
+        </div>
+
+        <div class="card">
+            <h3>Technical Characteristics</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Characteristic</th>
+                        <th>Emboss</th>
+                        <th>ReportLab</th>
+                        <th>WeasyPrint</th>
+                        <th>FPDF2</th>
+                        <th>borb</th>
+                        <th>xhtml2pdf</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Pure Python</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Hard Dependencies</td>
+                        <td>1 (fonttools)</td>
+                        <td>Pillow, C exts</td>
+                        <td>cairo, Pango, etc.</td>
+                        <td>0</td>
+                        <td>~5</td>
+                        <td>ReportLab + 4</td>
+                    </tr>
+                    <tr>
+                        <td>Typography Engine</td>
+                        <td>Knuth-Plass</td>
+                        <td>Basic paragraph</td>
+                        <td>HarfBuzz/Pango</td>
+                        <td>Basic</td>
+                        <td>Basic</td>
+                        <td>ReportLab's</td>
+                    </tr>
+                    <tr>
+                        <td>Input Format</td>
+                        <td>Python API / JSON</td>
+                        <td>Python API</td>
+                        <td>HTML/CSS</td>
+                        <td>Python API</td>
+                        <td>Python API</td>
+                        <td>HTML/CSS</td>
+                    </tr>
+                    <tr>
+                        <td>License</td>
+                        <td>Apache 2.0</td>
+                        <td>BSD / Commercial</td>
+                        <td>BSD 3-Clause</td>
+                        <td>LGPL 3.0</td>
+                        <td>AGPL / Commercial</td>
+                        <td>Apache 2.0</td>
+                    </tr>
+                    <tr>
+                        <td>Read Existing PDFs</td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-yes">Yes</span></td>
+                        <td><span class="badge badge-no">No</span></td>
+                    </tr>
+                    <tr>
+                        <td>Windows Install</td>
+                        <td>Easy (pip)</td>
+                        <td>Moderate</td>
+                        <td>Difficult</td>
+                        <td>Easy (pip)</td>
+                        <td>Easy (pip)</td>
+                        <td>Moderate</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 6. DIMENSIONAL RATINGS -->
+    <section id="ratings">
+        <h2>6. Dimensional Ratings</h2>
+
+        <div class="card">
+            <h3>Ease of Use</h3>
+            <table>
+                <thead>
+                    <tr><th>Library</th><th>Rating</th><th>Visual</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>FPDF2</td>
+                        <td><strong>9.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:95%; background: var(--success);"></div></div></div></td>
+                        <td>Simplest API, fastest onboarding</td>
+                    </tr>
+                    <tr>
+                        <td>Emboss</td>
+                        <td><strong>9.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:90%; background: var(--primary);"></div></div></div></td>
+                        <td>Declarative API, clear naming, minimal boilerplate</td>
+                    </tr>
+                    <tr>
+                        <td>xhtml2pdf</td>
+                        <td><strong>8.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:85%; background: var(--success);"></div></div></div></td>
+                        <td>One-line HTML-to-PDF conversion</td>
+                    </tr>
+                    <tr>
+                        <td>WeasyPrint</td>
+                        <td><strong>8.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:80%; background: var(--success);"></div></div></div></td>
+                        <td>Familiar for web developers, but install complexity</td>
+                    </tr>
+                    <tr>
+                        <td>borb</td>
+                        <td><strong>6.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:60%; background: var(--warning);"></div></div></div></td>
+                        <td>Verbose API, maps to raw PDF spec</td>
+                    </tr>
+                    <tr>
+                        <td>ReportLab</td>
+                        <td><strong>5.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:55%; background: var(--warning);"></div></div></div></td>
+                        <td>Powerful but steep learning curve</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Enterprise Readiness</h3>
+            <table>
+                <thead>
+                    <tr><th>Library</th><th>Rating</th><th>Visual</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Emboss</td>
+                        <td><strong>9.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:95%; background: var(--primary);"></div></div></div></td>
+                        <td>PDF/UA, PDF/A, signatures, e-invoicing, determinism</td>
+                    </tr>
+                    <tr>
+                        <td>ReportLab</td>
+                        <td><strong>7.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:70%; background: var(--success);"></div></div></div></td>
+                        <td>Proven at scale, commercial support, but missing compliance</td>
+                    </tr>
+                    <tr>
+                        <td>WeasyPrint</td>
+                        <td><strong>5.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:50%; background: var(--warning);"></div></div></div></td>
+                        <td>Reliable but install complexity, no enterprise features</td>
+                    </tr>
+                    <tr>
+                        <td>FPDF2</td>
+                        <td><strong>4.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:40%; background: var(--warning);"></div></div></div></td>
+                        <td>Good for simple needs, lacks compliance features</td>
+                    </tr>
+                    <tr>
+                        <td>borb</td>
+                        <td><strong>3.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:35%; background: var(--danger);"></div></div></div></td>
+                        <td>AGPL license concern, single maintainer</td>
+                    </tr>
+                    <tr>
+                        <td>xhtml2pdf</td>
+                        <td><strong>3.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:30%; background: var(--danger);"></div></div></div></td>
+                        <td>Aging, limited features, no compliance</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>AI / LLM Integration Potential</h3>
+            <table>
+                <thead>
+                    <tr><th>Library</th><th>Rating</th><th>Visual</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Emboss</td>
+                        <td><strong>10/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:100%; background: var(--primary);"></div></div></div></td>
+                        <td>MCP server, JSON spec, grounded Q&A, node-scoped edits</td>
+                    </tr>
+                    <tr>
+                        <td>WeasyPrint</td>
+                        <td><strong>7.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:70%; background: var(--success);"></div></div></div></td>
+                        <td>HTML/CSS is well-understood by LLMs</td>
+                    </tr>
+                    <tr>
+                        <td>xhtml2pdf</td>
+                        <td><strong>7.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:70%; background: var(--success);"></div></div></div></td>
+                        <td>HTML input is trivial for LLMs to produce</td>
+                    </tr>
+                    <tr>
+                        <td>FPDF2</td>
+                        <td><strong>6.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:65%; background: var(--success);"></div></div></div></td>
+                        <td>Simple API, predictable patterns</td>
+                    </tr>
+                    <tr>
+                        <td>ReportLab</td>
+                        <td><strong>4.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:40%; background: var(--warning);"></div></div></div></td>
+                        <td>Complex API, more tokens needed</td>
+                    </tr>
+                    <tr>
+                        <td>borb</td>
+                        <td><strong>3.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:30%; background: var(--danger);"></div></div></div></td>
+                        <td>Verbose API, less common in training data</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Print Production Readiness</h3>
+            <table>
+                <thead>
+                    <tr><th>Library</th><th>Rating</th><th>Visual</th><th>Notes</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Emboss</td>
+                        <td><strong>9.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:90%; background: var(--primary);"></div></div></div></td>
+                        <td>CMYK, PDF/X-4, Knuth-Plass, deterministic</td>
+                    </tr>
+                    <tr>
+                        <td>ReportLab</td>
+                        <td><strong>8.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:80%; background: var(--success);"></div></div></div></td>
+                        <td>CMYK, precise positioning, production-proven</td>
+                    </tr>
+                    <tr>
+                        <td>WeasyPrint</td>
+                        <td><strong>5.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:50%; background: var(--warning);"></div></div></div></td>
+                        <td>Good typography but CSS-limited, no CMYK</td>
+                    </tr>
+                    <tr>
+                        <td>FPDF2</td>
+                        <td><strong>3.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:30%; background: var(--danger);"></div></div></div></td>
+                        <td>Basic typography, no advanced print features</td>
+                    </tr>
+                    <tr>
+                        <td>borb</td>
+                        <td><strong>2.5/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:25%; background: var(--danger);"></div></div></div></td>
+                        <td>Not designed for print production</td>
+                    </tr>
+                    <tr>
+                        <td>xhtml2pdf</td>
+                        <td><strong>2.0/10</strong></td>
+                        <td><div class="rating-bar"><div class="bar"><div class="fill" style="width:20%; background: var(--danger);"></div></div></div></td>
+                        <td>CSS rendering inconsistencies</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 7. CODE COMPARISON -->
+    <section id="code-comparison">
+        <h2>7. Code Comparison: "Hello World" Report</h2>
+        <p>The same simple report (title, paragraph, table) implemented in each library:</p>
+
+        <div class="card">
+            <h3>Emboss (12 lines)</h3>
+            <div class="code-block"><span class="keyword">from</span> emboss <span class="keyword">import</span> Document
+
+doc = Document(title=<span class="string">"Q3 Report"</span>, style=<span class="string">"finance"</span>)
+doc.heading(<span class="string">"Revenue Analysis"</span>, level=<span class="number">1</span>)
+doc.paragraph(<span class="string">"Revenue increased 12% year over year."</span>)
+doc.table(
+    headers=[<span class="string">"Region"</span>, <span class="string">"Q3"</span>],
+    rows=[[<span class="string">"North America"</span>, <span class="string">"$2.4M"</span>],
+          [<span class="string">"Europe"</span>, <span class="string">"$1.2M"</span>]]
+)
+doc.save(<span class="string">"report.pdf"</span>)
+<span class="comment"># Output: PDF/UA tagged, deterministic, accessible</span></div>
+        </div>
+
+        <div class="card">
+            <h3>ReportLab (~35 lines)</h3>
+            <div class="code-block"><span class="keyword">from</span> reportlab.lib.pagesizes <span class="keyword">import</span> letter
+<span class="keyword">from</span> reportlab.platypus <span class="keyword">import</span> SimpleDocTemplate, Paragraph, Table, Spacer
+<span class="keyword">from</span> reportlab.lib.styles <span class="keyword">import</span> getSampleStyleSheet
+<span class="keyword">from</span> reportlab.lib.units <span class="keyword">import</span> inch
+
+doc = SimpleDocTemplate(<span class="string">"report.pdf"</span>, pagesize=letter)
+styles = getSampleStyleSheet()
+story = []
+
+story.append(Paragraph(<span class="string">"Revenue Analysis"</span>, styles[<span class="string">'Heading1'</span>]))
+story.append(Spacer(<span class="number">1</span>, <span class="number">12</span>))
+story.append(Paragraph(<span class="string">"Revenue increased 12% year over year."</span>,
+                        styles[<span class="string">'Normal'</span>]))
+story.append(Spacer(<span class="number">1</span>, <span class="number">12</span>))
+
+data = [[<span class="string">"Region"</span>, <span class="string">"Q3"</span>],
+        [<span class="string">"North America"</span>, <span class="string">"$2.4M"</span>],
+        [<span class="string">"Europe"</span>, <span class="string">"$1.2M"</span>]]
+table = Table(data)
+story.append(table)
+
+doc.build(story)
+<span class="comment"># Output: No tags, no accessibility, non-deterministic</span></div>
+        </div>
+
+        <div class="card">
+            <h3>WeasyPrint (~25 lines)</h3>
+            <div class="code-block"><span class="keyword">import</span> weasyprint
+
+html = <span class="string">"""
+&lt;html&gt;
+&lt;head&gt;&lt;title&gt;Q3 Report&lt;/title&gt;
+&lt;style&gt;
+  body { font-family: sans-serif; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 8px; }
+&lt;/style&gt;&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Revenue Analysis&lt;/h1&gt;
+  &lt;p&gt;Revenue increased 12% year over year.&lt;/p&gt;
+  &lt;table&gt;
+    &lt;tr&gt;&lt;th&gt;Region&lt;/th&gt;&lt;th&gt;Q3&lt;/th&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;North America&lt;/td&gt;&lt;td&gt;$2.4M&lt;/td&gt;&lt;/tr&gt;
+    &lt;tr&gt;&lt;td&gt;Europe&lt;/td&gt;&lt;td&gt;$1.2M&lt;/td&gt;&lt;/tr&gt;
+  &lt;/table&gt;
+&lt;/body&gt;&lt;/html&gt;
+"""</span>
+weasyprint.HTML(string=html).write_pdf(<span class="string">"report.pdf"</span>)
+<span class="comment"># Requires: cairo, Pango, GDK-PixBuf installed on system</span></div>
+        </div>
+
+        <div class="card">
+            <h3>FPDF2 (~20 lines)</h3>
+            <div class="code-block"><span class="keyword">from</span> fpdf <span class="keyword">import</span> FPDF
+
+pdf = FPDF()
+pdf.add_page()
+pdf.set_font(<span class="string">"Helvetica"</span>, size=<span class="number">20</span>)
+pdf.cell(text=<span class="string">"Revenue Analysis"</span>, new_x=<span class="string">"LMARGIN"</span>, new_y=<span class="string">"NEXT"</span>)
+pdf.set_font(<span class="string">"Helvetica"</span>, size=<span class="number">12</span>)
+pdf.ln(<span class="number">5</span>)
+pdf.cell(text=<span class="string">"Revenue increased 12% year over year."</span>,
+         new_x=<span class="string">"LMARGIN"</span>, new_y=<span class="string">"NEXT"</span>)
+pdf.ln(<span class="number">10</span>)
+
+<span class="keyword">with</span> pdf.table() <span class="keyword">as</span> table:
+    row = table.row()
+    row.cell(<span class="string">"Region"</span>)
+    row.cell(<span class="string">"Q3"</span>)
+    row = table.row()
+    row.cell(<span class="string">"North America"</span>)
+    row.cell(<span class="string">"$2.4M"</span>)
+
+pdf.output(<span class="string">"report.pdf"</span>)
+<span class="comment"># Simple but no charts, no accessibility, no typography</span></div>
+        </div>
+    </section>
+
+    <!-- 8. UNIQUE FEATURES -->
+    <section id="unique">
+        <h2>8. Features Unique to Emboss</h2>
+        <p>The following features are available in Emboss and in <strong>none</strong> of the five competing libraries:</p>
+
+        <div class="card-grid">
+            <div class="card">
+                <h4>1. PDF/UA Accessibility by Default</h4>
+                <p>Every document is automatically tagged with a full PDF/UA structure tree. No separate accessibility pass needed. Verified against the real veraPDF validator in CI.</p>
+            </div>
+            <div class="card">
+                <h4>2. Byte-Identical Determinism</h4>
+                <p>No timestamps, no random IDs. The file /ID is content-derived. Same input produces same bytes on every machine. Hash-verifiable filings, diffable in CI.</p>
+            </div>
+            <div class="card">
+                <h4>3. Knuth-Plass Typography</h4>
+                <p>The same optimal line-breaking algorithm used by TeX. Produces professionally typeset paragraphs with even spacing, not the greedy line-filling of other libraries.</p>
+            </div>
+            <div class="card">
+                <h4>4. Self-Describing PDFs</h4>
+                <p>Documents embed their own spec, a per-character text index, and stable IDs on every block. Generate, review, edit, sign, verify, and reproduce from the same structure.</p>
+            </div>
+            <div class="card">
+                <h4>5. MCP Server for AI</h4>
+                <p>First-class Model Context Protocol server makes every document callable from Claude or other LLMs. Generate, query with certainty, and edit, with explicit "not in this document" grounding.</p>
+            </div>
+            <div class="card">
+                <h4>6. Data Embedded at Element Level</h4>
+                <p>A table or chart carries its own source CSV inside the PDF as a per-element attachment. The figure a reader sees and the data an analyst needs are the same file.</p>
+            </div>
+            <div class="card">
+                <h4>7. Node-Scoped Editing</h4>
+                <p>Change one paragraph in a 50-page report at paragraph cost, not report cost. LLM edits are node-scoped, reducing token consumption dramatically.</p>
+            </div>
+            <div class="card">
+                <h4>8. AI Provenance / Content Credentials</h4>
+                <p>Documents can embed GeneratorInfo with prompt hashes for AI content traceability, supporting responsible AI documentation practices.</p>
+            </div>
+            <div class="card">
+                <h4>9. Document Diff &amp; Redline</h4>
+                <p>Node-keyed document comparison and redline rendering. Compare two versions and see exactly what changed at the structural level.</p>
+            </div>
+            <div class="card">
+                <h4>10. Comprehensive Compliance Stack</h4>
+                <p>PDF/UA + PDF/A + PAdES signatures + Factur-X e-invoicing + PDF/X-4 + WTPDF 1.0, all in one pure-Python package. No other library combines even three of these.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 9. STANDARDS & COMPLIANCE -->
+    <section id="standards">
+        <h2>9. Standards &amp; Regulatory Compliance</h2>
+
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Standard</th>
+                        <th>Purpose</th>
+                        <th>Regulatory Driver</th>
+                        <th>Emboss Support</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>PDF/UA-1</strong></td>
+                        <td>Accessibility (tagged, assistive-tech ready)</td>
+                        <td>EU Accessibility Act (June 2025), US Section 508, EN 301 549</td>
+                        <td><span class="badge badge-best">Full</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>PDF/A-2b, 3b</strong></td>
+                        <td>Archival / long-term retention</td>
+                        <td>Records retention, filing ingest</td>
+                        <td><span class="badge badge-best">Full</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Factur-X / ZUGFeRD</strong></td>
+                        <td>Electronic invoicing (XML in PDF)</td>
+                        <td>France B2B mandate (Sept 2026), EU e-invoicing</td>
+                        <td><span class="badge badge-best">Full</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>PAdES B-B / B-T</strong></td>
+                        <td>Legally recognized e-signatures</td>
+                        <td>eIDAS (EU)</td>
+                        <td><span class="badge badge-best">Full</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>PDF/X-4</strong></td>
+                        <td>Print / prepress output</td>
+                        <td>Commercial print</td>
+                        <td><span class="badge badge-best">Full</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>WTPDF 1.0 (Reuse)</strong></td>
+                        <td>Clean re-extraction for RAG / reuse</td>
+                        <td>AI and data pipelines</td>
+                        <td><span class="badge badge-best">Full</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="callout callout-info" style="margin-top: 16px;">
+                <strong>Verification:</strong> Every conformance claim is checkable via
+                <code>emboss verify out.pdf --conformance ua1</code> (also 2b, 3b). The CI conformance job runs
+                the real veraPDF validator on every push, not a mock.
+            </div>
+        </div>
+    </section>
+
+    <!-- 10. GAPS, ISSUES & RISKS -->
+    <section id="gaps">
+        <h2>10. Emboss Gaps, Issues &amp; Risks</h2>
+        <p>
+            An honest assessment of the library's current limitations, organized by category.
+            These are important considerations for enterprise adoption decisions.
+        </p>
+
+        <div class="card">
+            <h3>Functional Gaps</h3>
+            <table>
+                <thead>
+                    <tr><th>Gap</th><th>Severity</th><th>Detail</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>No RTL / complex-script support</td>
+                        <td><span class="badge badge-partial">Medium</span></td>
+                        <td>Arabic, Hebrew, Devanagari, and other complex scripts are explicitly out of scope. CJK (Chinese, Japanese, Korean) is supported as of v1.1.0.</td>
+                    </tr>
+                    <tr>
+                        <td>Limited form field types</td>
+                        <td><span class="badge badge-partial">Medium</span></td>
+                        <td>Only TextField, CheckboxField, and DropdownField are supported. No radio-button groups, XFA forms, JavaScript form actions, listbox, or multi-select.</td>
+                    </tr>
+                    <tr>
+                        <td>No incremental form field addition</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>The incremental amendment system (<code>amend.py</code>) cannot add form fields to an already-rendered PDF. Fields must be defined at generation time.</td>
+                    </tr>
+                    <tr>
+                        <td>Base-14 fonts only in AcroForm /DR</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>Custom fonts will not render in form field appearance streams. Only the 14 standard PDF fonts are available for form widgets.</td>
+                    </tr>
+                    <tr>
+                        <td>No barcode / QR code generation</td>
+                        <td><span class="badge badge-partial">Medium</span></td>
+                        <td>Unlike ReportLab, Emboss has no built-in barcode or QR code rendering. Must embed pre-rendered SVG/images.</td>
+                    </tr>
+                    <tr>
+                        <td>Text-only watermarks</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>Watermarks via <code>LegalFeatures</code> are text-only. No image/logo watermark support.</td>
+                    </tr>
+                    <tr>
+                        <td>No HTML/CSS input mode</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>By design (avoids browser dependency), but limits adoption from web-developer audiences who are familiar with HTML-to-PDF workflows.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Maturity &amp; Community Risks</h3>
+            <table>
+                <thead>
+                    <tr><th>Risk</th><th>Severity</th><th>Detail</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Single primary maintainer</td>
+                        <td><span class="badge badge-no">High</span></td>
+                        <td>Bus factor of 1 (GGChamp85). If the maintainer becomes unavailable, the project could stall. This is the biggest enterprise adoption risk.</td>
+                    </tr>
+                    <tr>
+                        <td>Very early community adoption</td>
+                        <td><span class="badge badge-no">High</span></td>
+                        <td>15 GitHub stars, 0 forks as of July 2026. No visible third-party production deployments or case studies yet.</td>
+                    </tr>
+                    <tr>
+                        <td>Brand new release</td>
+                        <td><span class="badge badge-partial">Medium</span></td>
+                        <td>v1.1.0 released July 30, 2026. While 2,127 tests provide confidence, real-world battle-testing at scale is unproven.</td>
+                    </tr>
+                    <tr>
+                        <td>No PyPI download visibility</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>Hard to gauge real-world adoption. No public download statistics available yet to assess community traction.</td>
+                    </tr>
+                    <tr>
+                        <td>No migration guides</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>No published guides for migrating from ReportLab, WeasyPrint, or FPDF2. Teams must learn the API from scratch.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Technical Limitations</h3>
+            <table>
+                <thead>
+                    <tr><th>Limitation</th><th>Severity</th><th>Detail</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Image handling requires Pillow</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>Pillow is an optional dependency. Image embedding may be limited without it installed. Not a hard dependency by design.</td>
+                    </tr>
+                    <tr>
+                        <td>Pure Python performance ceiling</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>No C extensions for acceleration. For typical documents (10-50 pages) this is fine (~50-100ms), but very large documents (1000+ pages) may be slower than C-accelerated ReportLab.</td>
+                    </tr>
+                    <tr>
+                        <td>Multi-page table header repetition</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>Documentation is unclear on whether long tables automatically repeat headers on subsequent pages.</td>
+                    </tr>
+                    <tr>
+                        <td>Docs site in migration</td>
+                        <td><span class="badge badge-limited">Low</span></td>
+                        <td>The Nextra documentation site was just migrated from v2 to v4 (same day as this evaluation). API reference lives primarily in the README, not a searchable docs site.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Not Issues (Intentional Design Choices)</h3>
+            <p>These are sometimes cited as gaps but are deliberate trade-offs that make the library stronger for its target use case:</p>
+            <ul>
+                <li><strong>No browser dependency:</strong> This is a feature, not a gap. Avoids Chromium/Node attack surface and enables deployment on locked-down servers.</li>
+                <li><strong>Single hard dependency (fonttools):</strong> Intentional minimalism for easy vendoring, auditing, and deployment in restricted environments.</li>
+                <li><strong>No timestamps in output:</strong> Required for byte-identical determinism. The file /ID is content-derived by design.</li>
+                <li><strong>Declarative-only API:</strong> No low-level canvas operations by design. The constraint-driven model prevents layout bugs that plague imperative approaches.</li>
+            </ul>
+        </div>
+
+        <div class="callout callout-warning">
+            <strong>Risk Mitigation:</strong> The single-maintainer and early-adoption risks can be mitigated by:
+            (1) contributing to the project and building internal expertise,
+            (2) the Apache 2.0 license allows forking if needed,
+            (3) the 2,127-test suite and clean architecture make the codebase maintainable by new contributors,
+            and (4) the pure-Python design with one dependency means no complex build chain to maintain.
+        </div>
+    </section>
+
+    <!-- 11. VERDICT -->
+    <section id="verdict">
+        <h2>11. Verdict &amp; Recommendation</h2>
+
+        <div class="verdict-box">
+            <h3>Summary Assessment</h3>
+            <p style="font-size: 1.1rem; max-width: 800px; margin: 0 auto;">
+                Emboss occupies a unique position in the Python PDF ecosystem. It is the only library that combines
+                PDF/UA accessibility, byte-identical determinism, professional typography (Knuth-Plass), and a comprehensive
+                compliance stack (PDF/A, PAdES, Factur-X) in a single pure-Python package with minimal dependencies.
+            </p>
+        </div>
+
+        <div class="card">
+            <h3>When to Choose Each Library</h3>
+            <table>
+                <thead>
+                    <tr><th>Use Case</th><th>Best Choice</th><th>Why</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Enterprise reports with compliance needs</td>
+                        <td><strong>Emboss</strong></td>
+                        <td>PDF/UA, PDF/A, signatures, determinism, e-invoicing all built in</td>
+                    </tr>
+                    <tr>
+                        <td>AI/LLM-generated documents</td>
+                        <td><strong>Emboss</strong></td>
+                        <td>MCP server, JSON spec format, node-scoped edits, provenance</td>
+                    </tr>
+                    <tr>
+                        <td>Accessible document generation</td>
+                        <td><strong>Emboss</strong></td>
+                        <td>Only library with PDF/UA by default, veraPDF-verified</td>
+                    </tr>
+                    <tr>
+                        <td>CI/CD document pipelines</td>
+                        <td><strong>Emboss</strong></td>
+                        <td>Deterministic output enables hash verification and diffing</td>
+                    </tr>
+                    <tr>
+                        <td>Quick HTML-to-PDF conversion</td>
+                        <td><strong>WeasyPrint</strong></td>
+                        <td>Best CSS support, familiar for web developers</td>
+                    </tr>
+                    <tr>
+                        <td>Simple invoices/receipts (no compliance)</td>
+                        <td><strong>FPDF2</strong></td>
+                        <td>Lightest weight, zero dependencies, fastest onboarding</td>
+                    </tr>
+                    <tr>
+                        <td>Legacy systems needing maximum maturity</td>
+                        <td><strong>ReportLab</strong></td>
+                        <td>20+ years of production use, commercial support</td>
+                    </tr>
+                    <tr>
+                        <td>PDF manipulation (read/merge/split)</td>
+                        <td><strong>borb</strong></td>
+                        <td>Read + write capability, PDF modification</td>
+                    </tr>
+                    <tr>
+                        <td>Django template to PDF</td>
+                        <td><strong>xhtml2pdf</strong></td>
+                        <td>Simplest Django integration, one-line conversion</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Overall Scores</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Library</th>
+                        <th>Ease of Use</th>
+                        <th>Enterprise</th>
+                        <th>AI Ready</th>
+                        <th>Print</th>
+                        <th>Overall</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="highlight-row">
+                        <td>Emboss</td>
+                        <td>9.0</td>
+                        <td>9.5</td>
+                        <td>10.0</td>
+                        <td>9.0</td>
+                        <td><strong>9.4</strong></td>
+                    </tr>
+                    <tr>
+                        <td>ReportLab</td>
+                        <td>5.5</td>
+                        <td>7.0</td>
+                        <td>4.0</td>
+                        <td>8.0</td>
+                        <td><strong>6.1</strong></td>
+                    </tr>
+                    <tr>
+                        <td>WeasyPrint</td>
+                        <td>8.0</td>
+                        <td>5.0</td>
+                        <td>7.0</td>
+                        <td>5.0</td>
+                        <td><strong>6.3</strong></td>
+                    </tr>
+                    <tr>
+                        <td>FPDF2</td>
+                        <td>9.5</td>
+                        <td>4.0</td>
+                        <td>6.5</td>
+                        <td>3.0</td>
+                        <td><strong>5.8</strong></td>
+                    </tr>
+                    <tr>
+                        <td>borb</td>
+                        <td>6.0</td>
+                        <td>3.5</td>
+                        <td>3.0</td>
+                        <td>2.5</td>
+                        <td><strong>3.8</strong></td>
+                    </tr>
+                    <tr>
+                        <td>xhtml2pdf</td>
+                        <td>8.5</td>
+                        <td>3.0</td>
+                        <td>7.0</td>
+                        <td>2.0</td>
+                        <td><strong>5.1</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="callout callout-info">
+            <strong>Key Takeaway:</strong> For any use case requiring accessibility compliance, deterministic output,
+            digital signatures, or AI integration, Emboss is the clear choice. Its only trade-off is community maturity
+            (it is a newer library), but its 2,127-test suite, veraPDF-verified conformance, and Apache 2.0 license
+            make it a strong candidate for enterprise adoption.
+        </div>
+    </section>
+
+</div>
+
+<div class="footer">
+    <div class="container">
+        <p><strong>Emboss PDF Library - Evaluation &amp; Comparative Analysis</strong></p>
+        <p>Prepared by Gaurav Gupta | July 2026 | POC Assessment</p>
+        <p>Source: <a href="https://github.com/GGChamp85/Emboss" style="color: #93c5fd;">github.com/GGChamp85/Emboss</a></p>
+    </div>
+</div>
+
+</body>
+</html>
