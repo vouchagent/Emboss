@@ -9,9 +9,13 @@ capabilities that general-purpose PDF tools do not have because they do
 not know which marks were a heading, a table, or a chart.
 """
 
-from emboss import Document, Series, parse_mermaid
+import os
 
-doc = Document(title="Emboss — Capabilities Showcase", author="Emboss", style="corporate")
+from emboss import Document, Series, TextRun, parse_mermaid
+
+doc = Document(
+    title="Emboss — Capabilities Showcase", author="Emboss", style="corporate"
+)
 
 doc.cover(
     title="Emboss",
@@ -37,12 +41,14 @@ doc.paragraph(
     "typography, builds the structure, and produces a finished PDF. This "
     "page and everything after it were produced that way."
 )
-doc.stat_tiles([
-    {"label": "Input", "value": "Spec, Markdown, LLM"},
-    {"label": "Layout", "value": "Automatic"},
-    {"label": "Look", "value": "Designed by default"},
-    {"label": "Made by", "value": "Emboss itself"},
-])
+doc.stat_tiles(
+    [
+        {"label": "Input", "value": "Spec, Markdown, LLM"},
+        {"label": "Layout", "value": "Automatic"},
+        {"label": "Look", "value": "Designed by default"},
+        {"label": "Made by", "value": "Emboss itself"},
+    ]
+)
 
 doc.callout(
     "The pitch is not a feature list. It is that a non-designer, or a "
@@ -63,11 +69,13 @@ doc.paragraph(
     "object can carry an organization's palette, fonts, and logo across "
     "every document it produces."
 )
-doc.bullets([
-    "Seven presets: legal, finance, academic, corporate, minimal, journal, brief.",
-    "Bundled fonts: a serif, a sans, a monospace, and a math family, so output looks designed with no font setup.",
-    "BrandKit applies one brand definition everywhere, with text colors auto-adjusted to stay readable.",
-])
+doc.bullets(
+    [
+        "Seven presets: legal, finance, academic, corporate, minimal, journal, brief.",
+        "Bundled fonts: a serif, a sans, a monospace, and a math family, so output looks designed with no font setup.",
+        "BrandKit applies one brand definition everywhere, with text colors auto-adjusted to stay readable.",
+    ]
+)
 
 # --------------------------------------------------------------------------
 doc.heading("The novel part: data that travels with the document", level=1)
@@ -128,7 +136,7 @@ doc.code_block(
     '                chart_type="line", colors=["1f8a70", "b7452c"])\n'
     "\n"
     "# 4. Re-render. Only the two edited blocks differ.\n"
-    'doc.render(embed_spec=True)',
+    "doc.render(embed_spec=True)",
     language="python",
 )
 doc.callout(
@@ -160,9 +168,7 @@ doc.code_block(
     ")",
     language="python",
 )
-doc.paragraph(
-    "A resolved comment names the block and the phrase, not just the page:"
-)
+doc.paragraph("A resolved comment names the block and the phrase, not just the page:")
 doc.code_block(
     '{"id": "c-07", "author": "R. Patel", "type": "strikeout",\n'
     ' "node_id": "sec-risk.p3", "char_range": [120, 143],\n'
@@ -194,7 +200,7 @@ doc.code_block(
     "        if not risk.approve(payment):\n"
     "            raise Declined(payment.id)\n"
     "        entry = await tx.debit(payment.account, payment.amount)\n"
-    "        return Receipt(entry_id=entry.id, status=\"settled\")",
+    '        return Receipt(entry_id=entry.id, status="settled")',
     language="python",
     line_numbers=True,
 )
@@ -233,10 +239,13 @@ doc.architecture_diagram(
         {"id": "alb", "label": "ALB", "service": "loadbalancer", "group": "public"},
         {"id": "ec2", "label": "EC2 - App", "service": "compute", "group": "private"},
         {"id": "lam", "label": "Lambda", "service": "function", "group": "private"},
-        {"id": "rds", "label": "RDS - Postgres", "service": "database",
-         "group": "private"},
-        {"id": "redis", "label": "ElastiCache", "service": "cache",
-         "group": "private"},
+        {
+            "id": "rds",
+            "label": "RDS - Postgres",
+            "service": "database",
+            "group": "private",
+        },
+        {"id": "redis", "label": "ElastiCache", "service": "cache", "group": "private"},
         {"id": "sqs", "label": "SQS", "service": "queue", "group": "private"},
     ],
     edges=[
@@ -251,10 +260,12 @@ doc.architecture_diagram(
     ],
     groups=[
         {"id": "public", "label": "Public Subnet", "node_ids": ["alb"]},
-        {"id": "private", "label": "Private Subnet",
-         "node_ids": ["ec2", "lam", "rds", "redis", "sqs"]},
-        {"id": "vpc", "label": "VPC - 10.0.0.0/16",
-         "node_ids": ["public", "private"]},
+        {
+            "id": "private",
+            "label": "Private Subnet",
+            "node_ids": ["ec2", "lam", "rds", "redis", "sqs"],
+        },
+        {"id": "vpc", "label": "VPC - 10.0.0.0/16", "node_ids": ["public", "private"]},
     ],
     caption="AWS three-tier architecture: service glyphs in nested VPC subnets.",
 )
@@ -265,8 +276,13 @@ doc.sequence_diagram(
         {"id": "ledger", "label": "Ledger"},
     ],
     messages=[
-        {"from": "u", "to": "api", "label": "POST /settle", "style": "sync",
-         "activate": True},
+        {
+            "from": "u",
+            "to": "api",
+            "label": "POST /settle",
+            "style": "sync",
+            "activate": True,
+        },
         {"from": "api", "to": "ledger", "label": "debit", "style": "async"},
         {"from": "ledger", "to": "api", "label": "entry id", "style": "return"},
         {"from": "api", "to": "u", "label": "202 Accepted", "style": "return"},
@@ -275,19 +291,32 @@ doc.sequence_diagram(
 )
 doc.er_diagram(
     entities=[
-        {"id": "account", "name": "Account", "attributes": [
-            {"name": "id", "key": "PK", "type": "uuid"},
-            {"name": "balance", "type": "money"},
-        ]},
-        {"id": "payment", "name": "Payment", "attributes": [
-            {"name": "id", "key": "PK", "type": "uuid"},
-            {"name": "account_id", "key": "FK", "type": "uuid"},
-            {"name": "amount", "type": "money"},
-        ]},
+        {
+            "id": "account",
+            "name": "Account",
+            "attributes": [
+                {"name": "id", "key": "PK", "type": "uuid"},
+                {"name": "balance", "type": "money"},
+            ],
+        },
+        {
+            "id": "payment",
+            "name": "Payment",
+            "attributes": [
+                {"name": "id", "key": "PK", "type": "uuid"},
+                {"name": "account_id", "key": "FK", "type": "uuid"},
+                {"name": "amount", "type": "money"},
+            ],
+        },
     ],
     relationships=[
-        {"from": "account", "to": "payment", "label": "makes",
-         "from_card": "1", "to_card": "N"},
+        {
+            "from": "account",
+            "to": "payment",
+            "label": "makes",
+            "from_card": "1",
+            "to_card": "N",
+        },
     ],
     caption="Entity-relationship diagram: keys, types, and cardinality.",
 )
@@ -314,9 +343,13 @@ doc.paragraph(
 )
 doc.math(
     r"\|\hat{x} - x\|_2 \leq C_1 \frac{\|x - x_k\|_1}{\sqrt{k}} + C_2 \epsilon",
-    display=True, number=True, label="eq:recovery",
+    display=True,
+    number=True,
+    label="eq:recovery",
 )
-doc.paragraph("The bound in @eq:recovery holds for any matrix satisfying the condition below.")
+doc.paragraph(
+    "The bound in @eq:recovery holds for any matrix satisfying the condition below."
+)
 doc.paragraph(
     "Everyday statistics set just as cleanly. The Gaussian density in "
     "@eq:gauss, the model behind most confidence intervals, carries a "
@@ -325,7 +358,9 @@ doc.paragraph(
 doc.math(
     r"f(x \mid \mu, \sigma^2) = \frac{1}{\sigma\sqrt{2\pi}}\, "
     r"e^{-\frac{(x - \mu)^2}{2\sigma^2}}",
-    display=True, number=True, label="eq:gauss",
+    display=True,
+    number=True,
+    label="eq:gauss",
 )
 doc.math(
     r"A = \begin{pmatrix} 2 & 1 \\ -3 & -1 \end{pmatrix}, \quad "
@@ -341,12 +376,14 @@ doc.paragraph(
     "headlined chart, and a pull quote carry the message at a glance, and "
     "charts are drawn as vector output that stays crisp in print."
 )
-doc.stat_tiles([
-    {"label": "Revenue", "value": "$24.1M", "delta": "+12%"},
-    {"label": "Gross Margin", "value": "61.4%", "delta": "+3.1pp"},
-    {"label": "Net Retention", "value": "128%", "delta": "+4pp"},
-    {"label": "Runway", "value": "27 mo", "delta": "+5"},
-])
+doc.stat_tiles(
+    [
+        {"label": "Revenue", "value": "$24.1M", "delta": "+12%"},
+        {"label": "Gross Margin", "value": "61.4%", "delta": "+3.1pp"},
+        {"label": "Net Retention", "value": "128%", "delta": "+4pp"},
+        {"label": "Runway", "value": "27 mo", "delta": "+5"},
+    ]
+)
 doc.chart(
     chart_type="bar",
     labels=["Enterprise", "Mid-Market", "SMB", "Self-Serve"],
@@ -399,6 +436,25 @@ doc.table(
     verify_totals=True,
     headline="Totals verified as the page renders",
 )
+doc.paragraph(
+    "A brief is usually built from a data export, not a typed list. A table "
+    "or chart can be built directly from a CSV file, a CSV string, or a "
+    "pandas DataFrame; verify_totals and attach_data compose exactly as "
+    "they do for a hand-typed table."
+)
+_bookings_csv = (
+    "Region,Q1,Q2\n"
+    'North America,"$12,430.00","$14,200.50"\n'
+    'EMEA,"8,910.25",9500\n'
+    'APAC,"5,204.75",6000\n'
+)
+doc.table_from_csv(_bookings_csv, headline="Bookings by region, read from a CSV")
+doc.chart_from_csv(
+    _bookings_csv,
+    chart_type="bar",
+    headline="The same CSV, charted",
+    attach_data=True,
+)
 
 # --------------------------------------------------------------------------
 doc.heading("Compliance and standards, built in", level=1)
@@ -436,12 +492,30 @@ doc.paragraph(
 doc.table(
     headers=["What it costs today", "With Emboss"],
     rows=[
-        ["A designer or manual formatting for every document", "Designed output automatically, from content"],
-        ["Regenerating a whole document to change one line", "Patch one section; pay for the edit, not the page count"],
-        ["Re-keying numbers from a report into a spreadsheet", "The source data is attached to its own table"],
-        ["Per-seat or per-server license fees", "Open source under Apache-2.0; pip install"],
-        ["Manual accessibility remediation before release", "Tagged and conformance-checked by default"],
-        ["Re-reviewing output that changed unexpectedly", "Deterministic; only the intended change appears"],
+        [
+            "A designer or manual formatting for every document",
+            "Designed output automatically, from content",
+        ],
+        [
+            "Regenerating a whole document to change one line",
+            "Patch one section; pay for the edit, not the page count",
+        ],
+        [
+            "Re-keying numbers from a report into a spreadsheet",
+            "The source data is attached to its own table",
+        ],
+        [
+            "Per-seat or per-server license fees",
+            "Open source under Apache-2.0; pip install",
+        ],
+        [
+            "Manual accessibility remediation before release",
+            "Tagged and conformance-checked by default",
+        ],
+        [
+            "Re-reviewing output that changed unexpectedly",
+            "Deterministic; only the intended change appears",
+        ],
     ],
     headline="Cost and utility at a glance",
 )
@@ -458,9 +532,21 @@ doc.paragraph(
 doc.table(
     headers=["Dimension", "Emboss", "Typical general-purpose PDF tools"],
     rows=[
-        ["Designed output with no manual layout", "Yes, from content", "Author places or styles content"],
-        ["Input a model can be constrained to", "JSON schema, structured outputs, Markdown", "Imperative code or HTML/CSS"],
-        ["Source data attached to its own table or chart", "Yes", "No; the tool does not know it is a table"],
+        [
+            "Designed output with no manual layout",
+            "Yes, from content",
+            "Author places or styles content",
+        ],
+        [
+            "Input a model can be constrained to",
+            "JSON schema, structured outputs, Markdown",
+            "Imperative code or HTML/CSS",
+        ],
+        [
+            "Source data attached to its own table or chart",
+            "Yes",
+            "No; the tool does not know it is a table",
+        ],
         ["Self-describing, recoverable document", "Yes", "No"],
         ["Document diff to a redlined PDF", "Yes", "No"],
         ["Deterministic byte-identical output", "Yes", "Generally not guaranteed"],
@@ -472,10 +558,18 @@ doc.table(
 doc.table(
     headers=["Dimension", "Emboss", "Typical general-purpose PDF tools"],
     rows=[
-        ["Complex-script shaping (Arabic, Indic)", "Not supported", "Several engines support it"],
+        [
+            "Complex-script shaping (Arabic, Indic)",
+            "Not supported",
+            "Several engines support it",
+        ],
         ["Arbitrary HTML and CSS input", "Not supported", "HTML/CSS engines accept it"],
         ["Image formats", "PNG and JPEG", "Often broader"],
-        ["Production maturity", "New, released 2026", "Many have 10 to 20 years in production"],
+        [
+            "Production maturity",
+            "New, released 2026",
+            "Many have 10 to 20 years in production",
+        ],
     ],
     headline="Where established tools are ahead",
     source_line="Stated plainly so the picture is complete",
@@ -507,6 +601,13 @@ doc.callout(
     variant="note",
     title="Append-only revisions with signature coverage",
 )
+doc.paragraph(
+    "The same manifest can record what generated the document in the first "
+    "place: which model, from what prompt (hashed, never the raw text), and "
+    "who reviewed it. GeneratorInfo folds into render(manifest=True); "
+    "read_generator_info(pdf_bytes) answers 'who made this?' from the file "
+    "itself, and generate(..., manifest=True) populates it automatically."
+)
 
 # --------------------------------------------------------------------------
 doc.heading("Controlled documents, and docs from a build step", level=1)
@@ -529,10 +630,18 @@ doc.document_control(
         {"name": "M. Osei", "role": "Regulatory Affairs", "date": "2026-07-29"},
     ],
     revisions=[
-        {"version": "2.0", "date": "2026-03-01", "author": "R. Patel",
-         "summary": "Added risk analysis section"},
-        {"version": "3.0", "date": "2026-07-28", "author": "R. Patel",
-         "summary": "Updated verification protocol"},
+        {
+            "version": "2.0",
+            "date": "2026-03-01",
+            "author": "R. Patel",
+            "summary": "Added risk analysis section",
+        },
+        {
+            "version": "3.0",
+            "date": "2026-07-28",
+            "author": "R. Patel",
+            "summary": "Updated verification protocol",
+        },
     ],
 )
 doc.paragraph(
@@ -544,6 +653,45 @@ doc.paragraph(
 )
 
 # --------------------------------------------------------------------------
+doc.heading("Fillable intake and KYC documents", level=1)
+doc.paragraph(
+    "A client intake or KYC document needs fields a reader can actually "
+    "fill in, laid out in the document flow rather than manually "
+    "positioned. Each one is a real AcroForm widget: a text box, a "
+    "checkbox with a genuine on/off appearance, or a dropdown -- not a "
+    "drawn rectangle -- and stays PDF/UA tagged."
+)
+doc.text_field("full_name", label="Full name")
+doc.checkbox_field("accredited_investor", label="I am an accredited investor")
+doc.dropdown_field(
+    "entity_type",
+    options=["Individual", "Corporation", "Trust"],
+    label="Entity type",
+)
+
+# --------------------------------------------------------------------------
+_cjk_font_path = None
+for _candidate in (
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+):
+    if os.path.exists(_candidate):
+        _cjk_font_path = _candidate
+        break
+
+if _cjk_font_path:
+    doc.heading("Global documents: CJK text support", level=1)
+    doc.paragraph(
+        "Register a CJK-capable font and Japanese, Chinese, and Korean text "
+        "renders with real glyphs, correct widths, and correct line "
+        "wrapping -- base-14 fonts carry no CJK glyphs at all."
+    )
+    doc.fonts.register("cjk-demo", _cjk_font_path)
+    doc.paragraph(TextRun("日本語のテストです。", font_family="cjk-demo"))
+
+# --------------------------------------------------------------------------
 doc.heading("Trust, briefly", level=1)
 doc.paragraph(
     "One section, because it should be assumed rather than sold. Every "
@@ -552,7 +700,7 @@ doc.paragraph(
     "reconstructed later, and it supports a redlined diff between "
     "versions for review. Conformance to PDF/UA-1 and PDF/A is checked "
     "against the real veraPDF validator in continuous integration. The "
-    "project is open source under Apache-2.0 with more than 2,000 "
+    "project is open source under Apache-2.0 with more than 2,100 "
     "automated tests."
 )
 

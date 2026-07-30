@@ -529,6 +529,22 @@ Automatic curly quotes, em/en dashes, fractions, ellipses, and non-breaking spac
 
 Automatic fi, fl, ff, ffi, and ffl ligature substitution on embedded fonts, gated per glyph on the font's cmap. Base-14 fonts carry no ligature glyphs and are left untouched.
 
+### CJK and Non-Latin Scripts
+
+Register a CJK-capable font (Noto Sans JP/SC/KR, or any TTF/OTF with CJK glyph coverage) and Chinese, Japanese, and Korean text renders correctly -- real glyphs, correct widths, correct line wrapping:
+
+```python
+from emboss import Document, TextRun
+
+doc = Document(title="Report")
+doc.fonts.register("cjk", "/path/to/NotoSansJP-Regular.ttf")
+doc.paragraph(TextRun("日本語のテストです。", font_family="cjk"))
+```
+
+Base-14 fonts (Helvetica, Times) carry no CJK glyphs; without a registered font, CJK characters are substituted out with a recorded warning rather than silently corrupting the page. Once a font is registered, the line breaker treats CJK Unified Ideographs, Hiragana, Katakana, and Hangul Syllables as break-opportune between any two characters (unlike Latin text, CJK carries no spaces between words), so long CJK passages wrap instead of overflowing. Which characters actually render depends on the registered font's own glyph coverage, as with any font -- a font covering only Japanese will not carry Simplified Chinese glyphs; [Noto Sans CJK](https://github.com/notofonts/noto-cjk) covers Chinese, Japanese, and Korean in one family if a document mixes scripts.
+
+**Not supported, stated honestly:** right-to-left scripts (Arabic, Hebrew) and complex-script shaping (Indic scripts requiring glyph reordering and ligature substitution via a shaping engine like HarfBuzz) are a separate, larger project and remain unimplemented; RTL/complex-script text is still substituted with a warning today.
+
 ---
 
 ## Layout System
@@ -732,6 +748,27 @@ print(report.ok)                   # bool
 ```
 
 `reproduce()` recovers the document from the PDF (via the embedded spec, or the degraded structure-tree path), re-renders it, and reports whether the two PDFs agree structurally -- same page count and same visible text per page, not a byte-for-byte match (attaching a manifest to the reproduction would itself shift bytes across the attachment boundary). A way to catch drift between what a PDF claims to be and what actually generated it.
+
+### AI Provenance / Content Credentials
+
+A verifiable record of what generated a document -- which model, from what prompt, and who reviewed it -- folded into the same manifest:
+
+```python
+from emboss import Document, GeneratorInfo
+
+generator = GeneratorInfo.from_prompt(
+    "Write a quarterly financial report",
+    model="claude-sonnet-5", provider="anthropic",
+    reviewed_by="R. Patel", reviewed_at="2026-07-29",
+)
+doc = Document(title="Q3 Report")
+doc.paragraph("Revenue increased 12% year over year.")
+pdf_bytes = doc.render(manifest=True, generator=generator)
+```
+
+`GeneratorInfo.from_prompt` hashes the prompt (`prompt_sha256`) rather than storing it, so the manifest proves a specific, reproducible input produced this output without disclosing potentially sensitive prompt content. `reviewed_by`/`reviewed_at` are plain caller-supplied strings, recorded only when a review is a deliberate act, never populated from the wall clock. Read it back with `read_generator_info(pdf_bytes)`, which returns `None` (not an exception) when no generator record is present -- an honest absence, not a guess. `Document.generator = GeneratorInfo(...)` sets it once for every subsequent render; `generate(..., manifest=True)` (the one-liner LLM tier) auto-populates model, provider, and the prompt hash unless a `generator=` override is given.
+
+This closes a real gap: as AI-content disclosure obligations broaden, no other PDF tool can prove which model produced a document and whether a human reviewed it. It composes with everything else here -- the reproducibility manifest is already signable via `sign_pdf`/`sign_pdf_pades`, so provenance can be part of a verifiable chain of custody, not a self-reported claim.
 
 ### Node-Scoped Patching
 
@@ -950,6 +987,20 @@ doc.document_control(
 ```
 
 The block expands into real, fully tagged tables before layout -- a metadata grid, an Approvals table, and a Revision History table -- so pagination, header repetition on long revision histories, and PDF/UA `/Table` tagging all come from the same machinery an ordinary `doc.table(...)` uses, not a hand-drawn panel. It round-trips through the JSON spec and renders in the HTML and Markdown adapters.
+
+### Interactive Form Fields
+
+Fillable text, checkbox, and dropdown fields for intake and KYC-style documents, laid out in the normal document flow rather than manually positioned:
+
+```python
+doc.heading("Client Intake", level=1)
+doc.text_field("full_name", label="Full name")
+doc.checkbox_field("accredited_investor", label="I am an accredited investor")
+doc.dropdown_field("entity_type", options=["Individual", "Corporation", "Trust"],
+                   label="Entity type")
+```
+
+Each field produces a genuine AcroForm widget -- `/FT /Tx`, `/Btn`, or `/Ch` with the correct `/V`, `/Ff` flags (`required`, `multiline`, the combo bit for a dropdown's `/Opt`), and a real checkbox `/Yes`/`/Off` appearance -- not a drawn rectangle. Every field is tagged as real PDF/UA structure (a `Form`-mapped structure element with the same object-reference mechanism link annotations already use), so a document containing form fields stays PDF/UA-tagged with no regression. Fields coexist with signature fields in one `/AcroForm`, and a duplicate field name across a document raises rather than producing an AcroForm two fields silently share.
 
 ### Factur-X / ZUGFeRD e-invoicing
 
@@ -1253,6 +1304,17 @@ doc.chart(
 ```
 
 Chart types: `bar`, `line`, `pie`, `scatter`.
+
+### Data Binding: Tables and Charts from CSV or a DataFrame
+
+A finance or exec-brief pipeline produces figures from a data export, not a hand-typed list -- `table_from_csv`/`chart_from_csv` read a CSV path, file object, CSV text, or a pandas DataFrame (duck-typed; pandas stays an optional, never-required dependency) directly into a table or chart:
+
+```python
+doc.table_from_csv("bookings.csv", caption="Bookings by region", verify_totals=True)
+doc.chart_from_csv("bookings.csv", chart_type="bar", attach_data=True)
+```
+
+Because both methods ultimately call the existing `Document.table`/`Document.chart`, every other keyword composes for free: `verify_totals=True` refuses to render if a CSV-sourced Total row doesn't add up, exactly as it would for a hand-typed table; `attach_data=True` embeds the exact CSV that fed the chart inside the PDF, so the visual and its source data travel as one file. Currency, thousands separators, and percent signs in CSV cells (`"$1,234.50"`) are parsed automatically (the same `arithmetic.parse_number` the totals check uses), so a raw finance export plots and totals correctly without pre-cleaning. `chart_from_csv` treats the first column as labels and every other numeric column as a series by default, or accepts explicit `value_columns=`/`category_column=` by name or index.
 
 ---
 

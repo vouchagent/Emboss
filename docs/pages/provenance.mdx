@@ -164,3 +164,51 @@ through to the structure-tree path), and `strip_pdf` /
 `recover_from_structure_tree` raise `ImportError` with that install
 hint rather than failing with an unrelated error.
 </Callout>
+
+## AI provenance / content credentials
+
+A verifiable record of what generated a document -- which model, from what prompt, and who reviewed it -- folded into the same manifest `manifest=True` already attaches:
+
+```python
+from emboss import Document, GeneratorInfo, read_generator_info
+
+generator = GeneratorInfo.from_prompt(
+    "Write a quarterly financial report",
+    model="claude-sonnet-5", provider="anthropic",
+    reviewed_by="R. Patel", reviewed_at="2026-07-29",
+)
+doc = Document(title="Q3 Report")
+doc.paragraph("Revenue increased 12% year over year.")
+pdf_bytes = doc.render(manifest=True, generator=generator)
+
+info = read_generator_info(pdf_bytes)
+info.model, info.provider, info.reviewed_by   # 'claude-sonnet-5', 'anthropic', 'R. Patel'
+```
+
+`GeneratorInfo.from_prompt` records a hash of the prompt (`prompt_sha256`), never the prompt text itself: the manifest proves a specific, reproducible input produced this output without disclosing potentially sensitive prompt content. Build a `GeneratorInfo` directly (`model=`, `provider=`, `prompt_sha256=`, `params=`, `reviewed_by=`, `reviewed_at=`) if you already have a hash, or don't want to hash at all. `reviewed_by`/`reviewed_at` are plain caller-supplied strings -- recording a review is a deliberate act, never populated from the wall clock.
+
+`read_generator_info(pdf_bytes)` returns `None`, not an exception, when no generator record is present (no manifest at all, or a manifest built without one) -- an honest absence rather than a guess, and backward compatible with a manifest built before this field existed.
+
+```python
+doc.generator = GeneratorInfo(model="claude-sonnet-5", provider="anthropic")
+doc.render(manifest=True)   # generator falls back to Document.generator
+```
+
+Setting `Document.generator` once records it on every subsequent `render(manifest=True)`/`save(manifest=True)` without repeating the argument; an explicit `generator=` at render time overrides it.
+
+```python
+from emboss import generate
+
+pdf_bytes = generate("Write a quarterly report", manifest=True)
+```
+
+`generate(...)` (the one-liner LLM tier) auto-populates a `GeneratorInfo` from that call's model, provider, and a hash of the prompt when `manifest=True` and no explicit `generator=` is given; the default call (`manifest=False`) is unchanged from before this existed.
+
+This is checkable from an MCP client too -- `get_provenance(pdf_path)` (see [MCP Server](/mcp)) answers "which model produced this, and was it reviewed?" from the embedded manifest, with `found: false` when there is nothing to report.
+
+<Callout type="info">
+Provenance composes with everything else here: the reproducibility
+manifest is signable via `sign_pdf`/`sign_pdf_pades`, so a generator
+record can be part of a verifiable, signed chain of custody rather than
+a self-reported claim.
+</Callout>

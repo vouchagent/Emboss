@@ -84,3 +84,32 @@ the spec and `FontMetrics.small_caps_width` can measure small-caps text, but
 the layout engine and renderer do not yet apply the flag: it currently has
 no visual effect on output. Track this before relying on it.
 </Callout>
+
+## CJK and non-Latin scripts
+
+Register a CJK-capable font and Chinese, Japanese, and Korean text renders with real glyphs, correct widths, and correct line wrapping:
+
+```python
+from emboss import Document, TextRun
+
+doc = Document(title="Report")
+doc.fonts.register("cjk", "/path/to/NotoSansJP-Regular.ttf")
+doc.paragraph(TextRun("日本語のテストです。", font_family="cjk"))
+```
+
+`Document.fonts` is the document's `FontRegistry`; `register(family, path, bold=False, italic=False)` loads a TTF/OTF and makes it resolvable by name. Register the bold variant too if the family will be used in a heading (headings render bold) or a table header, or that weight silently falls back to base-14 Helvetica and substitutes.
+
+**Why this needed a fix, not just a font.** Base-14 fonts (Helvetica, Times) carry no CJK glyphs at all -- without a registered font, CJK characters were previously substituted out with a recorded warning, dropping the content rather than corrupting the page visually. Once a font is registered, two further things had to work correctly:
+
+- **Line breaking.** CJK text carries no spaces between words, unlike Latin text. The line breaker treats CJK Unified Ideographs (U+4E00-U+9FFF and Extension A U+3400-U+4DBF), Hiragana (U+3040-U+309F), Katakana (U+30A0-U+30FF), and Hangul Syllables (U+AC00-U+D7A3) as break-opportune between any two characters, so a long CJK paragraph wraps onto multiple lines instead of overflowing the column.
+- **Text extraction.** A CJK run renders as one text fragment, not one fragment per character, so text extracted from the PDF (the text-position index behind annotation resolution and search) reproduces the original string, not a character-spaced approximation.
+
+**Font coverage is per font, as always.** Which characters actually render depends on the registered font's own glyph set -- a font covering only Japanese will not carry Simplified Chinese glyphs. [Noto Sans CJK](https://github.com/notofonts/noto-cjk) covers Chinese, Japanese, and Korean in one family for a document mixing scripts.
+
+<Callout type="warning">
+Not supported, stated honestly: right-to-left scripts (Arabic, Hebrew) and
+complex-script shaping (Indic scripts requiring glyph reordering and
+ligature substitution via a shaping engine like HarfBuzz). These remain a
+separate, larger project; text in these scripts is still substituted with
+a recorded warning today, not rendered.
+</Callout>

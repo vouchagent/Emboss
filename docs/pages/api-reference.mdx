@@ -47,8 +47,13 @@ doc.paragraph(content)
 doc.bullets(items)          # alias: bullet_list
 doc.numbered(items)         # alias: numbered_list
 doc.table(headers, rows)
+doc.table_from_csv(source, has_header=True, ...)   # path, file, CSV text, or DataFrame
 doc.image(source, ...)
 doc.chart(chart_type, labels, values, ...)
+doc.chart_from_csv(source, category_column=0, value_columns=None, ...)
+doc.text_field(name, label=None, ...)
+doc.checkbox_field(name, label=None, ...)
+doc.dropdown_field(name, options, label=None, ...)
 doc.diagram(nodes, edges=(), direction="down", caption=None, ...)
 doc.code_block(code, language="text", ...)
 doc.math(source, ...)

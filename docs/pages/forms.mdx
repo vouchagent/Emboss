@@ -1,0 +1,74 @@
+---
+title: Interactive Form Fields
+description: Fillable AcroForm text, checkbox, and dropdown fields for intake and KYC documents
+---
+
+import { Callout } from 'nextra/components'
+
+# Interactive form fields
+
+Fillable text, checkbox, and dropdown fields for intake and KYC-style documents (client questionnaires, applications), laid out in the normal document flow -- not manually positioned -- and producing genuine AcroForm widgets a PDF reader can interact with.
+
+```python
+from emboss import Document
+
+doc = Document(title="Client Intake")
+doc.heading("Client Intake", level=1)
+doc.text_field("full_name", label="Full name")
+doc.checkbox_field("accredited_investor", label="I am an accredited investor")
+doc.dropdown_field(
+    "entity_type",
+    options=["Individual", "Corporation", "Trust"],
+    label="Entity type",
+)
+doc.save("intake.pdf")
+```
+
+## Field types
+
+`Document.text_field(name, label=None, default="", multiline=False, required=False, ...)` -- a single-line input (or a taller multi-line box with `multiline=True`); `required=True` sets the AcroForm required-field flag.
+
+`Document.checkbox_field(name, label=None, checked=False, ...)` -- a checkbox with a real `/Yes`/`/Off` appearance, starting checked or unchecked.
+
+`Document.dropdown_field(name, options, label=None, default=None, ...)` -- a combo box; `options` is the list of choices, `default` (if given) must be one of them.
+
+Every field accepts an explicit `id=` (the block's stable node id, distinct from `name`, the AcroForm field name) and a `style=` override, like any other block element.
+
+## What gets produced
+
+Each field renders its visible label, then emits a real AcroForm field and widget annotation:
+
+- Text field: `/FT /Tx`, `/V` the current value, `/Ff` bit 0x1000 set when `multiline=True`, bit 0x2 set when `required=True`.
+- Checkbox: `/FT /Btn`, `/AS`/`/V` set to `/Yes` or `/Off`, with a real `/AP/N` appearance stream for each state (not a single static image).
+- Dropdown: `/FT /Ch` with the combo flag (`/Ff` bit 0x20000) set, `/Opt` the option array, `/V` the default.
+
+All fields accumulate into one document-level `/AcroForm/Fields`, coexisting with any signature fields the document also has (see [Digital Signatures](/signatures)).
+
+## Accessibility
+
+Every field is tagged as real PDF/UA structure: a `Form`-mapped structure element with an object reference (`OBJR`) to its widget annotation, the same mechanism link annotations already use. A document containing form fields stays PDF/UA-tagged with no regression -- `verify_pdf()` reports the structure tree as valid exactly as it would without fields present.
+
+## Validation
+
+A duplicate field `name` across the document raises a clear error at render time, rather than producing an AcroForm where two fields silently share one name (and one value). An empty `options` list on a dropdown field raises too.
+
+```python
+doc.text_field("email", label="Email")
+doc.text_field("email", label="Confirm email")   # ValidationError: duplicate field name
+```
+
+## Round-trip
+
+Form fields are part of the EmbossSpec vocabulary and round-trip through `document_to_spec_dict`/`Document.from_json`, and are exposed in the Pydantic schema and the LLM spec prompt for structured-output pipelines.
+
+<Callout type="warning">
+Recovering a document from its PDF/UA structure tree alone (no embedded
+spec) cannot reconstruct a field's real type or value -- the `/FT`/`/V`/
+`/Opt` data lives on the widget annotation, which the structure-tree walk
+does not follow. A field degrades to a plain sentence naming it in that
+path; use `embed_spec=True` to recover it exactly.
+</Callout>
+
+## What is not built
+
+Stated honestly: no radio-button groups (only independent checkboxes; no shared parent field with multiple `/Kids` export values), no rich-text fields (no `/RV`, no XFA), no JavaScript field actions or validation (no `/AA`, no calculate/format scripts), no listbox or multi-select choice fields, and the AcroForm's default appearance uses base-14 Helvetica only. `emboss amend`'s incremental-update path does not add form fields to an already-rendered PDF -- fields are only available through the initial render pipeline.
