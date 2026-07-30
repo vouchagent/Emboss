@@ -9,7 +9,7 @@ description = "Deterministic, PDF/UA-tagged, veraPDF-conformant PDF generation f
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Gaurav Gupta" }]
+authors = [{ name = "Gaurav Gupta", email = "gauravright@gmail.com" }]
 keywords = ["pdf", "typesetting", "accessibility", "pdf-ua", "knuth-plass"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

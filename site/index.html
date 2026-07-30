@@ -442,6 +442,7 @@
 <nav class="nav-bar">
     <div class="container">
         <a href="#overview">Overview</a>
+        <a href="#installation">Installation</a>
         <a href="#capabilities">Capabilities</a>
         <a href="#sample-app">Sample App</a>
         <a href="#comparison">Comparison</a>
@@ -475,6 +476,7 @@
             <h3>Table of Contents</h3>
             <ol class="toc-list">
                 <li><a href="#overview">Executive Overview</a></li>
+                <li><a href="#installation">Installation</a></li>
                 <li><a href="#capabilities">Emboss Capabilities</a></li>
                 <li><a href="#sample-app">Sample Application Results</a></li>
                 <li><a href="#comparison">Library-by-Library Comparison</a></li>
@@ -527,6 +529,25 @@
                 <div class="stat-value">Python 3.10+</div>
                 <div class="stat-label">Requirement</div>
             </div>
+        </div>
+    </section>
+
+    <!-- 1B. INSTALLATION -->
+    <section id="installation">
+        <h2>1B. Installation</h2>
+        <div class="card">
+            <p>Installing Emboss to reproduce the results in this report, or to evaluate it yourself:</p>
+            <div class="code-block"><span class="comment"># Core library (requires Python 3.10+)</span>
+pip install emboss-pdf</div>
+            <p>Optional extras, added as needed:</p>
+            <div class="code-block">pip install emboss-pdf[all]       <span class="comment"># pydantic + pikepdf + cryptography</span>
+pip install emboss-pdf[llm]       <span class="comment"># pydantic schemas for LLM structured output</span>
+pip install emboss-pdf[verify]    <span class="comment"># pikepdf for PDF structural verification</span>
+pip install emboss-pdf[signing]   <span class="comment"># cryptography for digital signatures</span>
+pip install emboss-pdf[mcp]       <span class="comment"># MCP server for Claude / LLM integration</span>
+pip install emboss-pdf[dev]       <span class="comment"># full dev environment (pytest, mypy, ruff)</span></div>
+            <p>The only hard dependency is <code>fonttools</code>; everything else above is opt-in. Full source, docs, and the sample application used in Section 3 are at
+            <a href="https://github.com/GGChamp85/Emboss" target="_blank" rel="noopener">github.com/GGChamp85/Emboss</a>.</p>
         </div>
     </section>
 
