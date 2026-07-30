@@ -24,10 +24,12 @@ from .spec import (
     BulletList,
     Callout,
     Chart,
+    CheckboxField,
     CodeBlock,
     CoverPage,
     Document,
     DocumentControl,
+    DropdownField,
     Footnote,
     Glossary,
     Heading,
@@ -43,6 +45,7 @@ from .spec import (
     SvgBlock,
     Table,
     TableOfContents,
+    TextField,
 )
 
 __all__ = ["Issue", "ValidationResult", "ConstraintValidator", "ValidationError"]
@@ -122,6 +125,7 @@ class ConstraintValidator:
         self._check_content(working, issues)
         self._check_headings(working, issues)
         self._check_tables(working, issues)
+        self._check_form_fields(working, issues)
 
         if self.strict:
             issues = [
@@ -228,6 +232,9 @@ class ConstraintValidator:
             Index,
             Glossary,
             DocumentControl,
+            TextField,
+            CheckboxField,
+            DropdownField,
         )
         for index, element in enumerate(document.content):
             if not isinstance(element, known):
@@ -379,3 +386,31 @@ class ConstraintValidator:
                             f"content[{index}]",
                         )
                     )
+
+    def _check_form_fields(self, document: Document, issues: list) -> None:
+        """AcroForm field names (/T) must be unique; dropdowns need options."""
+        seen: dict = {}
+        for index, element in enumerate(document.content):
+            if isinstance(element, DropdownField) and not element.option_list:
+                issues.append(
+                    Issue(
+                        "error",
+                        "structural",
+                        "dropdown field has no options",
+                        f"content[{index}]",
+                    )
+                )
+            if isinstance(element, (TextField, CheckboxField, DropdownField)):
+                if element.name in seen:
+                    issues.append(
+                        Issue(
+                            "error",
+                            "structural",
+                            f"duplicate form field name {element.name!r}; "
+                            "AcroForm field names (/T) must be unique in the "
+                            "document",
+                            f"content[{index}]",
+                        )
+                    )
+                else:
+                    seen[element.name] = index

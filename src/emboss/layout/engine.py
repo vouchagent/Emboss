@@ -21,8 +21,10 @@ from ..spec import (
     BulletList,
     Callout,
     Chart,
+    CheckboxField,
     CodeBlock,
     CoverPage,
+    DropdownField,
     Footnote,
     Glossary,
     Heading,
@@ -36,10 +38,11 @@ from ..spec import (
     StatTiles,
     SvgBlock,
     Table,
+    TextField,
     TextRun,
 )
 from ..typography.font_metrics import small_caps_segments
-from ..typography.line_breaking import Box, Glue, LineBreaker, build_items
+from ..typography.line_breaking import Box, Glue, LineBreaker, Penalty, build_items
 from ..typography.substitutions import substitute_unsupported
 
 __all__ = [
@@ -66,6 +69,9 @@ class LaidOutLine:
     ratio: float = 0.0
     is_last: bool = False
     hyphenated: bool = False
+    #: True when this line ends on a real inter-word space rather than a
+    #: hyphenation or CJK soft break; see `Line.space_break`.
+    space_break: bool = True
 
 
 @dataclass
@@ -201,6 +207,12 @@ class LayoutEngine:
     CHECKBOX_SIZE = 7.0
     CHECKBOX_GAP = 5.0
 
+    FORM_FIELD_HEIGHT = 22.0
+    FORM_FIELD_MULTILINE_HEIGHT = 68.0
+    FORM_FIELD_LABEL_GAP = 4.0
+    FORM_CHECKBOX_SIZE = 13.0
+    FORM_CHECKBOX_GAP = 8.0
+
     def __init__(
         self, fonts, sheet, hyphenator=None, breaker=None, optimize_layout=True
     ):
@@ -326,6 +338,12 @@ class LayoutEngine:
             return self._measure_stat_tiles(element, width)
         if isinstance(element, Glossary):
             return self._measure_glossary(element, width)
+        if isinstance(element, TextField):
+            return self._measure_text_field(element, width)
+        if isinstance(element, CheckboxField):
+            return self._measure_checkbox_field(element, width)
+        if isinstance(element, DropdownField):
+            return self._measure_dropdown_field(element, width)
         if isinstance(element, PageBreak):
             return MeasuredBlock(
                 element=element,
@@ -449,13 +467,42 @@ class LayoutEngine:
                     slack -= 0.0
                 extra = slack / glue_count
 
+            # Boxes joined only by a `soft` (zero-cost CJK) break are merged
+            # into one rendered fragment when the line does not break there,
+            # so a run of CJK characters draws and extracts as one string
+            # instead of one Tj call, and one text-index span, per glyph.
+            pending_text: str | None = None
+            pending_run_index = 0
+            pending_start = 0.0
+
+            def _flush_pending() -> None:
+                nonlocal pending_text
+                if pending_text:
+                    fragments.append(
+                        (pending_text, runs[pending_run_index], pending_start)
+                    )
+                pending_text = None
+
             for item in line.items:
                 if isinstance(item, Box):
                     if item.text:
-                        fragments.append((item.text, runs[item.run_index], cursor))
+                        if (
+                            pending_text is not None
+                            and item.run_index == pending_run_index
+                        ):
+                            pending_text += item.text
+                        else:
+                            _flush_pending()
+                            pending_text = item.text
+                            pending_run_index = item.run_index
+                            pending_start = cursor
                     cursor += item.width
                 elif isinstance(item, Glue):
+                    _flush_pending()
                     cursor += item.width + extra
+                elif isinstance(item, Penalty) and not item.soft:
+                    _flush_pending()
+            _flush_pending()
 
             content_width = cursor
             if line.hyphenated and fragments:
@@ -496,6 +543,7 @@ class LayoutEngine:
                     ratio=line.ratio,
                     is_last=line.is_last,
                     hyphenated=line.hyphenated,
+                    space_break=line.space_break,
                 )
             )
         return laid_out
@@ -1186,6 +1234,92 @@ class LayoutEngine:
                     "accent": accent,
                 }
             },
+        )
+
+    # -- fillable form fields --
+
+    def _field_label_lines(self, element, style, width: float) -> list:
+        """Wrapped label lines for a text/dropdown field, or [] with no label."""
+        text = element.label or element.name
+        if isinstance(element, TextField) and element.required:
+            text = f"{text} *"
+        if not text:
+            return []
+        size = self._size(style) * 0.85
+        return self._styled_lines(
+            text, style, width, size, color=self._muted_color(), align="left"
+        )
+
+    def _measure_text_field(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        label_lines = self._field_label_lines(element, style, width)
+        label_h = sum(line.height for line in label_lines)
+        if label_lines:
+            label_h += self.FORM_FIELD_LABEL_GAP
+        box_h = (
+            self.FORM_FIELD_MULTILINE_HEIGHT
+            if element.multiline
+            else self.FORM_FIELD_HEIGHT
+        )
+        return MeasuredBlock(
+            element=element,
+            height=label_h + box_h,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=10.0,
+            extras={
+                "formfield": {
+                    "label_lines": label_lines,
+                    "box_height": box_h,
+                    "box_width": width,
+                }
+            },
+        )
+
+    def _measure_dropdown_field(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        label_lines = self._field_label_lines(element, style, width)
+        label_h = sum(line.height for line in label_lines)
+        if label_lines:
+            label_h += self.FORM_FIELD_LABEL_GAP
+        box_h = self.FORM_FIELD_HEIGHT
+        return MeasuredBlock(
+            element=element,
+            height=label_h + box_h,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=10.0,
+            extras={
+                "formfield": {
+                    "label_lines": label_lines,
+                    "box_height": box_h,
+                    "box_width": width,
+                }
+            },
+        )
+
+    def _measure_checkbox_field(self, element, width: float) -> MeasuredBlock:
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        box = self.FORM_CHECKBOX_SIZE
+        label_text = element.label or element.name
+        runs = [TextRun(label_text)] if label_text else []
+        label_lines: list = []
+        if runs:
+            usable = width - box - self.FORM_CHECKBOX_GAP
+            label_lines = self._layout_runs(runs, style, usable)
+            for run in runs:
+                self._metrics(style, run).note_usage(run.text)
+        label_h = sum(line.height for line in label_lines)
+        return MeasuredBlock(
+            element=element,
+            height=max(box, label_h),
+            style=style,
+            can_split=False,
+            space_before=6.0,
+            space_after=6.0,
+            extras={"formfield": {"box": box, "label_lines": label_lines}},
         )
 
     # -- visible table of contents --

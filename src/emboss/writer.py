@@ -40,10 +40,12 @@ from .spec import (
     BulletList,
     Callout,
     Chart,
+    CheckboxField,
     CodeBlock,
     CoverPage,
     Document,
     DocumentControl,
+    DropdownField,
     Footnote,
     Glossary,
     Heading,
@@ -59,6 +61,7 @@ from .spec import (
     SvgBlock,
     Table,
     TableOfContents,
+    TextField,
 )
 from .styles import Style
 from .typography.hyphenation import Hyphenator
@@ -192,6 +195,15 @@ class Renderer:
         self._chart_table_seen: set = set()
         self._chart_attach_count = 0
         self._table_attach_count = 0
+        # (page_index, [x0, y0, x1, y1], element, StructureElement) per
+        # placed text/checkbox/dropdown field, in render order; consumed by
+        # `_build_form_field_widgets` once page refs exist.
+        self._formfield_records: list = []
+        # AcroForm field/widget refs built from `_formfield_records`.
+        self._form_field_refs: list = []
+        # next unused /StructParents key for annotations (links, then
+        # fields), continued across both so no page/annotation key collides.
+        self._struct_parent_next = 0
 
     def run(self) -> RenderResult:
         validation = self.validator.validate(self.source).raise_if_failed()
@@ -828,6 +840,10 @@ class Renderer:
             content_refs.append(assembler.add(PdfStream(data=stream)))
 
         annots_by_page = self._build_link_annots(assembler, document, len(pages))
+        if self._formfield_records:
+            self._build_form_field_widgets(
+                assembler, document, page_refs, annots_by_page
+            )
 
         # Register fonts after rendering so usage is known for subsetting.
         if self._svg_fonts:
@@ -972,22 +988,28 @@ class Renderer:
             else:
                 catalog["OutputIntents"] = PdfArray([intent_ref])
 
+        sig_field_refs: list = []
         if document.signatures:
-            from .signing import (
-                SignatureField,
-                build_sig_field_dict,
-                build_acroform,
-            )
+            from .signing import SignatureField, build_sig_field_dict
 
-            sig_field_refs = []
             for sig in document.signatures:
                 if isinstance(sig, dict):
                     sig = SignatureField(**sig)
                 pidx = min(sig.page_index, len(page_refs) - 1)
                 ref = build_sig_field_dict(assembler, sig, page_refs[pidx])
                 sig_field_refs.append(ref)
+
+        if sig_field_refs or self._form_field_refs:
+            from .formfields import build_form_acroform
+
+            sig_acroform = None
             if sig_field_refs:
-                catalog["AcroForm"] = build_acroform(sig_field_refs)
+                from .signing import build_acroform
+
+                sig_acroform = build_acroform(sig_field_refs)
+            catalog["AcroForm"] = build_form_acroform(
+                assembler, self._form_field_refs, sig_acroform=sig_acroform
+            )
 
         assembler.add(catalog, obj_id=catalog_id)
 
@@ -1049,7 +1071,75 @@ class Renderer:
                 next_key += 1
             assembler.add(annot, obj_id=annot_id)
             annots_by_page.setdefault(page_index, []).append(annot_ref)
+        self._struct_parent_next = next_key
         return annots_by_page
+
+    def _build_form_field_widgets(
+        self, assembler, document, page_refs: list, annots_by_page: dict
+    ) -> None:
+        """Build widget annotations for placed text/checkbox/dropdown fields.
+
+        Consumes `self._formfield_records` (populated while drawing pages),
+        building each field's AcroForm dict + widget annotation, adding it
+        to the page's /Annots, and -- when the document is tagged -- wiring
+        its /Form structure element to the widget via the same annot_ref/
+        struct_parent OBJR mechanism link annotations use, continuing the
+        shared /StructParents key sequence `_build_link_annots` started.
+        """
+        from .formfields import (
+            build_checkbox_field_dict,
+            build_dropdown_field_dict,
+            build_text_field_dict,
+        )
+
+        next_key = self._struct_parent_next
+        refs: list = []
+        for page_index, rect, element, field_el in self._formfield_records:
+            page_ref = page_refs[page_index]
+            tooltip = element.label or element.name
+            if isinstance(element, TextField):
+                ref = build_text_field_dict(
+                    assembler,
+                    name=element.name,
+                    rect=rect,
+                    page_ref=page_ref,
+                    default=element.default,
+                    multiline=element.multiline,
+                    required=element.required,
+                    tooltip=tooltip,
+                )
+            elif isinstance(element, CheckboxField):
+                ref = build_checkbox_field_dict(
+                    assembler,
+                    name=element.name,
+                    rect=rect,
+                    page_ref=page_ref,
+                    checked=element.checked,
+                    tooltip=tooltip,
+                )
+            elif isinstance(element, DropdownField):
+                ref = build_dropdown_field_dict(
+                    assembler,
+                    name=element.name,
+                    rect=rect,
+                    page_ref=page_ref,
+                    options=element.option_list,
+                    default=element.default,
+                    tooltip=tooltip,
+                )
+            else:  # pragma: no cover - defensive, unreachable via public API
+                continue
+
+            if document.tagged:
+                field_el.page_index = page_index
+                field_el.annot_ref = ref
+                field_el.struct_parent = next_key
+                next_key += 1
+            annots_by_page.setdefault(page_index, []).append(ref)
+            refs.append(ref)
+
+        self._struct_parent_next = next_key
+        self._form_field_refs = refs
 
     def _build_svg_page_resources(self, assembler, resources, ext_states) -> dict:
         """Per-page Resources overriding ExtGState for pages with SVG opacity."""
@@ -1217,6 +1307,16 @@ class Renderer:
                 self._draw_index(stream, placed, page_index, root, font_registry)
             elif isinstance(element, HorizontalRule):
                 self._draw_rule(stream, placed, page_spec.content_width)
+            elif isinstance(element, TextField):
+                self._draw_text_field(stream, placed, page_index, root, font_registry)
+            elif isinstance(element, CheckboxField):
+                self._draw_checkbox_field(
+                    stream, placed, page_index, root, font_registry
+                )
+            elif isinstance(element, DropdownField):
+                self._draw_dropdown_field(
+                    stream, placed, page_index, root, font_registry
+                )
 
             node_id = getattr(element, "id", None)
             if node_id:
@@ -1388,9 +1488,11 @@ class Renderer:
 
         node_id = getattr(placed.block.element, "id", None)
         char_cursor = 0
+        previous_line_space_break = True
 
         for line in placed.lines:
             baseline = y - line.ascent
+            first_fragment_of_line = True
 
             protrusion_shift = 0.0
             if apply_protrusion and line.fragments:
@@ -1427,8 +1529,13 @@ class Renderer:
                 )
                 if sc_actual is not None:
                     stream.raw(b"EMC")
+                # A line break only stands for a space when the line ended
+                # on a real inter-word Glue; a hyphenation or CJK soft break
+                # continues the same word/character run with no space.
                 if char_cursor > 0 and text:
-                    char_cursor += 1  # word separator between rendered fragments
+                    if not first_fragment_of_line or previous_line_space_break:
+                        char_cursor += 1  # word separator between fragments
+                first_fragment_of_line = False
                 char_cursor += self._record_text_span(
                     node_id, page_index, char_cursor, text, x, baseline, metrics, size
                 )
@@ -1455,25 +1562,49 @@ class Renderer:
                     else:
                         self._link_records.append((page_index, rect, run.link, element))
                 previous_link = run.link
+            previous_line_space_break = line.space_break
             y -= line.height
 
         stream.end_marked()
 
     @staticmethod
-    def _draw_checkbox(stream, x: float, baseline: float, color, checked) -> None:
-        """Draw a 7pt checkbox outline plus a two-segment tick when checked."""
-        stream.rect(x, baseline, 7.0, 7.0, stroke=color, line_width=0.7)
+    def _draw_checkbox(
+        stream, x: float, baseline: float, color, checked, size: float = 7.0
+    ) -> None:
+        """Draw a `size`pt checkbox outline plus a two-segment tick when checked."""
+        stream.rect(
+            x, baseline, size, size, stroke=color, line_width=max(0.7, size * 0.1)
+        )
         if checked:
+            scale = size / 7.0
             stream.set_stroke(color)
-            stream.set_line_width(0.9)
+            stream.set_line_width(max(0.9, 0.9 * scale))
             stream.raw(
-                b" ".join([stream._num(x + 1.4), stream._num(baseline + 3.5), b"m"])
+                b" ".join(
+                    [
+                        stream._num(x + 1.4 * scale),
+                        stream._num(baseline + 3.5 * scale),
+                        b"m",
+                    ]
+                )
             )
             stream.raw(
-                b" ".join([stream._num(x + 2.9), stream._num(baseline + 1.7), b"l"])
+                b" ".join(
+                    [
+                        stream._num(x + 2.9 * scale),
+                        stream._num(baseline + 1.7 * scale),
+                        b"l",
+                    ]
+                )
             )
             stream.raw(
-                b" ".join([stream._num(x + 5.6), stream._num(baseline + 5.3), b"l"])
+                b" ".join(
+                    [
+                        stream._num(x + 5.6 * scale),
+                        stream._num(baseline + 5.3 * scale),
+                        b"l",
+                    ]
+                )
             )
             stream.raw(b"S")
 
@@ -3091,6 +3222,185 @@ class Renderer:
                     self._link_records.append((page_index, rect, run.link, para))
             stream.end_marked()
             y -= line.height
+
+    def _draw_field_label(self, stream, lines, x, y, page_index, root, registry, style):
+        """Draw wrapped label lines tagged /Lbl; returns y after the label."""
+        if not lines:
+            return y
+        color = style.require("color")
+        label_el = StructureElement(tag="Lbl")
+        root.children.append(label_el)
+        mcid = stream.next_mcid()
+        label_el.add_mcid(page_index, mcid)
+        stream.begin_marked("Lbl", mcid)
+        y = self._emit_lines(stream, lines, x, y, registry, style, color)
+        stream.end_marked()
+        return y
+
+    def _draw_text_field(self, stream, placed, page_index, root, registry) -> None:
+        """Draw a text field's label, input box, and default-value preview.
+
+        The visible box/preview is an Artifact: the real, interactive
+        content is the AcroForm widget built later in `_build_form_field_
+        widgets`, which reuses this call's recorded rect and the /Form
+        structure element appended here.
+        """
+        element = placed.block.element
+        style = placed.block.style
+        data = placed.block.extras["formfield"]
+        color = style.require("color")
+
+        y = self._draw_field_label(
+            stream,
+            data["label_lines"],
+            placed.x,
+            placed.y,
+            page_index,
+            root,
+            registry,
+            style,
+        )
+        if data["label_lines"]:
+            y -= LayoutEngine.FORM_FIELD_LABEL_GAP
+
+        box_h = data["box_height"]
+        box_w = data["box_width"]
+        box_y = y - box_h
+
+        stream.begin_artifact("Background")
+        stream.rect(placed.x, box_y, box_w, box_h, stroke="a8a29e", line_width=0.75)
+        if element.default:
+            metrics, size, key = self._resolve_font(style, None, registry)
+            preview_size = size * 0.95
+            line_h = metrics.line_height(preview_size, 1.3)
+            if element.multiline:
+                text_y = box_y + box_h - preview_size * 1.05
+                avail_lines = max(1, int(box_h // line_h))
+                for line_text in element.default.split("\n")[:avail_lines]:
+                    stream.text_line(
+                        line_text,
+                        key,
+                        preview_size,
+                        placed.x + 6.0,
+                        text_y,
+                        color,
+                        gid_map=metrics.gid_map,
+                    )
+                    text_y -= line_h
+            else:
+                baseline = box_y + (box_h - preview_size) / 2.0 + preview_size * 0.18
+                stream.text_line(
+                    element.default,
+                    key,
+                    preview_size,
+                    placed.x + 6.0,
+                    baseline,
+                    color,
+                    gid_map=metrics.gid_map,
+                )
+        stream.end_marked()
+
+        field_el = StructureElement(tag="Form")
+        field_el.alt_text = element.label or element.name
+        root.children.append(field_el)
+        rect = [placed.x, box_y, placed.x + box_w, box_y + box_h]
+        self._formfield_records.append((page_index, rect, element, field_el))
+
+    def _draw_dropdown_field(self, stream, placed, page_index, root, registry) -> None:
+        """Draw a dropdown field's label, input box, default preview, and arrow."""
+        element = placed.block.element
+        style = placed.block.style
+        data = placed.block.extras["formfield"]
+        color = style.require("color")
+
+        y = self._draw_field_label(
+            stream,
+            data["label_lines"],
+            placed.x,
+            placed.y,
+            page_index,
+            root,
+            registry,
+            style,
+        )
+        if data["label_lines"]:
+            y -= LayoutEngine.FORM_FIELD_LABEL_GAP
+
+        box_h = data["box_height"]
+        box_w = data["box_width"]
+        box_y = y - box_h
+
+        stream.begin_artifact("Background")
+        stream.rect(placed.x, box_y, box_w, box_h, stroke="a8a29e", line_width=0.75)
+        if element.default:
+            metrics, size, key = self._resolve_font(style, None, registry)
+            preview_size = size * 0.95
+            baseline = box_y + (box_h - preview_size) / 2.0 + preview_size * 0.18
+            stream.text_line(
+                element.default,
+                key,
+                preview_size,
+                placed.x + 6.0,
+                baseline,
+                color,
+                gid_map=metrics.gid_map,
+            )
+        self._draw_dropdown_arrow(
+            stream, placed.x + box_w - 14.0, box_y + box_h / 2.0, color
+        )
+        stream.end_marked()
+
+        field_el = StructureElement(tag="Form")
+        field_el.alt_text = element.label or element.name
+        root.children.append(field_el)
+        rect = [placed.x, box_y, placed.x + box_w, box_y + box_h]
+        self._formfield_records.append((page_index, rect, element, field_el))
+
+    @staticmethod
+    def _draw_dropdown_arrow(stream, cx: float, cy: float, color) -> None:
+        """Draw a small downward-pointing triangle marking a choice affordance."""
+        stream.set_fill(color)
+        half = 3.0
+        stream.raw(
+            b" ".join([stream._num(cx - half), stream._num(cy + half * 0.6), b"m"])
+        )
+        stream.raw(
+            b" ".join([stream._num(cx + half), stream._num(cy + half * 0.6), b"l"])
+        )
+        stream.raw(b" ".join([stream._num(cx), stream._num(cy - half * 0.6), b"l"]))
+        stream.raw(b"h f")
+
+    def _draw_checkbox_field(self, stream, placed, page_index, root, registry) -> None:
+        """Draw a checkbox field's square and label.
+
+        The visible tick is an Artifact matching the AcroForm widget's own
+        /AP appearance built in `_build_form_field_widgets`; the widget
+        itself is the real, interactive control.
+        """
+        element = placed.block.element
+        style = placed.block.style
+        data = placed.block.extras["formfield"]
+        color = style.require("color")
+        box = data["box"]
+
+        top = placed.y
+        box_y = top - box
+        stream.begin_artifact("Background")
+        self._draw_checkbox(stream, placed.x, box_y, color, element.checked, size=box)
+        stream.end_marked()
+
+        label_lines = data["label_lines"]
+        if label_lines:
+            label_x = placed.x + box + LayoutEngine.FORM_CHECKBOX_GAP
+            self._draw_field_label(
+                stream, label_lines, label_x, top, page_index, root, registry, style
+            )
+
+        field_el = StructureElement(tag="Form")
+        field_el.alt_text = element.label or element.name
+        root.children.append(field_el)
+        rect = [placed.x, box_y, placed.x + box, box_y + box]
+        self._formfield_records.append((page_index, rect, element, field_el))
 
     def _draw_svg(
         self,

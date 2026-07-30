@@ -41,11 +41,13 @@ from .spec import (
     BlockQuote,
     BulletList,
     Callout,
+    CheckboxField,
     Chart,
     CodeBlock,
     CoverPage,
     Document,
     DocumentControl,
+    DropdownField,
     Footnote,
     Glossary,
     Heading,
@@ -63,6 +65,7 @@ from .spec import (
     Table,
     TableCell,
     TableOfContents,
+    TextField,
     TextRun,
 )
 
@@ -569,6 +572,41 @@ def _document_control_block(el: DocumentControl) -> dict:
     return block
 
 
+def _text_field_block(el: TextField) -> dict:
+    block: dict = {"type": "text_field", "name": el.name}
+    if el.label is not None:
+        block["label"] = el.label
+    if el.default:
+        block["default"] = el.default
+    if el.multiline:
+        block["multiline"] = True
+    if el.required:
+        block["required"] = True
+    return block
+
+
+def _checkbox_field_block(el: CheckboxField) -> dict:
+    block: dict = {"type": "checkbox_field", "name": el.name}
+    if el.label is not None:
+        block["label"] = el.label
+    if el.checked:
+        block["checked"] = True
+    return block
+
+
+def _dropdown_field_block(el: DropdownField) -> dict:
+    block: dict = {
+        "type": "dropdown_field",
+        "name": el.name,
+        "options": list(el.option_list),
+    }
+    if el.label is not None:
+        block["label"] = el.label
+    if el.default is not None:
+        block["default"] = el.default
+    return block
+
+
 _BLOCK_SERIALIZERS: dict[type, Callable[[Any], dict]] = {
     Heading: _heading_block,
     Paragraph: _paragraph_block,
@@ -596,6 +634,9 @@ _BLOCK_SERIALIZERS: dict[type, Callable[[Any], dict]] = {
     Index: _index_block,
     Glossary: _glossary_block,
     DocumentControl: _document_control_block,
+    TextField: _text_field_block,
+    CheckboxField: _checkbox_field_block,
+    DropdownField: _dropdown_field_block,
 }
 
 
@@ -1156,6 +1197,18 @@ def _node_to_element(node: _TagNode, text_getter):
     if tag == "Div":
         text = _aggregate_text(node, text_getter)
         return Paragraph(content=text) if text else None
+    if tag == "Lbl":
+        text = _aggregate_text(node, text_getter)
+        return Paragraph(content=text) if text else None
+    if tag == "Form":
+        # The AcroForm widget itself (/FT, /T, /V, /Opt) lives on the
+        # annotation the /Form element's OBJR kid points at, which this
+        # walk never follows (OBJR is skipped, see _walk_struct_elem) --
+        # only its /Alt survives, so the field degrades to a plain
+        # sentence naming it rather than coming back as a real field.
+        if node.alt_text:
+            return Paragraph(content=f"[Form field: {node.alt_text}]")
+        return None
     return None
 
 
@@ -1189,8 +1242,11 @@ def recover_from_structure_tree(source: bytes | str | Path) -> Document:
     paragraphs, tables, lists, block quotes, footnotes, and code blocks
     come back with correct text and document order (and, where the
     original had one, the same node id with any ``~N`` split-continuation
-    suffix stripped); everything else — styling, images, charts, math,
-    front-matter elements — degrades to plain text or is dropped.
+    suffix stripped); everything else -- styling, images, charts, math,
+    front-matter elements -- degrades to plain text or is dropped. A
+    text/checkbox/dropdown field degrades to a plain paragraph naming it
+    (from the /Form structure element's /Alt), since its /FT, /T, /V, and
+    /Opt live on the widget annotation this walk does not follow.
     """
     try:
         import pikepdf

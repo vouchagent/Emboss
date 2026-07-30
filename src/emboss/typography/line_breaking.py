@@ -31,6 +31,8 @@ __all__ = [
     "INFINITE_PENALTY",
     "build_items",
     "detect_rivers",
+    "is_cjk_codepoint",
+    "split_cjk_runs",
 ]
 
 INFINITE_PENALTY = 10_000.0
@@ -64,15 +66,71 @@ class Penalty:
 
     `width` is the material added if the break is taken here (a hyphen).
     `flagged` marks hyphen breaks so consecutive ones can be penalised.
+    `soft` marks a zero-cost break inserted between CJK characters; unlike
+    a hyphenation `Penalty` it carries no visible separator, so adjacent
+    boxes of the same run on either side of it are merged back into one
+    rendered fragment when a line does not break there.
     """
 
     penalty: float
     width: float = 0.0
     flagged: bool = False
     run_index: int = 0
+    soft: bool = False
 
 
 Item = Box | Glue | Penalty
+
+# Codepoint ranges where a break opportunity exists between any two
+# consecutive characters whenever at least one side falls in one of these
+# ranges: CJK Unified Ideographs, Extension A, Hiragana, Katakana, and
+# Hangul Syllables (all within the Basic Multilingual Plane). CJK text
+# carries no inter-word spaces, so without this rule a whole paragraph of
+# CJK text becomes one unbreakable box.
+#
+# This is a minimal break-opportunity rule, not full kinsoku shori: it does
+# not forbid breaking immediately before closing punctuation or after an
+# opening bracket the way real Japanese/Chinese line breaking does, so a
+# line may occasionally start with a closing bracket or end with an
+# opening one. Vertical writing mode and RTL scripts (Arabic, Hebrew) are
+# not handled here.
+_CJK_RANGES = (
+    (0x3400, 0x4DBF),  # CJK Unified Ideographs Extension A
+    (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+    (0x3040, 0x309F),  # Hiragana
+    (0x30A0, 0x30FF),  # Katakana
+    (0xAC00, 0xD7A3),  # Hangul Syllables
+)
+
+
+def is_cjk_codepoint(codepoint: int) -> bool:
+    """True for CJK ideographs, hiragana, katakana, or hangul syllables."""
+    return any(lo <= codepoint <= hi for lo, hi in _CJK_RANGES)
+
+
+def split_cjk_runs(text: str) -> list[str]:
+    """Split text so a break is permitted around every CJK character.
+
+    Each CJK character becomes its own single-character piece; runs of
+    non-CJK characters stay together as one piece. Pieces are rejoined by
+    zero-cost breaks in `build_items`, so plain Latin text (no CJK
+    characters present) always comes back as a single one-element list.
+    """
+    if not text:
+        return []
+    pieces: list[str] = []
+    buf: list[str] = []
+    for char in text:
+        if is_cjk_codepoint(ord(char)):
+            if buf:
+                pieces.append("".join(buf))
+                buf = []
+            pieces.append(char)
+        else:
+            buf.append(char)
+    if buf:
+        pieces.append("".join(buf))
+    return pieces
 
 
 @dataclass(slots=True)
@@ -87,6 +145,12 @@ class Line:
     is_last: bool = False
     hyphenated: bool = False
     protrusion_credit: float = 0.0
+    #: True when this line ends on a real inter-word space (a `Glue`) that
+    #: was discarded at the break, so text reconstructed from consecutive
+    #: lines needs a space reinserted between them. False for a hyphenation
+    #: or CJK `soft` break, neither of which represents a space in the
+    #: source text.
+    space_break: bool = True
 
     @property
     def text(self) -> str:
@@ -440,6 +504,7 @@ class LineBreaker:
                     is_last=(i == len(chain) - 1),
                     hyphenated=hyphenated,
                     protrusion_credit=credit,
+                    space_break=isinstance(break_item, Glue),
                 )
             )
         return lines
@@ -473,6 +538,7 @@ class LineBreaker:
 
             if width + item_width > target and last_legal is not None:
                 segment = list(items[start:last_legal])
+                broke_on = items[last_legal]
                 lines.append(
                     Line(
                         items=segment,
@@ -480,9 +546,9 @@ class LineBreaker:
                         end=last_legal,
                         ratio=0.0,
                         width=width_at_legal,
+                        space_break=isinstance(broke_on, Glue),
                     )
                 )
-                broke_on = items[last_legal]
                 start = last_legal + 1 if isinstance(broke_on, Glue) else last_legal
                 index = start
                 width = 0.0
@@ -600,6 +666,35 @@ def build_items(
                 char_widths=_char_widths(word, metrics, size, tracking),
             )
 
+        def emit_piece(piece: str) -> None:
+            """Append items for one script-homogeneous piece of a token."""
+            if hyphenate and hyphenator is not None and len(piece) >= 5:
+                points = hyphenator.break_points(piece)
+            else:
+                points = []
+
+            if not points:
+                items.append(word_box(piece))
+                return
+
+            # Hyphenation points are found on the original letters; each
+            # fragment is ligated independently afterwards, so a break
+            # falling inside a would-be ligature simply stays unligated.
+            hyphen_width = metrics.text_width("-", size)
+            previous = 0
+            for point in points:
+                items.append(word_box(piece[previous:point]))
+                items.append(
+                    Penalty(
+                        penalty=50.0,
+                        width=hyphen_width,
+                        flagged=True,
+                        run_index=run_index,
+                    )
+                )
+                previous = point
+            items.append(word_box(piece[previous:]))
+
         tokens = run.text.split(" ")
         for token_index, token in enumerate(tokens):
             if token_index > 0:
@@ -614,32 +709,22 @@ def build_items(
             if not token:
                 continue
 
-            if hyphenate and hyphenator is not None and len(token) >= 5:
-                points = hyphenator.break_points(token)
-            else:
-                points = []
-
-            if not points:
-                items.append(word_box(token))
-                continue
-
-            # Hyphenation points are found on the original letters; each
-            # fragment is ligated independently afterwards, so a break
-            # falling inside a would-be ligature simply stays unligated.
-            hyphen_width = metrics.text_width("-", size)
-            previous = 0
-            for point in points:
-                items.append(word_box(token[previous:point]))
-                items.append(
-                    Penalty(
-                        penalty=50.0,
-                        width=hyphen_width,
-                        flagged=True,
-                        run_index=run_index,
+            # CJK text carries no inter-word spaces; split so a break is
+            # permitted around every CJK character instead of treating the
+            # whole token as one unbreakable box. Plain Latin tokens come
+            # back as a single piece and are completely unaffected.
+            pieces = split_cjk_runs(token)
+            for piece_index, piece in enumerate(pieces):
+                if piece_index > 0:
+                    items.append(
+                        Penalty(
+                            penalty=0.0,
+                            width=0.0,
+                            run_index=run_index,
+                            soft=True,
+                        )
                     )
-                )
-                previous = point
-            items.append(word_box(token[previous:]))
+                emit_piece(piece)
 
     # Terminate the paragraph: infinite glue absorbs the slack on the last
     # line, then a forced break ends it.

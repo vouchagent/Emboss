@@ -58,6 +58,9 @@ __all__ = [
     "Approval",
     "RevisionEntry",
     "DocumentControl",
+    "TextField",
+    "CheckboxField",
+    "DropdownField",
     "PageSpec",
     "Document",
     "BrandKit",
@@ -915,6 +918,74 @@ class DocumentControl:
         return blocks
 
 
+@dataclass
+class TextField:
+    """A fillable single- or multi-line text input, tagged /Form.
+
+    ``name`` becomes the AcroForm field's ``/T`` and must be unique across
+    the document. ``default`` seeds the field's ``/V``; ``multiline`` sets
+    the AcroForm multiline flag (``/Ff`` bit 13) and reserves a taller
+    input box; ``required`` sets the AcroForm required flag (bit 2).
+    """
+
+    name: str
+    label: str | None = None
+    default: str = ""
+    multiline: bool = False
+    required: bool = False
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Form"
+
+
+@dataclass
+class CheckboxField:
+    """A fillable checkbox, tagged /Form.
+
+    ``name`` becomes the AcroForm field's ``/T`` and must be unique across
+    the document. ``checked`` seeds the field's ``/V``/``/AS`` state
+    (``/Yes`` or ``/Off``).
+    """
+
+    name: str
+    label: str | None = None
+    checked: bool = False
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def structure_tag(self) -> str:
+        return "Form"
+
+
+@dataclass
+class DropdownField:
+    """A fillable dropdown (combo box) choice field, tagged /Form.
+
+    ``name`` becomes the AcroForm field's ``/T`` and must be unique across
+    the document. ``options`` populates the field's ``/Opt`` array and
+    must be non-empty; ``default`` seeds ``/V`` when given.
+    """
+
+    name: str
+    options: Sequence = field(default_factory=list)
+    label: str | None = None
+    default: str | None = None
+    style: Style | None = None
+    id: str | None = None
+
+    @property
+    def option_list(self) -> list:
+        return list(self.options)
+
+    @property
+    def structure_tag(self) -> str:
+        return "Form"
+
+
 from .bibliography import BibliographyBlock, Citation  # noqa: E402
 
 
@@ -945,6 +1016,9 @@ BlockElement = Union[
     Index,
     Glossary,
     DocumentControl,
+    TextField,
+    CheckboxField,
+    DropdownField,
 ]
 
 
@@ -1301,6 +1375,20 @@ class Document:
     def document_control(self, **kwargs) -> "Document":
         """Append a controlled-document control block (metadata + tables)."""
         return self.add(DocumentControl(**kwargs))
+
+    def text_field(self, name: str, label: str | None = None, **kw) -> "Document":
+        """Append a fillable text input field (AcroForm /Tx)."""
+        return self.add(TextField(name=name, label=label, **kw))
+
+    def checkbox_field(self, name: str, label: str | None = None, **kw) -> "Document":
+        """Append a fillable checkbox field (AcroForm /Btn)."""
+        return self.add(CheckboxField(name=name, label=label, **kw))
+
+    def dropdown_field(
+        self, name: str, options, label: str | None = None, **kw
+    ) -> "Document":
+        """Append a fillable dropdown/combo-box field (AcroForm /Ch)."""
+        return self.add(DropdownField(name=name, options=options, label=label, **kw))
 
     @property
     def stylesheet(self) -> StyleSheet:

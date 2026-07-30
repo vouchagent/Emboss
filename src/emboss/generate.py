@@ -519,6 +519,18 @@ Alphabetized bold-term/definition list; each term's first body occurrence is aut
 ```
 A controlled-document panel: a metadata grid plus an approvals table and a revision-history table (for ISO 9001, IEC 62304, and similar).
 
+### Fillable Form Fields
+```json
+{{"type": "text_field", "name": "full_name", "label": "Full Name", "required": true}}
+```
+```json
+{{"type": "checkbox_field", "name": "agree_terms", "label": "I agree to the terms and conditions"}}
+```
+```json
+{{"type": "dropdown_field", "name": "country", "label": "Country", "options": ["United States", "Canada", "Mexico"]}}
+```
+Real, fillable AcroForm widgets for intake and questionnaire documents. "name" is the field's internal identifier and must be unique across the document. "text_field" also takes "default" (pre-filled text) and "multiline" (taller box); "checkbox_field" also takes "checked"; "dropdown_field" also takes "default" (must match one of "options").
+
 ## Rules
 1. Always output valid JSON — no comments, no trailing commas.
 2. The "type" field is required on every content block.
@@ -768,11 +780,13 @@ def _manual_parse(data: dict) -> "Document":
         BlockQuote,
         BulletList,
         Callout,
+        CheckboxField,
         Chart,
         CodeBlock,
         CoverPage,
         Document,
         DocumentControl,
+        DropdownField,
         Glossary,
         GlossaryEntry,
         Heading,
@@ -788,6 +802,7 @@ def _manual_parse(data: dict) -> "Document":
         StatTiles,
         Table,
         TableOfContents,
+        TextField,
     )
 
     _normalize_spec(data)
@@ -885,6 +900,24 @@ def _manual_parse(data: dict) -> "Document":
         "architecture_diagram": lambda b: _parse_architecture(b),
         "sequence_diagram": lambda b: _parse_sequence(b),
         "er_diagram": lambda b: _parse_er(b),
+        "text_field": lambda b: TextField(
+            name=b.get("name", ""),
+            label=b.get("label"),
+            default=b.get("default", ""),
+            multiline=b.get("multiline", False),
+            required=b.get("required", False),
+        ),
+        "checkbox_field": lambda b: CheckboxField(
+            name=b.get("name", ""),
+            label=b.get("label"),
+            checked=b.get("checked", False),
+        ),
+        "dropdown_field": lambda b: DropdownField(
+            name=b.get("name", ""),
+            options=b.get("options", []),
+            label=b.get("label"),
+            default=b.get("default"),
+        ),
     }
     type_map["index"] = lambda b: Index(title=b.get("title", "Index"))
     type_map["glossary"] = lambda b: Glossary(

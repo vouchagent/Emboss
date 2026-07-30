@@ -51,6 +51,7 @@ _ROLE_MAP = {
     "Document": "Document",
     "Link": "Link",
     "Note": "Note",
+    "Form": "Form",
 }
 
 

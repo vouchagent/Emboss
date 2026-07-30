@@ -42,11 +42,13 @@ from ..spec import (
     BlockQuote,
     BulletList,
     Callout,
+    CheckboxField,
     Chart,
     CodeBlock,
     CoverPage,
     Document,
     DocumentControl,
+    DropdownField,
     Footnote,
     Glossary,
     GlossaryEntry,
@@ -70,6 +72,7 @@ from ..spec import (
     Table,
     TableCell,
     TableOfContents,
+    TextField,
     TextRun,
 )
 from ..bibliography import Citation
@@ -107,6 +110,9 @@ __all__ = [
     "ApprovalSpec",
     "RevisionEntrySpec",
     "DocumentControlSpec",
+    "TextFieldSpec",
+    "CheckboxFieldSpec",
+    "DropdownFieldSpec",
     "DiagramSpec",
     "DiagramNodeSpec",
     "DiagramEdgeSpec",
@@ -1862,6 +1868,109 @@ class DocumentControlSpec(BaseModel):
         )
 
 
+class TextFieldSpec(BaseModel):
+    """A fillable single- or multi-line text input (AcroForm /Tx)."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Text Field",
+            "examples": [
+                {
+                    "type": "text_field",
+                    "name": "full_name",
+                    "label": "Full Name",
+                    "required": True,
+                },
+            ],
+        }
+    }
+
+    type: Literal["text_field"] = "text_field"
+    name: str = Field(
+        ..., min_length=1, description="AcroForm field name (/T); unique per document."
+    )
+    label: str | None = Field(None, description="Visible label drawn above the box.")
+    default: str = Field("", description="Pre-filled value (/V).")
+    multiline: bool = Field(
+        False, description="Allow line breaks; reserves a taller box."
+    )
+    required: bool = Field(
+        False, description="Marks the field required in the AcroForm."
+    )
+
+    def to_element(self) -> TextField:
+        return TextField(
+            name=self.name,
+            label=self.label,
+            default=self.default,
+            multiline=self.multiline,
+            required=self.required,
+        )
+
+
+class CheckboxFieldSpec(BaseModel):
+    """A fillable checkbox (AcroForm /Btn)."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Checkbox Field",
+            "examples": [
+                {
+                    "type": "checkbox_field",
+                    "name": "agree_terms",
+                    "label": "I agree to the terms and conditions",
+                },
+            ],
+        }
+    }
+
+    type: Literal["checkbox_field"] = "checkbox_field"
+    name: str = Field(
+        ..., min_length=1, description="AcroForm field name (/T); unique per document."
+    )
+    label: str | None = Field(None, description="Visible label drawn beside the box.")
+    checked: bool = Field(False, description="Pre-checked state (/V and /AS).")
+
+    def to_element(self) -> CheckboxField:
+        return CheckboxField(name=self.name, label=self.label, checked=self.checked)
+
+
+class DropdownFieldSpec(BaseModel):
+    """A fillable dropdown / combo-box choice field (AcroForm /Ch)."""
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Dropdown Field",
+            "examples": [
+                {
+                    "type": "dropdown_field",
+                    "name": "country",
+                    "label": "Country",
+                    "options": ["United States", "Canada", "Mexico"],
+                },
+            ],
+        }
+    }
+
+    type: Literal["dropdown_field"] = "dropdown_field"
+    name: str = Field(
+        ..., min_length=1, description="AcroForm field name (/T); unique per document."
+    )
+    options: list[str] = Field(
+        ..., min_length=1, description="Choices populating /Opt; must be non-empty."
+    )
+    label: str | None = Field(None, description="Visible label drawn above the box.")
+    default: str | None = Field(None, description="Pre-selected option (/V).")
+
+    def to_element(self) -> DropdownField:
+        return DropdownField(
+            name=self.name,
+            options=self.options,
+            label=self.label,
+            default=self.default,
+        )
+
+
 ContentBlock = Annotated[
     Union[
         HeadingSpec,
@@ -1894,6 +2003,9 @@ ContentBlock = Annotated[
         ErDiagramSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
+        TextFieldSpec,
+        CheckboxFieldSpec,
+        DropdownFieldSpec,
     ],
     Field(discriminator="type"),
 ]
