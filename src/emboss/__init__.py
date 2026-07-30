@@ -180,7 +180,14 @@ from .pdf.verify import (
     verify_pdf,
     verify_wtpdf,
 )
-from .manifest import MANIFEST_FILENAME, ReproductionReport, build_manifest, reproduce
+from .manifest import (
+    MANIFEST_FILENAME,
+    GeneratorInfo,
+    ReproductionReport,
+    build_manifest,
+    read_generator_info,
+    reproduce,
+)
 from .redaction import (
     RedactionMark,
     RedactionRule,
@@ -404,6 +411,8 @@ __all__ = [
     "facturx_attachment",
     "FacturXMeta",
     "MANIFEST_FILENAME",
+    "GeneratorInfo",
+    "read_generator_info",
     "ReproductionReport",
     "build_manifest",
     "reproduce",

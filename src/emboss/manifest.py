@@ -29,8 +29,10 @@ from typing import Any
 
 __all__ = [
     "MANIFEST_FILENAME",
+    "GeneratorInfo",
     "build_manifest",
     "manifest_json",
+    "read_generator_info",
     "ReproductionReport",
     "reproduce",
 ]
@@ -48,6 +50,77 @@ _RENDER_OPTION_DEFAULTS: dict[str, Any] = {
     "page_numbers": True,
     "front_matter_pages": 0,
 }
+
+
+@dataclass
+class GeneratorInfo:
+    """A verifiable record of what generated a document.
+
+    ``prompt_sha256`` is a hash, never the raw prompt: the manifest records
+    that a specific, reproducible input produced this output without
+    disclosing potentially sensitive prompt content. Pass a raw prompt
+    through ``hashlib.sha256(prompt.encode()).hexdigest()`` yourself (or use
+    ``GeneratorInfo.from_prompt``) if you want it recorded; the manifest
+    never stores prompt text itself. ``reviewed_by``/``reviewed_at`` are
+    plain caller-supplied strings -- never populated from the wall clock --
+    so recording a review is a deliberate, deterministic act, not automatic.
+    """
+
+    model: str | None = None
+    provider: str | None = None
+    prompt_sha256: str | None = None
+    params: dict = field(default_factory=dict)
+    reviewed_by: str | None = None
+    reviewed_at: str | None = None
+
+    @classmethod
+    def from_prompt(
+        cls,
+        prompt: str,
+        *,
+        model: str | None = None,
+        provider: str | None = None,
+        params: dict | None = None,
+        reviewed_by: str | None = None,
+        reviewed_at: str | None = None,
+    ) -> "GeneratorInfo":
+        """Build a GeneratorInfo, hashing *prompt* rather than storing it."""
+        return cls(
+            model=model,
+            provider=provider,
+            prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            params=dict(params or {}),
+            reviewed_by=reviewed_by,
+            reviewed_at=reviewed_at,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """A dict with only the fields actually set, for a compact manifest."""
+        out: dict[str, Any] = {}
+        if self.model:
+            out["model"] = self.model
+        if self.provider:
+            out["provider"] = self.provider
+        if self.prompt_sha256:
+            out["prompt_sha256"] = self.prompt_sha256
+        if self.params:
+            out["params"] = dict(self.params)
+        if self.reviewed_by:
+            out["reviewed_by"] = self.reviewed_by
+        if self.reviewed_at:
+            out["reviewed_at"] = self.reviewed_at
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GeneratorInfo":
+        return cls(
+            model=data.get("model"),
+            provider=data.get("provider"),
+            prompt_sha256=data.get("prompt_sha256"),
+            params=dict(data.get("params") or {}),
+            reviewed_by=data.get("reviewed_by"),
+            reviewed_at=data.get("reviewed_at"),
+        )
 
 
 def _package_version() -> str:
@@ -100,15 +173,19 @@ def build_manifest(
     embed_spec: bool = False,
     predecessor_sha256: str | None = None,
     predecessor_manifest_sha256: str | None = None,
+    generator: "GeneratorInfo | None" = None,
 ) -> dict[str, Any]:
     """Build *document*'s reproducibility manifest as a plain dict.
 
     ``{"spec_sha256": ..., "emboss_version": ..., "fonts": [...],
     "render_options": {...}}``, plus a ``"lineage"`` key when a
     predecessor is known (``predecessor_sha256`` falls back to
-    ``document.predecessor`` when not given explicitly). Deterministic:
-    given the same document and predecessor arguments, always produces
-    the same dict.
+    ``document.predecessor`` when not given explicitly), and a
+    ``"generator"`` key when ``generator`` is given (falls back to
+    ``document.generator`` when not given explicitly) -- a verifiable
+    record of what generated the document: model, provider, a hash of
+    the prompt, and an optional reviewer. Deterministic: given the same
+    document and arguments, always produces the same dict.
     """
     from .recovery import document_to_spec_dict, spec_dict_to_json
 
@@ -130,6 +207,14 @@ def build_manifest(
         lineage["predecessor_manifest_sha256"] = predecessor_manifest_sha256
     if lineage:
         manifest["lineage"] = lineage
+
+    generator_info = generator
+    if generator_info is None:
+        generator_info = getattr(document, "generator", None)
+    if generator_info is not None:
+        generator_dict = generator_info.to_dict()
+        if generator_dict:
+            manifest["generator"] = generator_dict
     return manifest
 
 
@@ -198,6 +283,24 @@ def _read_manifest_attachment(pdf_bytes: bytes) -> dict | None:
             return None
         raw = filespec.get_file().read_bytes()
     return json.loads(raw.decode("utf-8"))
+
+
+def read_generator_info(source: bytes | str | Path) -> "GeneratorInfo | None":
+    """Read the generator info from a PDF's embedded manifest, or None.
+
+    Returns None (rather than raising) when pikepdf is unavailable, no
+    manifest attachment is present, or the manifest carries no generator
+    record -- so a caller can always ask "who generated this?" and get an
+    honest absence rather than an exception.
+    """
+    pdf_bytes = _read_bytes(source)
+    manifest = _read_manifest_attachment(pdf_bytes)
+    if manifest is None:
+        return None
+    generator_dict = manifest.get("generator")
+    if not generator_dict:
+        return None
+    return GeneratorInfo.from_dict(generator_dict)
 
 
 def _apply_render_options(document, options: dict[str, Any]) -> None:

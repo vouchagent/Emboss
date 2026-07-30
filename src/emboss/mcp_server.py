@@ -200,6 +200,34 @@ def tool_extract_review_comments(pdf_path: str) -> dict:
     }
 
 
+def tool_get_provenance(pdf_path: str) -> dict:
+    """Return a document's AI provenance: model, provider, and reviewer.
+
+    Reads the generator record from the PDF's embedded reproducibility
+    manifest, so the answer to "which model produced this, and was it
+    reviewed?" comes from a verifiable field inside the document, not a
+    guess.
+    """
+    from .manifest import read_generator_info
+
+    info = read_generator_info(_read_pdf(pdf_path))
+    if info is None:
+        return {
+            "found": False,
+            "reason": "no generator record; render with manifest=True and a "
+            "generator to record one",
+        }
+    return {
+        "found": True,
+        "model": info.model,
+        "provider": info.provider,
+        "prompt_sha256": info.prompt_sha256,
+        "params": info.params,
+        "reviewed_by": info.reviewed_by,
+        "reviewed_at": info.reviewed_at,
+    }
+
+
 def tool_revision_history(pdf_path: str) -> dict:
     """Return the incremental-revision history and signature coverage."""
     from .amend import coverage_report, format_history
@@ -441,6 +469,17 @@ _TOOLS: dict = {
         tool_extract_review_comments,
         "Extract reviewer annotations, each resolved to a node id and character "
         "range with a resolution state (exact/node/spanning/unanchored).",
+        {
+            "type": "object",
+            "properties": {"pdf_path": {"type": "string"}},
+            "required": ["pdf_path"],
+        },
+    ),
+    "get_provenance": (
+        tool_get_provenance,
+        "Return a document's AI provenance: which model generated it, from "
+        "what prompt (hashed, not the raw text), and who reviewed it, read "
+        "from the embedded manifest.",
         {
             "type": "object",
             "properties": {"pdf_path": {"type": "string"}},

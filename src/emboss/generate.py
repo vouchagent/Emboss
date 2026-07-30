@@ -1084,6 +1084,9 @@ def generate(
     smart: bool = False,
     structured: bool = True,
     max_repair_rounds: int = 0,
+    manifest: bool = False,
+    embed_spec: bool = False,
+    generator=None,
     **doc_overrides,
 ) -> bytes:
     """Generate a PDF from a natural language prompt via LLM.
@@ -1101,6 +1104,13 @@ def generate(
         smart: Apply content intelligence to the parsed spec
         structured: Use constrained decoding (forced tool-use / JSON schema mode)
         max_repair_rounds: LLM correction rounds when validation fails
+        manifest: Attach a reproducibility manifest (see Document.render);
+            when True, a GeneratorInfo recording this call's model, provider,
+            and a hash of the prompt (never the raw prompt) is attached too,
+            unless ``generator`` overrides it.
+        embed_spec: Attach the document's own EmbossSpec JSON (see Document.render)
+        generator: A manifest.GeneratorInfo to record instead of the one
+            auto-built from this call's model/provider/prompt
         **doc_overrides: Additional Document-level settings (legal, header, footer, etc.)
 
     Returns:
@@ -1147,7 +1157,14 @@ def generate(
                 history=history,
             )
 
-    pdf_bytes = doc.render()
+    if manifest and generator is None:
+        from .manifest import GeneratorInfo
+
+        generator = GeneratorInfo.from_prompt(prompt, model=model, provider=provider)
+
+    pdf_bytes = doc.render(
+        manifest=manifest, embed_spec=embed_spec, generator=generator
+    )
 
     if output:
         from pathlib import Path

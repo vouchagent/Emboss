@@ -12,10 +12,13 @@ exposes a pydantic view for LLM structured-output pipelines.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Sequence, Union
+from typing import TYPE_CHECKING, Literal, Sequence, Union
 
 from .brandkit import BrandKit
 from .styles import Style, StyleSheet, apply_brand, resolve_preset
+
+if TYPE_CHECKING:
+    from .manifest import GeneratorInfo
 
 __all__ = [
     "TextRun",
@@ -1084,6 +1087,7 @@ class Document:
     creator: str = "Emboss"
     producer: str = "Emboss"
     predecessor: str | None = None
+    generator: "GeneratorInfo | None" = None
 
     def __post_init__(self) -> None:
         from .typography.font_metrics import FontRegistry
@@ -1316,6 +1320,7 @@ class Document:
         manifest: bool = False,
         predecessor_sha256: str | None = None,
         predecessor_manifest_sha256: str | None = None,
+        generator: "GeneratorInfo | None" = None,
     ) -> bytes:
         """Render to PDF bytes.
 
@@ -1335,7 +1340,11 @@ class Document:
         predecessor``) record a lineage pointer to the document this one
         was derived from; combine with a DocMDP certification signature
         (``signing.sign_pdf(..., certify=True)``) for a verifiable,
-        signed chain of custody. Attachments queued by
+        signed chain of custody. ``generator`` (a ``manifest.GeneratorInfo``,
+        or falls back to ``Document.generator`` when not given) records a
+        verifiable content-credential: which model produced this document,
+        from a hash of what prompt, and by whom it was reviewed, folded
+        into the manifest under a ``generator`` key. Attachments queued by
         ``attach_encrypted`` are always included, regardless of these
         flags.
         """
@@ -1348,7 +1357,10 @@ class Document:
         if manifest:
             embed_files.append(
                 self._manifest_attachment(
-                    embed_spec, predecessor_sha256, predecessor_manifest_sha256
+                    embed_spec,
+                    predecessor_sha256,
+                    predecessor_manifest_sha256,
+                    generator,
                 )
             )
         data = render_document(self, embed_files=embed_files or None)
@@ -1365,6 +1377,7 @@ class Document:
         manifest: bool = False,
         predecessor_sha256: str | None = None,
         predecessor_manifest_sha256: str | None = None,
+        generator: "GeneratorInfo | None" = None,
     ) -> None:
         """Render and write to path. See ``render`` for what each flag does."""
         from pathlib import Path
@@ -1376,6 +1389,7 @@ class Document:
                 manifest=manifest,
                 predecessor_sha256=predecessor_sha256,
                 predecessor_manifest_sha256=predecessor_manifest_sha256,
+                generator=generator,
             )
         )
 
@@ -1425,6 +1439,7 @@ class Document:
         embed_spec: bool = False,
         predecessor_sha256: str | None = None,
         predecessor_manifest_sha256: str | None = None,
+        generator: "GeneratorInfo | None" = None,
     ) -> dict:
         """Build this document's reproducibility manifest without rendering.
 
@@ -1434,7 +1449,8 @@ class Document:
         manifest's shape; pass the same ``embed_spec`` value you intend
         to pass to ``render``/``save``, since it is recorded under
         ``render_options``. ``predecessor_sha256`` falls back to
-        ``self.predecessor`` when not given explicitly.
+        ``self.predecessor``, and ``generator`` falls back to
+        ``self.generator``, when not given explicitly.
         """
         from .manifest import build_manifest
 
@@ -1444,6 +1460,7 @@ class Document:
             embed_spec=embed_spec,
             predecessor_sha256=predecessor_sha256,
             predecessor_manifest_sha256=predecessor_manifest_sha256,
+            generator=generator,
         )
 
     def _manifest_attachment(
@@ -1451,6 +1468,7 @@ class Document:
         embed_spec: bool,
         predecessor_sha256: str | None,
         predecessor_manifest_sha256: str | None,
+        generator: "GeneratorInfo | None" = None,
     ):
         """Build the /AF attachment for ``render(manifest=True)``."""
         from .manifest import MANIFEST_FILENAME, manifest_json
@@ -1460,6 +1478,7 @@ class Document:
             embed_spec=embed_spec,
             predecessor_sha256=predecessor_sha256,
             predecessor_manifest_sha256=predecessor_manifest_sha256,
+            generator=generator,
         )
         return FileAttachment(
             name=MANIFEST_FILENAME,
