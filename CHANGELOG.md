@@ -3,6 +3,42 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-07-30
+
+### Added
+- **Six new diagram types**, all exposed in the fluent API, JSON spec,
+  Pydantic schema, and LLM spec prompt:
+  - **Swimlanes**: `doc.diagram(..., lanes=[...])` draws a swimlane
+    workflow diagram -- banded columns (`direction="down"`) or rows
+    (`direction="right"`), one per lane; leaving `lanes` unset infers the
+    order from each node's first `lane` appearance.
+  - **Status-colored landscape / capability map**: an architecture-diagram
+    node's optional `status` (`ok`/`warning`/`critical`/`planned`/`retired`)
+    draws a badge and an auto-generated legend, turning a cloud-topology
+    diagram into an application-landscape report.
+  - **Roadmap / timeline**: `doc.roadmap(periods, workstreams,
+    milestones=None)` -- period-labeled workstream rows of status-colored
+    bars with diamond milestone markers, no date arithmetic required.
+  - **Org chart**: `doc.org_chart(nodes, edges)` -- a tree/forest layout
+    where every parent is centered over the full width its children
+    occupy; a node with two parents, or a cycle, raises `ValueError`.
+  - **Gantt chart**: `doc.gantt(tasks, milestones=None)` -- the
+    continuous-date counterpart to roadmap (real `start`/`end` dates,
+    `progress`, `status`, and `dependencies` drawn as arrows).
+  - **Force-directed layout**: `doc.diagram(..., layout="force")` -- a
+    deterministic spring-embedder layout (fixed iteration count, no
+    `random()`) for mesh/network topologies with no natural hierarchy.
+- **Image/logo watermarks**: `LegalFeatures(watermark_image=..., 
+  watermark_image_scale=1.0)` alongside the existing text watermark,
+  reusing the same raster-image embedding and opacity machinery; both may
+  be set together (image behind text).
+
+### Changed
+- `spec_prompt()` and the Pydantic `LegalConfig` schema now explicitly
+  instruct an LLM never to add a watermark, Bates numbering, or line
+  numbering unless the user asked for one -- a legal/finance style alone
+  no longer implies a draft/confidential stamp.
+
 ## [1.1.0] - 2026-07-29
 
 ### Added

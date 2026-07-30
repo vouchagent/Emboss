@@ -864,6 +864,12 @@ class Renderer:
                 img_data = load_image(element.source)
                 ref = image_xobject(assembler, img_data)
                 xobject_dict[name] = ref
+        if getattr(self, "_watermark_image_ref", None) is not None:
+            from .images import load_image, image_xobject
+
+            name, source = self._watermark_image_ref
+            img_data = load_image(source)
+            xobject_dict[name] = image_xobject(assembler, img_data)
 
         resources = PdfDict()
         resources["Font"] = font_dict
@@ -884,7 +890,9 @@ class Renderer:
                 cs_dict[res_name] = cs_ref
             resources["ColorSpace"] = cs_dict
         ext_states = None
-        if document.legal and document.legal.watermark:
+        if document.legal and (
+            document.legal.watermark or document.legal.watermark_image
+        ):
             ext_states = self._watermark_gstate(assembler, document.legal)
             resources["ExtGState"] = ext_states
         resources_ref = assembler.add(resources)
@@ -1201,6 +1209,8 @@ class Renderer:
 
         page_spec = getattr(page, "spec", None) or document.page
 
+        if legal and legal.watermark_image:
+            self._draw_image_watermark(stream, page_spec, legal)
         if legal and legal.watermark:
             self._draw_watermark(stream, page_spec, sheet, legal, font_registry)
 
@@ -3458,6 +3468,61 @@ class Renderer:
             )
 
         stream.end_marked()
+
+    def _get_watermark_image_ref(self, legal) -> str:
+        if getattr(self, "_watermark_image_ref", None) is None:
+            self._watermark_image_ref = ("ImWatermark", legal.watermark_image)
+        return self._watermark_image_ref[0]
+
+    def _draw_image_watermark(self, stream, page_spec, legal) -> None:
+        from .images import load_image
+
+        img = load_image(legal.watermark_image)
+        name = self._get_watermark_image_ref(legal)
+
+        import math
+
+        display_w = img.width * legal.watermark_image_scale
+        display_h = img.height * legal.watermark_image_scale
+        angle = 52.0
+        radians = math.radians(angle)
+        cos, sin = math.cos(radians), math.sin(radians)
+        cx = page_spec.width / 2.0
+        cy = page_spec.height / 2.0
+
+        stream.save()
+        stream.begin_artifact("Watermark")
+        stream.set_ext_gstate("GSwm")
+        stream.raw(b" ".join([b"1 0 0 1", stream._num(cx), stream._num(cy), b"cm"]))
+        stream.raw(
+            b" ".join(
+                [
+                    stream._num(cos),
+                    stream._num(sin),
+                    stream._num(-sin),
+                    stream._num(cos),
+                    b"0 0 cm",
+                ]
+            )
+        )
+        stream.raw(
+            b" ".join(
+                [
+                    b"1 0 0 1",
+                    stream._num(-display_w / 2.0),
+                    stream._num(-display_h / 2.0),
+                    b"cm",
+                ]
+            )
+        )
+        stream.raw(
+            b" ".join(
+                [stream._num(display_w), b"0 0", stream._num(display_h), b"0 0 cm"]
+            )
+        )
+        stream.raw(f"/{name} Do".encode("ascii"))
+        stream.end_marked()
+        stream.restore()
 
     def _draw_watermark(self, stream, page_spec, sheet, legal, registry) -> None:
         metrics = self.fonts.resolve("Helvetica", bold=True)

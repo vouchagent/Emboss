@@ -1112,6 +1112,8 @@ class LegalFeatures:
 
     watermark: str | None = None
     watermark_opacity: float = 0.12
+    watermark_image: bytes | str | None = None
+    watermark_image_scale: float = 1.0
     line_numbering: bool = False
     line_number_start: int = 1
     line_number_font_size: float = 8.0
@@ -1123,7 +1125,12 @@ class LegalFeatures:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.watermark or self.line_numbering or self.bates_prefix)
+        return bool(
+            self.watermark
+            or self.watermark_image
+            or self.line_numbering
+            or self.bates_prefix
+        )
 
 
 @dataclass
@@ -1303,13 +1310,35 @@ class Document:
         return self.add(SvgBlock(source=source, **kw))
 
     def diagram(
-        self, nodes, edges=(), direction="down", caption=None, **kw
+        self,
+        nodes,
+        edges=(),
+        direction="down",
+        lanes=None,
+        layout="layered",
+        caption=None,
+        **kw,
     ) -> "Document":
-        """Append an auto-laid-out node/edge diagram rendered as vector art."""
+        """Append an auto-laid-out node/edge diagram rendered as vector art.
+
+        Pass `lanes` (an ordered list of lane names, or leave unset to infer
+        the order from each node's `lane`) for a swimlane layout. Pass
+        `layout="force"` for a spring-embedder layout instead of the default
+        layered flow -- suited to a mesh/network diagram with no natural
+        hierarchy; not combinable with `lanes`.
+        """
         from .diagrams import diagram_svg_block
 
         return self.add(
-            diagram_svg_block(nodes, edges, direction=direction, caption=caption, **kw)
+            diagram_svg_block(
+                nodes,
+                edges,
+                direction=direction,
+                lanes=lanes,
+                layout=layout,
+                caption=caption,
+                **kw,
+            )
         )
 
     def architecture_diagram(
@@ -1339,6 +1368,38 @@ class Document:
         from .diagrams import er_svg_block
 
         return self.add(er_svg_block(entities, relationships, caption=caption, **kw))
+
+    def roadmap(
+        self, periods, workstreams, milestones=(), caption=None, **kw
+    ) -> "Document":
+        """Append a roadmap/timeline diagram: workstream bars across periods."""
+        from .diagrams import roadmap_svg_block
+
+        return self.add(
+            roadmap_svg_block(periods, workstreams, milestones, caption=caption, **kw)
+        )
+
+    def org_chart(
+        self, nodes, edges=(), direction="down", caption=None, **kw
+    ) -> "Document":
+        """Append an org chart: each parent centered over its children.
+
+        Every node must have at most one incoming edge (a tree/forest); a
+        node with two or more parents, or a cycle, raises ValueError.
+        """
+        from .diagrams import org_chart_svg_block
+
+        return self.add(
+            org_chart_svg_block(
+                nodes, edges, direction=direction, caption=caption, **kw
+            )
+        )
+
+    def gantt(self, tasks, milestones=(), caption=None, **kw) -> "Document":
+        """Append a Gantt chart: task bars on a continuous date axis."""
+        from .diagrams import gantt_svg_block
+
+        return self.add(gantt_svg_block(tasks, milestones, caption=caption, **kw))
 
     def rule(self, **kw) -> "Document":
         return self.add(HorizontalRule(**kw))

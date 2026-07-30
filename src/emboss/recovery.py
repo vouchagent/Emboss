@@ -116,7 +116,7 @@ def _header_footer_dict(hf) -> dict | None:
 def _legal_dict(legal) -> dict | None:
     if legal is None:
         return None
-    return {
+    result: dict = {
         "watermark": legal.watermark,
         "watermark_opacity": legal.watermark_opacity,
         "line_numbering": legal.line_numbering,
@@ -125,6 +125,17 @@ def _legal_dict(legal) -> dict | None:
         "bates_digits": legal.bates_digits,
         "bates_position": legal.bates_position,
     }
+    if legal.watermark_image is not None:
+        if isinstance(legal.watermark_image, str):
+            result["watermark_image"] = legal.watermark_image
+        else:
+            # Mirrors _image_block: raw bytes have no canonical path slot,
+            # so they travel as base64 (LegalConfig.watermark_image_b64).
+            result["watermark_image_b64"] = base64.b64encode(
+                legal.watermark_image
+            ).decode("ascii")
+        result["watermark_image_scale"] = legal.watermark_image_scale
+    return result
 
 
 def _run_dict(run: TextRun) -> dict:

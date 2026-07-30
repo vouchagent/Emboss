@@ -105,3 +105,11 @@ during validation.
 ## Layout features from the spec
 
 Specs can request layout features directly: `"toc": true` inserts an auto-generated table of contents, and `"page": {"columns": 2, "column_gap": 18}` sets multi-column geometry. See the [EmbossSpec Format](/spec-format) for the full field reference.
+
+<Callout type="info">
+LLM-generated specs never include a watermark, Bates numbering, or line
+numbering on their own — `spec_prompt()` and the Pydantic schema both
+mark these `legal` document features as opt-in, added only when the
+user explicitly asks for one. A legal or finance style alone does not
+trigger a watermark.
+</Callout>

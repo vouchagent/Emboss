@@ -100,6 +100,14 @@ Presets: `letter`, `a4`, `a5`, `legal`, `compact` (A5 with tight margins, tuned 
 }}
 ```
 
+A logo/image watermark can be set alongside or instead of the text watermark, via a file path (`watermark_image`) or base64-encoded PNG/JPEG bytes (`watermark_image_b64`), scaled with `watermark_image_scale` (default `1.0`, native pixel size in points):
+
+```json
+{"legal": {"watermark_image": "logo.png", "watermark_image_scale": 1.5}}
+```
+
+If both a text and image watermark are set, the image renders first and the text renders over it. All legal features are opt-in — see [LLM Integration](/llm-integration) for why generated specs never add one unasked.
+
 ## Block types
 
 Every content block carries a required `type` discriminator. The canonical tags are: `heading`, `paragraph`, `table`, `bullets`, `numbered`, `image`, `chart`, `footnote`, `callout`, `blockquote`, `code_block`, `math`, `bibliography`, `svg`, `diagram`, `cover_page`, `abstract`, `authors`, `pull_quote`, `stat_tiles`, `toc`, `appendix`, `index`, `glossary`, `page_break`, `rule`. Synonym tags (`bullet_list`, `numbered_list`, `math_block`, `horizontal_rule`) are normalized during parsing.

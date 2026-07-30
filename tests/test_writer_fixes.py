@@ -88,6 +88,61 @@ class TestAltText:
         assert b"/Alt (pie chart; 2 categories)" in data
 
 
+class TestImageWatermark:
+    def test_renders_and_is_deterministic(self):
+        from emboss.spec import LegalFeatures
+
+        doc = Document(
+            title="Watermark Image",
+            legal=LegalFeatures(watermark_image=_make_png(), watermark_image_scale=2.0),
+        )
+        doc.paragraph("Hello world.")
+        first = doc.render()
+        second = doc.render()
+        assert first == second
+
+    def test_xobject_and_artifact_present(self):
+        from emboss.spec import LegalFeatures
+
+        doc = Document(
+            title="Watermark Image",
+            legal=LegalFeatures(watermark_image=_make_png()),
+            tagged=True,
+        )
+        doc.paragraph("Hello world.")
+        content = _page_content(doc)
+        assert b"/ImWatermark Do" in content
+        assert b"Watermark" in content
+
+    def test_text_and_image_watermark_combine(self):
+        from emboss.spec import LegalFeatures
+
+        doc = Document(
+            title="Both Watermarks",
+            legal=LegalFeatures(watermark="DRAFT", watermark_image=_make_png()),
+        )
+        doc.paragraph("Hello world.")
+        content = _page_content(doc)
+        assert b"/ImWatermark Do" in content
+        assert b"DRAFT" in content or b"(DRAFT)" in content
+
+    def test_round_trips_through_embedded_spec(self):
+        from emboss.recovery import recover_from_attachment
+        from emboss.spec import LegalFeatures
+
+        png = _make_png()
+        doc = Document(
+            title="Roundtrip",
+            legal=LegalFeatures(watermark_image=png, watermark_image_scale=1.5),
+        )
+        doc.paragraph("Hello world.")
+        pdf_bytes = doc.render(embed_spec=True)
+
+        recovered = recover_from_attachment(pdf_bytes)
+        assert recovered.legal.watermark_image == png
+        assert recovered.legal.watermark_image_scale == 1.5
+
+
 class TestNoFakeFontExpansion:
     def test_justified_paragraph_has_no_tz_operator(self):
         doc = Document(title="Justified")

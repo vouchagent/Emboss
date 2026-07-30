@@ -123,6 +123,14 @@ __all__ = [
     "SequenceParticipantSpec",
     "SequenceMessageSpec",
     "ErDiagramSpec",
+    "RoadmapBarSpec",
+    "RoadmapWorkstreamSpec",
+    "RoadmapMilestoneSpec",
+    "RoadmapSpec",
+    "OrgChartSpec",
+    "GanttTaskSpec",
+    "GanttMilestoneSpec",
+    "GanttSpec",
     "EntitySpec",
     "EntityAttributeSpec",
     "RelationshipSpec",
@@ -976,6 +984,14 @@ class DiagramNodeSpec(BaseModel):
         ),
     )
     group: str | None = Field(None, description="Optional logical grouping name.")
+    lane: str | None = Field(
+        None,
+        description=(
+            "Swimlane this node belongs to. Set on every node and pass "
+            "'lanes' on the diagram to draw lane bands (e.g. one per actor "
+            "or team in a workflow)."
+        ),
+    )
 
 
 class DiagramEdgeSpec(BaseModel):
@@ -1024,6 +1040,23 @@ class DiagramSpec(BaseModel):
     direction: Literal["down", "right"] = Field(
         "down", description="Main flow direction of the layout."
     )
+    lanes: list[str] | None = Field(
+        None,
+        description=(
+            "Ordered swimlane names. When set, every node must carry a "
+            "matching 'lane'; lane bands are drawn as vertical columns for "
+            "direction='down' or horizontal rows for direction='right'."
+        ),
+    )
+    layout: Literal["layered", "force"] = Field(
+        "layered",
+        description=(
+            "'layered' (default) is the Sugiyama-style flow layout. 'force' "
+            "is a spring-embedder layout for graphs with no natural "
+            "hierarchy, e.g. a mesh/network diagram; not combinable with "
+            "'lanes'."
+        ),
+    )
     caption: str | None = Field(None, description="Caption below the diagram.")
 
     @model_validator(mode="after")
@@ -1039,6 +1072,8 @@ class DiagramSpec(BaseModel):
                     raise ValueError(
                         f"diagram edge references unknown node id: {endpoint!r}"
                     )
+        if self.layout == "force" and self.lanes is not None:
+            raise ValueError("'lanes' is not supported with layout='force'")
         return self
 
     def to_element(self) -> SvgBlock:
@@ -1046,7 +1081,9 @@ class DiagramSpec(BaseModel):
 
         return diagram_svg_block(
             [
-                DiagramNode(id=n.id, label=n.label, shape=n.shape, group=n.group)
+                DiagramNode(
+                    id=n.id, label=n.label, shape=n.shape, group=n.group, lane=n.lane
+                )
                 for n in self.nodes
             ],
             [
@@ -1054,6 +1091,8 @@ class DiagramSpec(BaseModel):
                 for e in self.edges
             ],
             direction=self.direction,
+            lanes=self.lanes,
+            layout=self.layout,
             caption=self.caption,
         )
 
@@ -1085,6 +1124,14 @@ class ArchNodeSpec(BaseModel):
         ),
     )
     group: str | None = Field(None, description="Id of the group this node sits in.")
+    status: Literal["ok", "warning", "critical", "planned", "retired"] | None = Field(
+        None,
+        description=(
+            "Optional capability-map status badge and legend entry: ok "
+            "(green), warning (amber), critical (red), planned (blue), "
+            "retired (gray)."
+        ),
+    )
 
 
 class ArchGroupSpec(BaseModel):
@@ -1192,7 +1239,13 @@ class ArchitectureDiagramSpec(BaseModel):
 
         return architecture_svg_block(
             [
-                ArchNode(id=n.id, label=n.label, service=n.service, group=n.group)
+                ArchNode(
+                    id=n.id,
+                    label=n.label,
+                    service=n.service,
+                    group=n.group,
+                    status=n.status,
+                )
                 for n in self.nodes
             ],
             [
@@ -1441,6 +1494,343 @@ class ErDiagramSpec(BaseModel):
                 )
                 for r in self.relationships
             ],
+            caption=self.caption,
+        )
+
+
+class RoadmapBarSpec(BaseModel):
+    """One bar in a roadmap workstream, spanning an inclusive period range."""
+
+    label: str = Field("", description="Text drawn inside the bar.")
+    start: str = Field(..., min_length=1, description="Starting period label.")
+    end: str = Field(..., min_length=1, description="Ending period label (inclusive).")
+    status: Literal["ok", "warning", "critical", "planned", "retired"] | None = Field(
+        None,
+        description="Bar fill/legend status; same palette as architecture diagrams.",
+    )
+
+
+class RoadmapWorkstreamSpec(BaseModel):
+    """One row of the roadmap: a name and its bars."""
+
+    name: str = Field(..., min_length=1, description="Row label.")
+    bars: list[RoadmapBarSpec] = Field(
+        default_factory=list, description="Bars in this row."
+    )
+
+
+class RoadmapMilestoneSpec(BaseModel):
+    """A diamond marker at a period, optionally pinned to one workstream row."""
+
+    label: str = Field("", description="Text drawn above the marker.")
+    at: str = Field(..., min_length=1, description="Period label the marker sits on.")
+    workstream: str | None = Field(
+        None,
+        description="Workstream name to pin the marker to; omit for a shared top marker.",
+    )
+
+
+class RoadmapSpec(BaseModel):
+    """A roadmap/timeline diagram: workstream bars across ordered periods.
+
+    Use for a transformation roadmap or release plan -- quarters or phases
+    as periods, one row per workstream, status-colored bars, and diamond
+    milestone markers.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Roadmap",
+            "examples": [
+                {
+                    "type": "roadmap",
+                    "periods": ["Q1", "Q2", "Q3", "Q4"],
+                    "workstreams": [
+                        {
+                            "name": "Platform",
+                            "bars": [
+                                {
+                                    "label": "Migration",
+                                    "start": "Q1",
+                                    "end": "Q2",
+                                    "status": "ok",
+                                }
+                            ],
+                        },
+                        {
+                            "name": "Data",
+                            "bars": [
+                                {
+                                    "label": "Warehouse",
+                                    "start": "Q2",
+                                    "end": "Q4",
+                                    "status": "planned",
+                                }
+                            ],
+                        },
+                    ],
+                    "milestones": [{"label": "Launch", "at": "Q3"}],
+                    "caption": "FY26 roadmap",
+                }
+            ],
+        }
+    }
+
+    type: Literal["roadmap"] = "roadmap"
+    periods: list[str] = Field(..., min_length=1, description="Ordered period labels.")
+    workstreams: list[RoadmapWorkstreamSpec] = Field(
+        ..., min_length=1, description="Roadmap rows."
+    )
+    milestones: list[RoadmapMilestoneSpec] = Field(
+        default_factory=list, description="Diamond markers on the timeline."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_periods(self) -> "RoadmapSpec":
+        if len(set(self.periods)) != len(self.periods):
+            raise ValueError("roadmap periods must be unique")
+        period_set = set(self.periods)
+        for ws in self.workstreams:
+            for bar in ws.bars:
+                if bar.start not in period_set:
+                    raise ValueError(
+                        f"roadmap bar references unknown period: {bar.start!r}"
+                    )
+                if bar.end not in period_set:
+                    raise ValueError(
+                        f"roadmap bar references unknown period: {bar.end!r}"
+                    )
+        for ms in self.milestones:
+            if ms.at not in period_set:
+                raise ValueError(
+                    f"roadmap milestone references unknown period: {ms.at!r}"
+                )
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import (
+            RoadmapBar,
+            RoadmapMilestone,
+            RoadmapWorkstream,
+            roadmap_svg_block,
+        )
+
+        return roadmap_svg_block(
+            self.periods,
+            [
+                RoadmapWorkstream(
+                    name=ws.name,
+                    bars=tuple(
+                        RoadmapBar(
+                            label=b.label, start=b.start, end=b.end, status=b.status
+                        )
+                        for b in ws.bars
+                    ),
+                )
+                for ws in self.workstreams
+            ],
+            [
+                RoadmapMilestone(label=m.label, at=m.at, workstream=m.workstream)
+                for m in self.milestones
+            ],
+            caption=self.caption,
+        )
+
+
+class OrgChartSpec(BaseModel):
+    """An org chart: each parent centered over its children.
+
+    A restricted diagram/edges pair: every node must have at most one
+    incoming edge (a tree, or a forest of several trees). A node named as
+    the destination of two edges, or a cycle, is rejected.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Org Chart",
+            "examples": [
+                {
+                    "type": "org_chart",
+                    "nodes": [
+                        {"id": "ceo", "label": "CEO"},
+                        {"id": "cto", "label": "CTO"},
+                        {"id": "cfo", "label": "CFO"},
+                        {"id": "eng", "label": "Eng Lead"},
+                    ],
+                    "edges": [
+                        {"src": "ceo", "dst": "cto"},
+                        {"src": "ceo", "dst": "cfo"},
+                        {"src": "cto", "dst": "eng"},
+                    ],
+                    "direction": "down",
+                }
+            ],
+        }
+    }
+
+    type: Literal["org_chart"] = "org_chart"
+    nodes: list[DiagramNodeSpec] = Field(
+        ..., min_length=1, description="Org chart nodes."
+    )
+    edges: list[DiagramEdgeSpec] = Field(
+        default_factory=list,
+        description="Reporting-line edges (src is the manager, dst the report).",
+    )
+    direction: Literal["down", "right"] = Field(
+        "down", description="Main flow direction of the layout."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_graph(self) -> "OrgChartSpec":
+        ids: set[str] = set()
+        for node in self.nodes:
+            if node.id in ids:
+                raise ValueError(f"duplicate org chart node id: {node.id!r}")
+            ids.add(node.id)
+        for edge in self.edges:
+            for endpoint in (edge.src, edge.dst):
+                if endpoint not in ids:
+                    raise ValueError(
+                        f"org chart edge references unknown node id: {endpoint!r}"
+                    )
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import DiagramEdge, DiagramNode, org_chart_svg_block
+
+        return org_chart_svg_block(
+            [
+                DiagramNode(id=n.id, label=n.label, shape=n.shape, group=n.group)
+                for n in self.nodes
+            ],
+            [
+                DiagramEdge(src=e.src, dst=e.dst, label=e.label, style=e.style)
+                for e in self.edges
+            ],
+            direction=self.direction,
+            caption=self.caption,
+        )
+
+
+class GanttTaskSpec(BaseModel):
+    """One task bar on a Gantt chart's continuous date axis."""
+
+    name: str = Field(..., min_length=1, description="Task name; also the row label.")
+    start: str = Field(..., description="Start date, YYYY-MM-DD.")
+    end: str = Field(..., description="End date, YYYY-MM-DD (inclusive).")
+    progress: float = Field(
+        0.0, ge=0.0, le=1.0, description="Completion fraction, 0.0-1.0."
+    )
+    status: Literal["ok", "warning", "critical", "planned", "retired"] | None = Field(
+        None,
+        description="Bar fill/legend status; same palette as architecture diagrams.",
+    )
+    dependencies: list[str] = Field(
+        default_factory=list,
+        description="Names of tasks this one depends on; drawn as arrows.",
+    )
+
+
+class GanttMilestoneSpec(BaseModel):
+    """A diamond marker at a date, shared across the whole timeline."""
+
+    label: str = Field("", description="Text drawn above the marker.")
+    at: str = Field(..., description="Date, YYYY-MM-DD.")
+
+
+class GanttSpec(BaseModel):
+    """A Gantt chart: task bars on a real, continuous calendar date axis.
+
+    Use for a project plan with actual dates, as opposed to 'roadmap',
+    which uses period labels (quarters/phases) with no date arithmetic.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Gantt Chart",
+            "examples": [
+                {
+                    "type": "gantt",
+                    "tasks": [
+                        {
+                            "name": "Design",
+                            "start": "2026-01-01",
+                            "end": "2026-01-15",
+                            "progress": 1.0,
+                            "status": "ok",
+                        },
+                        {
+                            "name": "Build",
+                            "start": "2026-01-10",
+                            "end": "2026-02-15",
+                            "progress": 0.4,
+                            "status": "planned",
+                            "dependencies": ["Design"],
+                        },
+                    ],
+                    "milestones": [{"label": "Kickoff", "at": "2026-01-01"}],
+                    "caption": "Q1 project plan",
+                }
+            ],
+        }
+    }
+
+    type: Literal["gantt"] = "gantt"
+    tasks: list[GanttTaskSpec] = Field(..., min_length=1, description="Task bars.")
+    milestones: list[GanttMilestoneSpec] = Field(
+        default_factory=list, description="Diamond markers on the timeline."
+    )
+    caption: str | None = Field(None, description="Caption below the diagram.")
+
+    @model_validator(mode="after")
+    def _check_dates(self) -> "GanttSpec":
+        from datetime import date as _date
+
+        names: set[str] = set()
+        for t in self.tasks:
+            if t.name in names:
+                raise ValueError(f"duplicate gantt task name: {t.name!r}")
+            names.add(t.name)
+        for t in self.tasks:
+            try:
+                start_d = _date.fromisoformat(t.start)
+                end_d = _date.fromisoformat(t.end)
+            except ValueError as exc:
+                raise ValueError(f"gantt task {t.name!r} has an invalid date") from exc
+            if end_d < start_d:
+                raise ValueError(f"gantt task {t.name!r} ends before it starts")
+            for dep in t.dependencies:
+                if dep not in names:
+                    raise ValueError(
+                        f"gantt task {t.name!r} depends on unknown task: {dep!r}"
+                    )
+        for m in self.milestones:
+            try:
+                _date.fromisoformat(m.at)
+            except ValueError as exc:
+                raise ValueError(
+                    f"gantt milestone {m.label!r} has an invalid date"
+                ) from exc
+        return self
+
+    def to_element(self) -> SvgBlock:
+        from ..diagrams import GanttMilestone, GanttTask, gantt_svg_block
+
+        return gantt_svg_block(
+            [
+                GanttTask(
+                    name=t.name,
+                    start=t.start,
+                    end=t.end,
+                    progress=t.progress,
+                    status=t.status,
+                    dependencies=tuple(t.dependencies),
+                )
+                for t in self.tasks
+            ],
+            [GanttMilestone(label=m.label, at=m.at) for m in self.milestones],
             caption=self.caption,
         )
 
@@ -2001,6 +2391,9 @@ ContentBlock = Annotated[
         ArchitectureDiagramSpec,
         SequenceDiagramSpec,
         ErDiagramSpec,
+        RoadmapSpec,
+        OrgChartSpec,
+        GanttSpec,
         PageBreakSpec,
         HorizontalRuleSpec,
         TextFieldSpec,
@@ -2091,7 +2484,10 @@ class PageConfig(BaseModel):
 
 
 class LegalConfig(BaseModel):
-    """Legal and financial document features."""
+    """Legal and financial document features. All fields are opt-in: leave
+    this unset unless the caller explicitly asked for a watermark, Bates
+    numbering, or line numbering — a legal/finance style alone does not
+    imply any of these."""
 
     model_config = {
         "json_schema_extra": {
@@ -2104,7 +2500,13 @@ class LegalConfig(BaseModel):
     }
 
     watermark: str | None = Field(
-        None, description="Diagonal watermark text across every page."
+        None,
+        description=(
+            "Diagonal watermark text across every page. Opt-in only — set "
+            "this only when explicitly requested, e.g. 'add a DRAFT "
+            "watermark' or 'stamp this CONFIDENTIAL'; do not add one on "
+            "your own initiative for a legal or finance document."
+        ),
     )
     watermark_opacity: float = Field(0.12, ge=0.01, le=1.0)
     line_numbering: bool = Field(
@@ -2118,11 +2520,24 @@ class LegalConfig(BaseModel):
     bates_start: int = Field(1, ge=0)
     bates_digits: int = Field(6, ge=1, le=12)
     bates_position: Literal["bottom-right", "bottom-left", "top-right"] = "bottom-right"
+    watermark_image: str | None = Field(
+        None, description="Watermark logo/image file path. Opt-in, like 'watermark'."
+    )
+    watermark_image_b64: str | None = Field(
+        None, description="Watermark logo/image PNG or JPEG bytes, base64-encoded."
+    )
+    watermark_image_scale: float = Field(1.0, gt=0.0)
 
     def to_legal_features(self) -> LegalFeatures:
+        if self.watermark_image_b64:
+            image: bytes | str | None = base64.b64decode(self.watermark_image_b64)
+        else:
+            image = self.watermark_image
         return LegalFeatures(
             watermark=self.watermark,
             watermark_opacity=self.watermark_opacity,
+            watermark_image=image,
+            watermark_image_scale=self.watermark_image_scale,
             line_numbering=self.line_numbering,
             bates_prefix=self.bates_prefix,
             bates_start=self.bates_start,

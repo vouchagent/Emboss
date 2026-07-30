@@ -343,6 +343,8 @@ def spec_prompt(
 
 Do not emit brand colors, fonts, or a logo: visual branding is applied programmatically by the integrator via a BrandKit, not by you.
 
+Do not add a watermark, Bates numbering, or line numbering ("legal" document features) unless the user explicitly asked for one — a legal or finance style does not by itself imply a draft/confidential stamp.
+
 ## Available Styles
 - "legal" — serif, justified, generous leading (contracts, briefs)
 - "finance" — sans-serif, tight, tabular (reports, filings)
@@ -455,10 +457,20 @@ Architecture and workflow graphs as node/edge lists; layout, arrow routing, and 
 ```
 Node shapes: box, rounded, decision (diamond), store (database), start_end. Edge "style": "dashed" marks optional/async paths; "direction" is "down" or "right".
 
-### Architecture Diagram
-System/cloud topology with built-in service glyphs and nested boundary zones (VPC / subnet / account). Nodes carry a "service" glyph; "groups" enclose member node/group ids:
+For a swimlane workflow (steps owned by different actors/teams), give every node a "lane" and set the diagram's "lanes" to the ordered lane names -- lane bands are drawn as columns for "direction": "down" or rows for "direction": "right":
 ```json
-{{"type": "architecture_diagram", "direction": "down", "nodes": [{{"id": "u", "label": "User", "service": "user"}}, {{"id": "cdn", "label": "CDN", "service": "cdn"}}, {{"id": "api", "label": "API", "service": "compute", "group": "vpc"}}, {{"id": "db", "label": "Postgres", "service": "database", "group": "vpc"}}, {{"id": "q", "label": "Jobs", "service": "queue", "group": "vpc"}}], "groups": [{{"id": "vpc", "label": "VPC", "node_ids": ["api", "db", "q"]}}], "edges": [{{"src": "u", "dst": "cdn"}}, {{"src": "u", "dst": "api", "label": "https"}}, {{"src": "api", "dst": "db", "label": "sql"}}, {{"src": "api", "dst": "q", "style": "dashed"}}], "caption": "Request path"}}
+{{"type": "diagram", "lanes": ["Client", "Backend"], "nodes": [{{"id": "req", "label": "Request", "lane": "Client"}}, {{"id": "auth", "label": "Authenticate", "lane": "Backend"}}, {{"id": "resp", "label": "Response", "lane": "Client"}}], "edges": [{{"src": "req", "dst": "auth"}}, {{"src": "auth", "dst": "resp"}}], "caption": "Login sequence"}}
+```
+
+For a network/mesh topology with no natural hierarchy (no start, no clear flow direction), set "layout": "force" instead of the default layered flow -- not combinable with "lanes":
+```json
+{{"type": "diagram", "layout": "force", "nodes": [{{"id": "a", "label": "Node A"}}, {{"id": "b", "label": "Node B"}}, {{"id": "c", "label": "Node C"}}], "edges": [{{"src": "a", "dst": "b"}}, {{"src": "b", "dst": "c"}}, {{"src": "c", "dst": "a"}}], "caption": "Peer mesh"}}
+```
+
+### Architecture Diagram
+System/cloud topology with built-in service glyphs and nested boundary zones (VPC / subnet / account). Nodes carry a "service" glyph; "groups" enclose member node/group ids. A node's optional "status" ("ok", "warning", "critical", "planned", "retired") draws a small colored badge and adds it to an auto-generated legend — use this for a status-colored application/capability landscape map:
+```json
+{{"type": "architecture_diagram", "direction": "down", "nodes": [{{"id": "u", "label": "User", "service": "user"}}, {{"id": "cdn", "label": "CDN", "service": "cdn"}}, {{"id": "api", "label": "API", "service": "compute", "group": "vpc", "status": "ok"}}, {{"id": "db", "label": "Postgres", "service": "database", "group": "vpc", "status": "warning"}}, {{"id": "q", "label": "Jobs", "service": "queue", "group": "vpc"}}], "groups": [{{"id": "vpc", "label": "VPC", "node_ids": ["api", "db", "q"]}}], "edges": [{{"src": "u", "dst": "cdn"}}, {{"src": "u", "dst": "api", "label": "https"}}, {{"src": "api", "dst": "db", "label": "sql"}}, {{"src": "api", "dst": "q", "style": "dashed"}}], "caption": "Request path"}}
 ```
 Services: compute, database, storage, queue, gateway, cache, cdn, function, loadbalancer, user, external, generic. Groups may nest by listing another group id in "node_ids".
 
@@ -475,6 +487,27 @@ Entity tables with attributes and cardinality-labeled relationships. Mark keys w
 {{"type": "er_diagram", "entities": [{{"id": "user", "name": "User", "attributes": [{{"name": "id", "key": "PK", "type": "int"}}, {{"name": "email", "type": "text"}}]}}, {{"id": "order", "name": "Order", "attributes": [{{"name": "id", "key": "PK", "type": "int"}}, {{"name": "user_id", "key": "FK", "type": "int"}}]}}], "relationships": [{{"src": "user", "dst": "order", "label": "places", "src_card": "1", "dst_card": "N"}}]}}
 ```
 Cardinality is any short label ("1", "N", "0..1", "1..N").
+
+### Roadmap
+A transformation roadmap or release plan: ordered "periods" (quarters/phases), one row per "workstream" with status-colored "bars" spanning an inclusive period range, and optional diamond "milestones". Bar/milestone "status" is "ok", "warning", "critical", "planned", or "retired":
+```json
+{{"type": "roadmap", "periods": ["Q1", "Q2", "Q3", "Q4"], "workstreams": [{{"name": "Platform", "bars": [{{"label": "Migration", "start": "Q1", "end": "Q2", "status": "ok"}}]}}, {{"name": "Data", "bars": [{{"label": "Warehouse", "start": "Q2", "end": "Q4", "status": "planned"}}]}}], "milestones": [{{"label": "Launch", "at": "Q3"}}], "caption": "FY26 roadmap"}}
+```
+A milestone's "workstream" is optional; omit it for a marker shared across the whole timeline instead of pinned to one row.
+
+### Org Chart
+A reporting-line hierarchy: nodes and edges like "diagram", but every node must have at most one incoming edge (src is the manager, dst the report) -- each parent is automatically centered over its children:
+```json
+{{"type": "org_chart", "nodes": [{{"id": "ceo", "label": "CEO"}}, {{"id": "cto", "label": "CTO"}}, {{"id": "cfo", "label": "CFO"}}, {{"id": "eng", "label": "Eng Lead"}}], "edges": [{{"src": "ceo", "dst": "cto"}}, {{"src": "ceo", "dst": "cfo"}}, {{"src": "cto", "dst": "eng"}}]}}
+```
+A node with two incoming edges, or a cycle, is rejected.
+
+### Gantt Chart
+A project plan with real calendar dates (YYYY-MM-DD), as opposed to "roadmap"'s period labels. Each task has "start"/"end" dates, optional "progress" (0.0-1.0), "status", and "dependencies" (other task names, drawn as arrows):
+```json
+{{"type": "gantt", "tasks": [{{"name": "Design", "start": "2026-01-01", "end": "2026-01-15", "progress": 1.0, "status": "ok"}}, {{"name": "Build", "start": "2026-01-10", "end": "2026-02-15", "progress": 0.4, "status": "planned", "dependencies": ["Design"]}}], "milestones": [{{"label": "Kickoff", "at": "2026-01-01"}}], "caption": "Q1 project plan"}}
+```
+Use "roadmap" instead when you only have quarters/phases, not real dates.
 
 ### Front Matter & Executive Elements
 "cover_page" fills a page (no header/footer) and forces a page break:
@@ -900,6 +933,9 @@ def _manual_parse(data: dict) -> "Document":
         "architecture_diagram": lambda b: _parse_architecture(b),
         "sequence_diagram": lambda b: _parse_sequence(b),
         "er_diagram": lambda b: _parse_er(b),
+        "roadmap": lambda b: _parse_roadmap(b),
+        "org_chart": lambda b: _parse_org_chart(b),
+        "gantt": lambda b: _parse_gantt(b),
         "text_field": lambda b: TextField(
             name=b.get("name", ""),
             label=b.get("label"),
@@ -975,6 +1011,8 @@ def _parse_diagram(block: dict):
         block.get("nodes", []),
         block.get("edges", []),
         direction=block.get("direction", "down"),
+        lanes=block.get("lanes"),
+        layout=block.get("layout", "layered"),
         caption=block.get("caption"),
     )
 
@@ -1010,6 +1048,41 @@ def _parse_er(block: dict):
     return er_svg_block(
         block.get("entities", []),
         block.get("relationships", []),
+        caption=block.get("caption"),
+    )
+
+
+def _parse_roadmap(block: dict):
+    """Parse a roadmap block in the no-pydantic fallback path."""
+    from .diagrams import roadmap_svg_block
+
+    return roadmap_svg_block(
+        block.get("periods", []),
+        block.get("workstreams", []),
+        block.get("milestones", []),
+        caption=block.get("caption"),
+    )
+
+
+def _parse_org_chart(block: dict):
+    """Parse an org_chart block in the no-pydantic fallback path."""
+    from .diagrams import org_chart_svg_block
+
+    return org_chart_svg_block(
+        block.get("nodes", []),
+        block.get("edges", []),
+        direction=block.get("direction", "down"),
+        caption=block.get("caption"),
+    )
+
+
+def _parse_gantt(block: dict):
+    """Parse a gantt block in the no-pydantic fallback path."""
+    from .diagrams import gantt_svg_block
+
+    return gantt_svg_block(
+        block.get("tasks", []),
+        block.get("milestones", []),
         caption=block.get("caption"),
     )
 

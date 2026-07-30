@@ -13,6 +13,7 @@ from emboss import (
     diagram_alt_text,
     diagram_svg_block,
     layout_diagram,
+    layout_diagram_force,
     parse_spec_json,
     render_diagram_svg,
     spec_prompt,
@@ -339,11 +340,12 @@ class TestSpecPrompt:
         pytest.importorskip("pydantic")
         blocks = re.findall(r"```json\n(.*?)```", spec_prompt(), re.DOTALL)
         diagram_examples = [b for b in blocks if '"diagram"' in b]
-        assert len(diagram_examples) == 1
-        payload = json.loads(diagram_examples[0])
-        wrapped = {"title": "Contract", "content": [payload]}
-        doc = parse_spec_json(json.dumps(wrapped), strict=True)
-        assert isinstance(doc.content[0], SvgBlock)
+        assert len(diagram_examples) == 3  # general flowchart + swimlane + force layout
+        for example in diagram_examples:
+            payload = json.loads(example)
+            wrapped = {"title": "Contract", "content": [payload]}
+            doc = parse_spec_json(json.dumps(wrapped), strict=True)
+            assert isinstance(doc.content[0], SvgBlock)
 
 
 class TestMarkdown:
@@ -396,3 +398,243 @@ db --> api
         block = diagram_block_from_source(source, caption="Topo")
         assert block.caption == "Topo"
         assert "2 nodes" in block.alt_text
+
+
+class TestSwimlanes:
+    NODES = [
+        {"id": "req", "label": "Request", "lane": "Client"},
+        {"id": "auth", "label": "Authenticate", "lane": "Backend"},
+        {"id": "db", "label": "Query DB", "lane": "Backend"},
+        {"id": "resp", "label": "Response", "lane": "Client"},
+    ]
+    EDGES = [("req", "auth"), ("auth", "db"), ("db", "resp")]
+
+    def test_no_lanes_unaffected(self):
+        layout = layout_diagram([("a", "A"), ("b", "B")], [("a", "b")])
+        assert layout.lane_bands == ()
+
+    def test_explicit_lane_order_produces_bands(self):
+        layout = layout_diagram(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+        names = [name for name, _s, _e in layout.lane_bands]
+        assert names == ["Client", "Backend"]
+
+    def test_inferred_lane_order_is_first_appearance(self):
+        layout = layout_diagram(
+            [
+                {"id": "a", "label": "A", "lane": "Zeta"},
+                {"id": "b", "label": "B", "lane": "Alpha"},
+            ],
+            [("a", "b")],
+        )
+        names = [name for name, _s, _e in layout.lane_bands]
+        assert names == ["Zeta", "Alpha"]
+
+    def test_missing_lane_rejected(self):
+        with pytest.raises(ValueError, match="no valid lane"):
+            layout_diagram(
+                [{"id": "a", "label": "A", "lane": "X"}, {"id": "b", "label": "B"}],
+                [("a", "b")],
+                lanes=["X", "Y"],
+            )
+
+    def test_unknown_lane_rejected(self):
+        with pytest.raises(ValueError, match="no valid lane"):
+            layout_diagram([{"id": "a", "label": "A", "lane": "Ghost"}], lanes=["X"])
+
+    def test_nodes_stay_within_their_lane_band(self):
+        layout = layout_diagram(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+        bands = {name: (start, extent) for name, start, extent in layout.lane_bands}
+        for placed in layout.nodes:
+            start, extent = bands[placed.node.lane]
+            assert start - 0.01 <= placed.x
+            assert placed.x + placed.width <= start + extent + 0.01
+
+    def test_svg_renders_valid_and_has_lane_labels(self):
+        svg = render_diagram_svg(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+        parse_svg(svg)
+        assert ">Client<" in svg
+        assert ">Backend<" in svg
+
+    def test_direction_right_also_supported(self):
+        svg = render_diagram_svg(
+            self.NODES, self.EDGES, direction="right", lanes=["Client", "Backend"]
+        )
+        parse_svg(svg)
+
+    def test_render_is_deterministic(self):
+        first = render_diagram_svg(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+        second = render_diagram_svg(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+        assert first == second
+
+    def test_alt_text_mentions_lanes(self):
+        text = diagram_alt_text(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+        assert "2 lanes (Client, Backend)" in text
+
+    def test_alt_text_omits_lanes_when_unset(self):
+        text = diagram_alt_text([("a", "A"), ("b", "B")], [("a", "b")])
+        assert "lane" not in text
+
+    def test_document_end_to_end(self):
+        doc = Document(title="Swimlane")
+        doc.diagram(self.NODES, self.EDGES, lanes=["Client", "Backend"], caption="Flow")
+        data = doc.render()
+        assert data.startswith(b"%PDF-")
+        assert b"/Figure" in data
+
+    def test_full_render_deterministic(self):
+        def build():
+            doc = Document(title="Swimlane")
+            doc.diagram(self.NODES, self.EDGES, lanes=["Client", "Backend"])
+            return doc.render()
+
+        assert build() == build()
+
+    def test_pydantic_path(self):
+        from emboss.adapters.pydantic_schema import DocumentSpec
+
+        spec = DocumentSpec.model_validate(
+            {
+                "title": "T",
+                "content": [
+                    {
+                        "type": "diagram",
+                        "nodes": self.NODES,
+                        "edges": [{"src": s, "dst": d} for s, d in self.EDGES],
+                        "lanes": ["Client", "Backend"],
+                    }
+                ],
+            }
+        )
+        data = spec.to_document().render()
+        assert data.startswith(b"%PDF-")
+
+    def test_spec_prompt_mentions_lanes(self):
+        assert "lanes" in spec_prompt()
+
+
+class TestForceLayout:
+    NODES = [{"id": str(i), "label": f"Node {i}"} for i in range(6)]
+    EDGES = [
+        ("0", "1"),
+        ("1", "2"),
+        ("2", "3"),
+        ("3", "4"),
+        ("4", "5"),
+        ("5", "0"),
+        ("0", "3"),
+    ]
+
+    def test_layered_default_unaffected(self):
+        # Same call as before layout= existed still works and is unchanged.
+        first = render_diagram_svg(self.NODES, self.EDGES)
+        second = render_diagram_svg(self.NODES, self.EDGES)
+        assert first == second
+        layout = layout_diagram(self.NODES, self.EDGES)
+        assert layout.direction == "down"
+
+    def test_force_renders_valid_svg(self):
+        svg = render_diagram_svg(self.NODES, self.EDGES, layout="force")
+        parse_svg(svg)
+        assert ">Node 0<" in svg
+
+    def test_force_is_deterministic(self):
+        first = render_diagram_svg(self.NODES, self.EDGES, layout="force")
+        second = render_diagram_svg(self.NODES, self.EDGES, layout="force")
+        assert first == second
+
+    def test_force_nodes_do_not_all_collapse(self):
+        layout = layout_diagram_force(self.NODES, self.EDGES)
+        xs = {p.x for p in layout.nodes}
+        ys = {p.y for p in layout.nodes}
+        assert len(xs) > 1 or len(ys) > 1
+
+    def test_force_single_node_no_edges(self):
+        layout = layout_diagram_force([{"id": "a", "label": "A"}], [])
+        assert len(layout.nodes) == 1
+
+    def test_force_self_loop_renders(self):
+        svg = render_diagram_svg(
+            [{"id": "a", "label": "A"}], [("a", "a")], layout="force"
+        )
+        parse_svg(svg)
+
+    def test_force_edges_are_straight_lines_not_routed(self):
+        # Force-mode edges use straight point-to-point paths (2-point M/L),
+        # unlike layered mode's multi-segment orthogonal routing.
+        svg = render_diagram_svg(
+            [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+            [("a", "b")],
+            layout="force",
+        )
+        parse_svg(svg)
+
+    def test_invalid_layout_value_rejected(self):
+        with pytest.raises(ValueError, match="layout must be"):
+            render_diagram_svg(self.NODES, self.EDGES, layout="bogus")
+
+    def test_lanes_with_force_rejected(self):
+        with pytest.raises(ValueError, match="lanes"):
+            render_diagram_svg(
+                [{"id": "a", "label": "A", "lane": "X"}],
+                [],
+                layout="force",
+                lanes=["X"],
+            )
+
+    def test_document_end_to_end(self):
+        doc = Document(title="Force")
+        doc.diagram(self.NODES, self.EDGES, layout="force", caption="Network")
+        data = doc.render()
+        assert data.startswith(b"%PDF-")
+        assert b"/Figure" in data
+
+    def test_full_render_deterministic(self):
+        def build():
+            doc = Document(title="Force")
+            doc.diagram(self.NODES, self.EDGES, layout="force")
+            return doc.render()
+
+        assert build() == build()
+
+    def test_pydantic_spec_parses(self):
+        pytest.importorskip("pydantic")
+        doc = parse_spec_json(
+            json.dumps(
+                {
+                    "title": "T",
+                    "content": [
+                        {
+                            "type": "diagram",
+                            "nodes": self.NODES,
+                            "edges": [{"src": s, "dst": d} for s, d in self.EDGES],
+                            "layout": "force",
+                        }
+                    ],
+                }
+            ),
+            strict=True,
+        )
+        assert isinstance(doc.content[0], SvgBlock)
+
+    def test_pydantic_rejects_lanes_with_force(self):
+        pytest.importorskip("pydantic")
+        with pytest.raises(Exception):
+            parse_spec_json(
+                json.dumps(
+                    {
+                        "title": "T",
+                        "content": [
+                            {
+                                "type": "diagram",
+                                "nodes": [{"id": "a", "label": "A", "lane": "X"}],
+                                "layout": "force",
+                                "lanes": ["X"],
+                            }
+                        ],
+                    }
+                ),
+                strict=True,
+            )
+
+    def test_spec_prompt_mentions_force(self):
+        assert '"layout": "force"' in spec_prompt()

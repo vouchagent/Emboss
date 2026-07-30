@@ -956,7 +956,7 @@ doc = Document(
 
 - **Bates numbering**: sequential identifiers for legal discovery
 - **Line numbering**: continuous line numbers in the left margin (court filings)
-- **Watermarks**: diagonal text overlay with configurable opacity
+- **Watermarks**: diagonal text overlay with configurable opacity, or a logo/image watermark via `watermark_image` (a file path or raw bytes) with `watermark_image_scale`; both may be set together, image behind text. All legal features are opt-in -- `spec_prompt()` explicitly instructs an LLM never to add one unasked.
 
 ### Controlled Documents
 
@@ -1127,13 +1127,15 @@ doc.diagram(
 - **Layout is automatic**: a longest-path layering assigns nodes to layers, barycenter sweeps order nodes within each layer to reduce edge crossings, and cycles are handled by reversing back edges for layout purposes while rendering them along their true direction.
 - **Node shapes**: `box`, `rounded`, `decision` (diamond), `store` (database cylinder), `start_end` (pill).
 - **Edges**: solid or `style="dashed"`, with optional labels; self-loops render as a small loop back into the node.
+- **Swimlanes**: give every node a `lane` and pass `lanes` (the ordered names, or leave unset to infer the order from first appearance) for a swimlane workflow -- banded columns for `direction="down"`, banded rows for `direction="right"`.
+- **Force-directed layout**: `layout="force"` swaps the default layered flow for a deterministic spring-embedder layout, for a mesh/network topology with no natural hierarchy (not combinable with `lanes`).
 - Renders as native vector graphics (an `SvgBlock` under the hood), with a deterministic, auto-generated `/Alt` description summarizing the node and edge count -- no diagram ships without accessible alt text.
 - Also available as a fenced Markdown block: a ` ```diagram ` fence with `id: Label [shape]` node lines, `a -> b: label` (or `-->` for dashed) edge lines, and an optional `direction: right` line.
-- Lower-level API: `emboss.diagrams.layout_diagram`, `render_diagram_svg`, `diagram_alt_text`, and the `DiagramNode`/`DiagramEdge` dataclasses.
+- Lower-level API: `emboss.diagrams.layout_diagram`, `layout_diagram_force`, `render_diagram_svg`, `diagram_alt_text`, and the `DiagramNode`/`DiagramEdge` dataclasses.
 
 ### Specialized diagram types
 
-Beyond the general flowchart, three purpose-built diagram types cover most technical-documentation needs. Each is described as a plain node/edge list, laid out automatically, and rendered as native vector graphics with auto-generated `/Alt` text.
+Beyond the general flowchart, six purpose-built diagram types cover most technical-documentation and transformation-reporting needs. Each is described as a plain node/edge (or task/period) list, laid out automatically, and rendered as native vector graphics with auto-generated `/Alt` text.
 
 **Cloud / deployment architecture** -- `doc.architecture_diagram(nodes, edges, groups=...)`. Nodes carry a `service` glyph (`compute`, `database`, `storage`, `queue`, `gateway`, `cache`, `cdn`, `function`, `loadbalancer`, `user`, `external`, `generic`) and an optional `group`; groups nest to draw zones such as a VPC wrapping public and private subnets. Edges are solid or `dashed` with labels. Relabel the nodes and the same layout describes an AWS, Azure, or GCP topology.
 
@@ -1186,7 +1188,51 @@ doc.er_diagram(
 )
 ```
 
-All three are exposed in the Pydantic schema and the LLM spec prompt, so a model can emit them directly as `architecture_diagram` / `sequence_diagram` / `er_diagram` spec blocks.
+**Roadmap / timeline** -- `doc.roadmap(periods, workstreams, milestones=None)`. `periods` is an ordered list of labels (quarters, phases -- no date arithmetic); each workstream is a row of status-colored bars spanning an inclusive period range, and diamond milestones mark a period either on a specific workstream's row or a shared strip above all rows. Bars and milestones share the same five-status palette (`ok`/`warning`/`critical`/`planned`/`retired`) as the status-colored capability map below, with an auto-generated legend.
+
+```python
+doc.roadmap(
+    periods=["Q1", "Q2", "Q3", "Q4"],
+    workstreams=[
+        {"name": "Platform", "bars": [
+            {"label": "Migration", "start": "Q1", "end": "Q2", "status": "ok"},
+        ]},
+        {"name": "Data", "bars": [
+            {"label": "Warehouse", "start": "Q2", "end": "Q4", "status": "planned"},
+        ]},
+    ],
+    milestones=[{"label": "Launch", "at": "Q3"}],
+    caption="FY26 roadmap",
+)
+```
+
+**Org chart** -- `doc.org_chart(nodes, edges)`. Same node/edge shape as the general flowchart, but every node may have at most one incoming edge (`src` is the manager, `dst` the report); each parent is centered over the full width its children occupy, rather than ordered by crossing-minimization. A node with two managers, or a cycle, raises `ValueError`.
+
+```python
+doc.org_chart(
+    nodes=[{"id": "ceo", "label": "CEO"}, {"id": "cto", "label": "CTO"}, {"id": "cfo", "label": "CFO"}],
+    edges=[{"src": "ceo", "dst": "cto"}, {"src": "ceo", "dst": "cfo"}],
+    caption="Leadership",
+)
+```
+
+**Gantt chart** -- `doc.gantt(tasks, milestones=None)`. Where a roadmap uses period labels, a Gantt chart uses real `start`/`end` calendar dates (`YYYY-MM-DD`) on a continuous axis; each task can carry `progress` (`0.0`-`1.0`, drawn as a fill), a `status`, and `dependencies` (other task names, drawn as arrows).
+
+```python
+doc.gantt(
+    tasks=[
+        {"name": "Design", "start": "2026-01-01", "end": "2026-01-15", "progress": 1.0, "status": "ok"},
+        {"name": "Build", "start": "2026-01-10", "end": "2026-02-15", "progress": 0.4,
+         "status": "planned", "dependencies": ["Design"]},
+    ],
+    milestones=[{"label": "Kickoff", "at": "2026-01-01"}],
+    caption="Q1 project plan",
+)
+```
+
+Every architecture diagram node also accepts an optional `status` (same five-value palette), turning the cloud-topology diagram into a status-colored application-landscape / capability map with an auto-generated legend -- a common enterprise-transformation reporting need distinct from a network topology.
+
+All six are exposed in the Pydantic schema and the LLM spec prompt, so a model can emit them directly as `architecture_diagram` / `sequence_diagram` / `er_diagram` / `roadmap` / `org_chart` / `gantt` spec blocks.
 
 ### Mermaid
 

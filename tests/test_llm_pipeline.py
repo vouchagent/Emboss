@@ -491,6 +491,11 @@ class TestDeterminism:
         assert spec_prompt(doc_type="report") == spec_prompt(doc_type="report")
         assert spec_prompt(style="finance") == spec_prompt(style="finance")
 
+    def test_spec_prompt_watermark_guardrail(self):
+        prompt = spec_prompt(style="legal")
+        assert "watermark" in prompt.lower()
+        assert "unless the user explicitly asked" in prompt
+
     def test_from_llm_render_deterministic(self):
         text = "# Det\n\nThe same text renders to the same bytes."
         assert Document.from_llm(text).render() == Document.from_llm(text).render()

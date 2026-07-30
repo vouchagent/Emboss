@@ -48,6 +48,41 @@ Both also accept loose input: a `dict` with the matching keys, or a positional t
 
 Edge `style` is `solid` (default) or `dashed`, for marking optional or asynchronous paths. `direction` is `down` (top-to-bottom layers, the default) or `right` (left-to-right).
 
+## Swimlanes
+
+Give every node a `lane` and pass `lanes` (the ordered lane names) to `doc.diagram(...)` for a swimlane workflow diagram -- one banded column per lane for `direction="down"`, one banded row for `direction="right"`. The normal layered layout still orders nodes along the flow axis; lanes only constrain the cross axis.
+
+```python
+doc.diagram(
+    nodes=[
+        {"id": "req", "label": "Request", "lane": "Client"},
+        {"id": "auth", "label": "Authenticate", "lane": "Backend"},
+        {"id": "db", "label": "Query DB", "lane": "Backend"},
+        {"id": "resp", "label": "Response", "lane": "Client"},
+    ],
+    edges=[("req", "auth"), ("auth", "db"), ("db", "resp")],
+    lanes=["Client", "Backend"],
+    caption="Login sequence",
+)
+```
+
+Leaving `lanes` unset while nodes carry a `lane` infers the lane order from each node's first appearance, so the order is still deterministic without spelling it out. Every node must have a valid `lane` once lanes are active -- an unassigned or unknown lane name raises `ValueError` naming the offending node.
+
+## Force-directed layout
+
+`doc.diagram(nodes, edges, layout="force")` swaps the default layered flow for a spring-embedder layout, for graphs with no natural hierarchy -- a mesh or peer-to-peer network topology where there's no clear "start" and no meaningful flow direction.
+
+```python
+doc.diagram(
+    nodes=[{"id": "a", "label": "Node A"}, {"id": "b", "label": "Node B"}, {"id": "c", "label": "Node C"}],
+    edges=[("a", "b"), ("b", "c"), ("c", "a")],
+    layout="force",
+    caption="Peer mesh",
+)
+```
+
+Deterministic by construction, not by convention: initial node positions are seeded evenly around a circle in input order (no `random()`), and a fixed iteration count with a fixed linear cooling schedule always converges to the same layout for the same input -- the same guarantee every other diagram type makes, just harder to get right for a physics-based algorithm. Edges render as straight lines rather than the layered layout's orthogonal routing, since there's no flow axis to route along. `layout="force"` is not combinable with `lanes` (a swimlane needs a flow axis); passing both raises `ValueError`.
+
 ## Layout algorithm
 
 `layout_diagram(nodes, edges, direction="down")` (in `emboss.diagrams`) computes the placement in three passes:
@@ -66,7 +101,7 @@ layout.by_id["api"].x, layout.by_id["api"].y   # a PlacedNode's resolved box
 
 ## Rendering and accessibility
 
-`render_diagram_svg(nodes, edges, direction=, theme_colors=)` emits deterministic SVG markup (shapes, routed edge paths with arrowheads, and centered multi-line labels), which is what `doc.diagram(...)` renders through the SVG embedding path -- diagrams are native vector graphics, not rasterized images.
+`render_diagram_svg(nodes, edges, direction=, lanes=, layout=, theme_colors=)` emits deterministic SVG markup (shapes, routed edge paths with arrowheads, and centered multi-line labels), which is what `doc.diagram(...)` renders through the SVG embedding path -- diagrams are native vector graphics, not rasterized images.
 
 ```python
 from emboss import diagram_alt_text
@@ -105,7 +140,7 @@ auth -> ok
 
 ## Specialized diagram types
 
-The general flowchart above lays out any node/edge graph. Three purpose-built types cover the diagrams a technical design document needs most. Each takes a plain description, lays itself out automatically, rides the same native-vector SVG path, and sets deterministic `/Alt` text. All three are exposed in the fluent API, the JSON spec, the Pydantic schema, and the LLM spec prompt.
+The general flowchart above lays out any node/edge graph. Six purpose-built types cover the diagrams a technical design or transformation document needs most. Each takes a plain description, lays itself out automatically, rides the same native-vector SVG path, and sets deterministic `/Alt` text. All six are exposed in the fluent API, the JSON spec, the Pydantic schema, and the LLM spec prompt.
 
 ### Cloud and deployment architecture
 
@@ -129,6 +164,24 @@ doc.architecture_diagram(
 ```
 
 A group's `node_ids` may list other group ids, which is how zones nest. Edges are solid or `dashed` with optional labels; an `image` field is accepted on a node but falls back to the built-in glyph, since the SVG subset does not embed raster images. Zone titles render on a solid chip above the edges, so a title never collides with an edge label crossing the zone boundary.
+
+#### Status-colored landscape / capability maps
+
+Giving a node an optional `status` turns the same diagram into a status-colored application-landscape map: a small colored badge is drawn on the node, and a legend row listing every status actually in use is appended automatically -- in a fixed order, independent of node input order, so the same statuses always produce the same legend.
+
+```python
+doc.architecture_diagram(
+    nodes=[
+        {"id": "crm", "label": "CRM", "service": "generic", "status": "ok"},
+        {"id": "billing", "label": "Billing", "service": "generic", "status": "warning"},
+        {"id": "legacy", "label": "Legacy ERP", "service": "generic", "status": "retired"},
+    ],
+    edges=[("crm", "billing")],
+    caption="Application landscape",
+)
+```
+
+The five statuses are `ok` (green), `warning` (amber), `critical` (red), `planned` (blue), and `retired` (gray). A node with no `status` set draws no badge and is left out of the legend.
 
 ### Sequence
 
@@ -168,7 +221,71 @@ doc.er_diagram(
 )
 ```
 
-Each type accepts loose `dict`/tuple input or its dataclass form (`ArchNode`/`ArchGroup`, `SequenceParticipant`/`SequenceMessage`, `Entity`/`EntityAttribute`/`Relationship`), and raises a clear `ValueError` naming the offending id when an edge, message, relationship, or group member points at a node that does not exist.
+### Roadmap / timeline
+
+`doc.roadmap(periods, workstreams, milestones=None, caption=...)`. `periods` is an ordered list of labels (quarters, phases, sprints -- no date arithmetic, so a bare label list is enough); each workstream is a named row of status-colored bars spanning an inclusive period range, and milestones draw as diamond markers either on a specific workstream's row or, when `workstream` is omitted, on a shared strip above all rows. Bars and milestones share the same five-status palette as [architecture-diagram status coloring](#status-colored-landscape--capability-maps) (`ok`, `warning`, `critical`, `planned`, `retired`), and a legend is auto-generated whenever any status is used.
+
+```python
+doc.roadmap(
+    periods=["Q1", "Q2", "Q3", "Q4"],
+    workstreams=[
+        {"name": "Platform", "bars": [
+            {"label": "Migration", "start": "Q1", "end": "Q2", "status": "ok"},
+        ]},
+        {"name": "Data", "bars": [
+            {"label": "Warehouse", "start": "Q2", "end": "Q4", "status": "planned"},
+        ]},
+    ],
+    milestones=[{"label": "Launch", "at": "Q3"}],
+    caption="FY26 roadmap",
+)
+```
+
+A bar's `start`/`end` and a milestone's `at` must reference a declared period; an unknown period, an end before its start, duplicate periods, or a milestone pinned to an unknown workstream all raise a clear `ValueError` naming the offender.
+
+### Org chart
+
+`doc.org_chart(nodes, edges, direction="down")`. Nodes and edges are the same `DiagramNode`/`DiagramEdge` shapes as the general flowchart, but the layout is different: every node may have at most one incoming edge (`src` is the manager, `dst` the report), and each parent is centered over the full width its children occupy rather than ordered by crossing-minimization.
+
+```python
+doc.org_chart(
+    nodes=[
+        {"id": "ceo", "label": "CEO"},
+        {"id": "cto", "label": "CTO"},
+        {"id": "cfo", "label": "CFO"},
+        {"id": "eng", "label": "Eng Lead"},
+    ],
+    edges=[
+        {"src": "ceo", "dst": "cto"},
+        {"src": "ceo", "dst": "cfo"},
+        {"src": "cto", "dst": "eng"},
+    ],
+    caption="Leadership",
+)
+```
+
+A node named as the destination of two edges (two managers for one report) or a cycle both raise a clear `ValueError`. Multiple roots (a forest of separate trees) are allowed and laid out side by side. `direction="right"` grows the tree left-to-right instead of top-to-bottom.
+
+### Gantt chart
+
+`doc.gantt(tasks, milestones=None, caption=...)`. Where a roadmap uses period labels, a Gantt chart uses real `start`/`end` calendar dates (`YYYY-MM-DD`) on a continuous axis -- bar position and width are computed proportionally against the full date range spanned by all tasks and milestones. Each task is a row: an optional `progress` (`0.0`-`1.0`) draws a darker fill from the left edge, `status` colors the bar from the same five-status palette as architecture diagrams and roadmaps, and `dependencies` (other task names) draw arrows from the dependency's end to the dependent's start.
+
+```python
+doc.gantt(
+    tasks=[
+        {"name": "Design", "start": "2026-01-01", "end": "2026-01-15",
+         "progress": 1.0, "status": "ok"},
+        {"name": "Build", "start": "2026-01-10", "end": "2026-02-15",
+         "progress": 0.4, "status": "planned", "dependencies": ["Design"]},
+    ],
+    milestones=[{"label": "Kickoff", "at": "2026-01-01"}],
+    caption="Q1 project plan",
+)
+```
+
+An unparseable date, an end before its start, a duplicate task name, or a dependency naming an unknown task all raise a clear `ValueError`. Task names must be unique since dependencies reference them by name.
+
+Each type accepts loose `dict`/tuple input or its dataclass form (`ArchNode`/`ArchGroup`, `SequenceParticipant`/`SequenceMessage`, `Entity`/`EntityAttribute`/`Relationship`, `RoadmapWorkstream`/`RoadmapBar`/`RoadmapMilestone`, `GanttTask`/`GanttMilestone`), and raises a clear `ValueError` naming the offending id when an edge, message, relationship, or group member points at a node that does not exist.
 
 ## Mermaid
 
