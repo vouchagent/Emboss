@@ -456,6 +456,19 @@
 
 <div class="container">
 
+    <!-- DISCLAIMER -->
+    <section>
+        <div class="callout callout-warning">
+            <strong>Disclaimer:</strong> This is an independent evaluation prepared by the author, not an
+            official, audited, or sponsored comparison, and it is not endorsed by the maintainers of any
+            library discussed. Feature comparisons, ratings, and scores reflect the author's own testing
+            and understanding as of the date above and are opinions, not verified facts of record — library
+            capabilities change over time and may differ from what is described here. Readers should
+            independently verify current capabilities against each project's own documentation and source
+            code before making an adoption decision.
+        </div>
+    </section>
+
     <!-- TABLE OF CONTENTS -->
     <section>
         <div class="card">
@@ -756,7 +769,7 @@ doc.save(<span class="string">"report.pdf"</span>)</div>
                 <div class="cons">
                     <h4>Weaknesses</h4>
                     <ul>
-                        <li>No PDF/UA accessibility support</li>
+                        <li>PDF/UA accessibility is opt-in and basic (a single <code>tagged="1"</code> attribute added in v4.0), not on by default or independently conformance-checked the way Emboss's is</li>
                         <li>Non-deterministic output (timestamps, random IDs)</li>
                         <li>Steep learning curve, verbose imperative API</li>
                         <li>Aging API design</li>
@@ -1040,7 +1053,7 @@ doc.save(<span class="string">"report.pdf"</span>)</div>
                     <tr class="highlight-row">
                         <td>PDF/UA Accessibility</td>
                         <td><span class="badge badge-best">Default</span></td>
-                        <td><span class="badge badge-no">No</span></td>
+                        <td><span class="badge badge-partial">Partial (opt-in, v4.0+)</span></td>
                         <td><span class="badge badge-partial">Partial</span></td>
                         <td><span class="badge badge-partial">Minimal</span></td>
                         <td><span class="badge badge-no">No</span></td>
@@ -1920,7 +1933,7 @@ pdf.output(<span class="string">"report.pdf"</span>)
 <div class="footer">
     <div class="container">
         <p><strong>Emboss PDF Library - Evaluation &amp; Comparative Analysis</strong></p>
-        <p>Prepared by Gaurav Gupta | July 2026 | POC Assessment</p>
+        <p>Prepared by Gaurav Gupta | July 2026</p>
         <p>Source: <a href="https://github.com/GGChamp85/Emboss" style="color: #93c5fd;">github.com/GGChamp85/Emboss</a></p>
     </div>
 </div>
