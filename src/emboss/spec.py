@@ -1132,6 +1132,69 @@ class Document:
     def table(self, headers, rows, **kw) -> "Document":
         return self.add(Table(headers=headers, rows=rows, **kw))
 
+    def table_from_csv(self, source, *, has_header: bool = True, **kw) -> "Document":
+        """Build a table from a CSV path, file object, CSV text, or DataFrame.
+
+        Reads once, then builds a normal ``Table`` -- ``verify_totals``,
+        ``attach_data``, ``caption``, and every other table keyword compose
+        exactly as they do for a hand-typed table.
+        """
+        from .data_binding import read_csv_rows
+
+        headers, rows = read_csv_rows(source, has_header=has_header)
+        return self.table(headers, rows, **kw)
+
+    def chart_from_csv(
+        self,
+        source,
+        *,
+        has_header: bool = True,
+        category_column=0,
+        value_columns=None,
+        chart_type: str = "bar",
+        **kw,
+    ) -> "Document":
+        """Build a chart from a CSV path, file object, CSV text, or DataFrame.
+
+        The category column (default: the first) supplies ``labels``; every
+        other column that parses as numeric across all rows becomes a
+        ``Series``, unless ``value_columns`` names or indexes them
+        explicitly. Composes with ``attach_data=True`` so the exact CSV that
+        fed the chart also travels inside the PDF.
+        """
+        from .data_binding import numeric_columns, read_csv_rows, series_from_columns
+
+        headers, rows = read_csv_rows(source, has_header=has_header)
+        cat_idx = (
+            headers.index(category_column)
+            if isinstance(category_column, str)
+            else category_column
+        )
+        labels = [row[cat_idx] if cat_idx < len(row) else "" for row in rows]
+
+        indices = numeric_columns(
+            headers, rows, value_columns=value_columns, category_column=cat_idx
+        )
+        if not indices:
+            raise ValueError(
+                "no numeric columns found for chart series; pass value_columns "
+                "explicitly if the CSV's numbers are formatted unusually"
+            )
+        series = series_from_columns(headers, rows, indices)
+
+        if len(series) == 1:
+            return self.add(
+                Chart(
+                    chart_type=chart_type,
+                    labels=labels,
+                    values=series[0].values,
+                    **kw,
+                )
+            )
+        return self.add(
+            Chart(chart_type=chart_type, labels=labels, values=[], series=series, **kw)
+        )
+
     def page_break(self, page_style: str | None = None) -> "Document":
         return self.add(PageBreak(page_style=page_style))
 

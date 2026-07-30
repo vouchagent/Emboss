@@ -20,6 +20,12 @@ from .constraints import (
     ValidationResult,
 )
 from .arithmetic import check_table_totals, parse_number
+from .data_binding import (
+    numeric_columns,
+    read_csv_rows,
+    rows_from_dataframe,
+    series_from_columns,
+)
 from .spec import (
     Abstract,
     Appendix,
@@ -323,6 +329,10 @@ __all__ = [
     "format_number",
     "ConstraintValidator",
     "check_table_totals",
+    "read_csv_rows",
+    "rows_from_dataframe",
+    "numeric_columns",
+    "series_from_columns",
     "parse_number",
     "ValidationResult",
     "ValidationError",
