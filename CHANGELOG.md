@@ -3,6 +3,38 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-07-29
+
+### Added
+- **CJK text support**: register a CJK-capable font (`Document.fonts.register`)
+  and Chinese, Japanese, and Korean text renders correctly -- real glyphs,
+  correct widths, correct line wrapping. Fixed two root-cause bugs: the line
+  breaker only tokenized on ASCII spaces, so a spaceless CJK paragraph
+  overflowed instead of wrapping (`typography/line_breaking.py` now adds
+  break opportunities between CJK codepoints); and the oversized-run
+  fallback fragmented CJK text one character per render fragment, corrupting
+  extracted text with phantom spaces (`layout/engine.py`/`writer.py` now
+  merge same-run fragments and only insert a separator at a real word-space
+  wrap). RTL and complex-script shaping (Arabic, Hebrew, Indic) remain
+  unsupported, stated honestly.
+- **AI provenance / content credentials**: `GeneratorInfo` records which
+  model generated a document, from a hash of the prompt (never the raw
+  text), generation parameters, and an optional human reviewer, folded into
+  the existing reproducibility manifest. `read_generator_info(pdf_bytes)`
+  reads it back, or `None` when absent. `Document.generator` sets a
+  document-wide default; `generate(..., manifest=True)` auto-populates it.
+  MCP gains `get_provenance`.
+- **Data binding**: `Document.table_from_csv` / `chart_from_csv` build a
+  table or chart directly from a CSV path, file object, CSV text, or a
+  pandas DataFrame (duck-typed; pandas stays optional), composing with
+  `verify_totals` and `attach_data` exactly as a hand-typed table does.
+- **Interactive form fields**: `TextField`, `CheckboxField`, `DropdownField`
+  as real spec elements (`Document.text_field` / `checkbox_field` /
+  `dropdown_field`), producing genuine AcroForm widgets (`/FT /Tx`, `/Btn`,
+  `/Ch` with correct `/V`, `/Ff`, `/Opt`, and real checkbox appearance
+  streams) tagged as PDF/UA structure, for intake and KYC-style documents.
+  Duplicate field names and empty dropdown options are rejected at render.
+
 ## [1.0.0] - 2026-07-29
 
 The first stable release. The public API (`emboss.__all__`) is now covered by
