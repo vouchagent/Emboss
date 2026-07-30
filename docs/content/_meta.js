@@ -1,4 +1,4 @@
-{
+export default {
   "index": "Introduction",
   "installation": "Installation",
   "comparison": "How Emboss Compares",
@@ -20,5 +20,5 @@
   "markdown": "Markdown Input",
   "controlled-documents": "Controlled Documents",
   "forms": "Interactive Form Fields",
-  "api-reference": "API Reference"
+  "api-reference": "API Reference",
 }

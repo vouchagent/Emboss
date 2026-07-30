@@ -5,13 +5,22 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "pagefind --site .next/server/app --output-path public/_pagefind",
     "start": "next start"
   },
   "dependencies": {
-    "next": "14.2.15",
-    "nextra": "2.13.4",
-    "nextra-theme-docs": "2.13.4",
+    "next": "15.5.21",
+    "nextra": "4.6.1",
+    "nextra-theme-docs": "4.6.1",
     "react": "18.3.1",
     "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "pagefind": "^1.1.0"
+  },
+  "overrides": {
+    "postcss": "8.5.25",
+    "sharp": "0.35.0",
+    "zod": "4.3.6"
   }
 }

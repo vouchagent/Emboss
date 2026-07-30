@@ -3,14 +3,14 @@ title: LLM Integration
 description: Three tiers of LLM integration, from spec prompts to Markdown
 ---
 
-import { Callout, Tabs, Tab } from 'nextra/components'
+import { Callout, Tabs } from 'nextra/components'
 
 # LLM Integration
 
 Emboss offers three integration tiers. All three produce identical PDF quality: the typography engine (Knuth-Plass, optical margins, kerning) runs the same regardless of input format.
 
 <Tabs items={['Tier 1: Spec prompt', 'Tier 2: One-liner', 'Tier 3: Markdown']}>
-<Tab>
+<Tabs.Tab>
 
 Bring your own LLM client. `spec_prompt()` returns a compact system prompt (about 2K tokens) that teaches the model the EmbossSpec format, then `Document.from_json` parses the response:
 
@@ -39,8 +39,8 @@ spec = DocumentSpec.model_validate_json(llm_output)
 spec.to_document().save("output.pdf")
 ```
 
-</Tab>
-<Tab>
+</Tabs.Tab>
+<Tabs.Tab>
 
 `generate()` runs the full pipeline: build the system prompt, call the LLM, parse the JSON, render, and optionally save:
 
@@ -54,8 +54,8 @@ generate("Create a quarterly financial report",
 
 Parameters: `provider` is `"anthropic"` (default model `claude-sonnet-5`) or `"openai"` (default model `gpt-4o`), overridable via `model=`. The API key comes from `api_key=` or the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` environment variable. `smart=True` applies content intelligence to the parsed spec, and extra keyword arguments become Document-level overrides (`legal`, `header`, `footer`, and so on). Returns the PDF bytes; `output=` additionally writes them to a file. The provider SDK (`anthropic` or `openai`) must be installed.
 
-</Tab>
-<Tab>
+</Tabs.Tab>
+<Tabs.Tab>
 
 Works with any LLM output, no schema at all. Markdown is what models produce naturally:
 
@@ -69,7 +69,7 @@ doc.save("report.pdf")
 
 Keyword arguments pass through to the Document constructor (`style`, `page`, `legal`, `header`, `footer`, ...). If no `title` is given, the first level-1 heading becomes the document title. The supported Markdown surface is documented in [Markdown Input](/markdown).
 
-</Tab>
+</Tabs.Tab>
 </Tabs>
 
 ## Robust parsing
