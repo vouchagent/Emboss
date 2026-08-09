@@ -503,11 +503,15 @@ class MathParser:
             return children[0]
         return GroupNode(children=children)
 
-    def _parse_sequence(self, stop_at: str = "", env_mode: bool = False) -> list:
+    def _parse_sequence(
+        self, stop_at: str = "", env_mode: bool = False, stop_before_right: bool = False
+    ) -> list:
         nodes = []
         while self.pos < len(self.source):
             ch = self.source[self.pos]
             if ch in stop_at:
+                break
+            if stop_before_right and self.source.startswith("\\right", self.pos):
                 break
             if env_mode and ch == "\\":
                 if self.source.startswith("\\\\", self.pos) or self.source.startswith(
@@ -758,7 +762,12 @@ class MathParser:
         elif name == "left":
             delim = self.source[self.pos] if self.pos < len(self.source) else "("
             self.pos += 1
-            inner = self._parse_sequence(stop_at="\\")
+            # Stop only at a literal `\right`, not at any backslash -- a
+            # naive `stop_at="\\"` would truncate the delimited content at
+            # the first nested command (e.g. `\left(1 + \frac{1}{x}\right)`
+            # would stop at `\frac` and leave `frac{1}{x}\right)` dangling,
+            # corrupting the rest of the expression).
+            inner = self._parse_sequence(stop_before_right=True)
             right_delim = ")"
             if self.pos < len(self.source) and self.source[self.pos] == "\\":
                 self.pos += 1

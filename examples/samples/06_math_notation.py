@@ -21,7 +21,7 @@ doc.math(
     r"f(x) = \begin{cases} x^2 & x \geq 0 \\ -x^2 & x < 0 \end{cases}",
     display=True,
     number=True,
-    tag="piecewise",
+    label="eq:piecewise",
 )
 doc.paragraph("As shown in @eq:piecewise, the function is smooth but not twice differentiable at zero.")
 
@@ -52,9 +52,11 @@ doc.math(
 doc.heading("Blackboard and Script Alphabets", level=1)
 doc.paragraph(
     "Real math alphabets from a bundled font, not synthetic bold/italic: "
-    "$\\mathbb{R}$ for the reals, $\\mathcal{L}$ for a Lagrangian, "
-    "$\\mathfrak{g}$ for a Lie algebra."
+    "\\mathbb{R} for the reals, \\mathcal{L} for a Lagrangian, and "
+    "\\mathfrak{g} for a Lie algebra. Math notation is its own block "
+    "element (doc.math(...)), not inline LaTeX inside paragraph text:"
 )
+doc.math(r"\mathbb{R}, \quad \mathcal{L}, \quad \mathfrak{g}", display=False)
 
 doc.save("examples/output/06_math_notation.pdf")
 print("wrote 06_math_notation.pdf")
