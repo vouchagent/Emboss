@@ -391,9 +391,9 @@ class TestSvgResourceWiring:
         data = doc.render()
         with pikepdf.open(io.BytesIO(data)) as pdf:
             page = pdf.pages[0]
-            assert "/FsvgH" in page.Contents.read_bytes().decode("latin-1")
-            font = page.Resources.Font["/FsvgH"]
-            assert str(font["/BaseFont"]) == "/Helvetica"
+            assert "/FsvgSSR" in page.Contents.read_bytes().decode("latin-1")
+            font = page.Resources.Font["/FsvgSSR"]
+            assert "SourceSans3" in str(font["/BaseFont"])
 
 
 # ===========================================================================

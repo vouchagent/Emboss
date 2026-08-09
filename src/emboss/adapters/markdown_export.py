@@ -26,6 +26,7 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
         Callout,
         Chart,
         CodeBlock,
+        Columns,
         DocumentControl,
         Footnote,
         Heading,
@@ -53,7 +54,7 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
         parts.append("---")
         parts.append("")
 
-    for element in document.content:
+    def _render_element(element, parts: list[str]) -> None:
         if isinstance(element, Heading):
             prefix = "#" * element.level
             numbering = f"{element.numbering} " if element.numbering else ""
@@ -157,6 +158,19 @@ def to_markdown(document: "Document", *, include_metadata: bool = True) -> str:
                 else:
                     parts.append(_render_runs_md(sub.runs))
                 parts.append("")
+
+        elif isinstance(element, Columns):
+            # Markdown has no side-by-side layout, so columns render as
+            # sequential sections separated by a rule, left to right.
+            for i, col_blocks in enumerate(element.columns):
+                if i > 0:
+                    parts.append("---")
+                    parts.append("")
+                for sub in col_blocks:
+                    _render_element(sub, parts)
+
+    for element in document.content:
+        _render_element(element, parts)
 
     return "\n".join(parts).rstrip() + "\n"
 

@@ -45,6 +45,7 @@ from ..spec import (
     CheckboxField,
     Chart,
     CodeBlock,
+    Columns,
     CoverPage,
     Document,
     DocumentControl,
@@ -93,6 +94,7 @@ __all__ = [
     "SeriesSpec",
     "FootnoteSpec",
     "CalloutSpec",
+    "ColumnsSpec",
     "BlockQuoteSpec",
     "SvgBlockSpec",
     "CoverPageSpec",
@@ -737,6 +739,47 @@ class CalloutSpec(BaseModel):
             content=self.text,
             variant=self.variant,
             title=self.title,
+        )
+
+
+class ColumnsSpec(BaseModel):
+    """Side-by-side content regions, e.g. a two-up summary or comparison.
+
+    Each entry in ``columns`` is itself a list of blocks stacked top to
+    bottom within that column; columns render side by side as one atomic
+    (non page-splitting) row whose height is its tallest column.
+    """
+
+    model_config = {
+        "json_schema_extra": {
+            "title": "Columns",
+            "examples": [
+                {
+                    "type": "columns",
+                    "columns": [
+                        [{"type": "paragraph", "text": "Left column text."}],
+                        [{"type": "paragraph", "text": "Right column text."}],
+                    ],
+                },
+            ],
+        }
+    }
+
+    type: Literal["columns"] = "columns"
+    columns: list[list["ContentBlock"]] = Field(
+        ..., min_length=1, description="One list of nested blocks per column."
+    )
+    widths: list[float] | None = Field(
+        None,
+        description="Relative width weight per column; even split when omitted.",
+    )
+    gap: float = Field(12.0, description="Horizontal space between columns, in points.")
+
+    def to_element(self) -> Columns:
+        return Columns(
+            columns=[[b.to_element() for b in col] for col in self.columns],
+            widths=self.widths,
+            gap=self.gap,
         )
 
 
@@ -2372,6 +2415,7 @@ ContentBlock = Annotated[
         ChartSpec,
         FootnoteSpec,
         CalloutSpec,
+        ColumnsSpec,
         BlockQuoteSpec,
         CodeBlockSpec,
         MathBlockSpec,
@@ -2404,6 +2448,7 @@ ContentBlock = Annotated[
 ]
 
 AppendixSpec.model_rebuild()
+ColumnsSpec.model_rebuild()
 
 
 class PageConfig(BaseModel):

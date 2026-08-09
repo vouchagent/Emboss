@@ -23,6 +23,7 @@ from ..spec import (
     Chart,
     CheckboxField,
     CodeBlock,
+    Columns,
     CoverPage,
     DropdownField,
     Footnote,
@@ -149,6 +150,9 @@ class PlacedBlock:
     is_continuation: bool = False
     table_rows: list | None = None
     include_table_header: bool = True
+    #: Horizontal extent when narrower than the page content width, e.g. a
+    #: block nested inside a `Columns` cell. `None` means "full page width".
+    width: float | None = None
 
 
 @dataclass(slots=True)
@@ -185,6 +189,32 @@ class _FloatEntry:
 
 
 _FLOATABLE_TYPES = (Image, Chart, SvgBlock)
+
+# Block types measurable standalone (no page-level pre-pass, e.g. footnote
+# reservation or document-wide generation), so safe to nest inside a Columns
+# column. Columns itself is included so columns may nest.
+_COLUMNS_ALLOWED: tuple = (
+    Heading,
+    Paragraph,
+    BulletList,
+    NumberedList,
+    Table,
+    BlockQuote,
+    Image,
+    Chart,
+    Callout,
+    CodeBlock,
+    MathBlock,
+    BibliographyBlock,
+    SvgBlock,
+    HorizontalRule,
+    StatTiles,
+    PullQuote,
+    TextField,
+    CheckboxField,
+    DropdownField,
+    Columns,
+)
 
 
 class LayoutEngine:
@@ -300,6 +330,8 @@ class LayoutEngine:
             return self._measure_numbered_list(element, width)
         if isinstance(element, Table):
             return self._measure_table(element, width)
+        if isinstance(element, Columns):
+            return self._measure_columns(element, width)
         if isinstance(element, HorizontalRule):
             return MeasuredBlock(
                 element=element,
@@ -726,6 +758,56 @@ class LayoutEngine:
             can_split=False,
             space_before=8.0,
             space_after=8.0,
+        )
+
+    def _measure_columns(self, element, width: float) -> MeasuredBlock:
+        """Measure each column's block flow independently; row height is the tallest.
+
+        Columns render as one atomic (non page-splitting) unit, so each
+        sub-block is measured recursively via `measure()` at that column's
+        width the same way a nested list item is measured.
+        """
+        style = self.sheet.resolved(self.sheet.body, element.style)
+        n = len(element.columns)
+        if n == 0:
+            return MeasuredBlock(element=element, height=0.0, style=style)
+
+        gap_total = element.gap * (n - 1)
+        available = max(width - gap_total, 0.0)
+        if element.widths is not None:
+            weight_total = sum(element.widths)
+            col_widths = (
+                [available * (w / weight_total) for w in element.widths]
+                if weight_total > 0
+                else [available / n] * n
+            )
+        else:
+            col_widths = [available / n] * n
+
+        measured_columns: list = []
+        col_heights: list = []
+        for col_index, (blocks, col_w) in enumerate(zip(element.columns, col_widths)):
+            measured = []
+            for sub in blocks:
+                if not isinstance(sub, _COLUMNS_ALLOWED):
+                    raise ValueError(
+                        f"Columns column {col_index} contains unsupported "
+                        f"element type {type(sub).__name__}"
+                    )
+                measured.append(self.measure(sub, col_w))
+            total = sum(m.height + m.space_before + m.space_after for m in measured)
+            measured_columns.append(measured)
+            col_heights.append(total)
+        row_height = max(col_heights) if col_heights else 0.0
+
+        return MeasuredBlock(
+            element=element,
+            height=row_height,
+            style=style,
+            can_split=False,
+            space_before=8.0,
+            space_after=8.0,
+            extras={"columns": measured_columns, "col_widths": col_widths},
         )
 
     def _measure_image(self, element, width: float) -> MeasuredBlock:

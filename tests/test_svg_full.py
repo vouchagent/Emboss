@@ -286,7 +286,17 @@ class TestClipPath:
         assert lines.count("q") == lines.count("Q")
 
 
+def _embedded(family: str, bold: bool = False, italic: bool = False) -> FontMetrics:
+    from emboss.bundled_fonts import bundled_font_path
+
+    return FontMetrics.from_file(bundled_font_path(family, bold=bold, italic=italic))
+
+
 class TestText:
+    """<text>/<tspan> now resolve to the bundled embedded families (see
+    Task #2) rather than base-14, and each positioned run draws as its own
+    Tj rather than being flattened into one string (see Task #1)."""
+
     def test_text_anchor_middle_offsets_half_width(self):
         stream = _render(
             _svg(
@@ -296,18 +306,19 @@ class TestText:
                 50,
             )
         )
-        width = FontMetrics.base14("Helvetica").text_width("Hello", 12.0)
+        width = _embedded("Source Sans 3").text_width("Hello", 12.0)
         td = [ln for ln in _lines(stream) if ln.endswith(" Td")]
         assert len(td) == 1
         assert _floats(td[0]) == pytest.approx([100.0 - width / 2.0, 25.0], abs=1e-3)
-        assert "(Hello) Tj" in _ops(stream)
-        assert stream.used_svg_fonts == {"FsvgH": "Helvetica"}
+        assert sum(1 for ln in _lines(stream) if ln.endswith(" Tj")) == 1
+        assert list(stream.used_svg_fonts) == ["FsvgSSR"]
+        assert stream.used_svg_fonts["FsvgSSR"].is_embedded
 
     def test_text_anchor_end(self):
         stream = _render(
             _svg('<text x="90" y="10" font-size="10" text-anchor="end">Hi</text>')
         )
-        width = FontMetrics.base14("Helvetica").text_width("Hi", 10.0)
+        width = _embedded("Source Sans 3").text_width("Hi", 10.0)
         td = [ln for ln in _lines(stream) if ln.endswith(" Td")]
         assert _floats(td[0])[0] == pytest.approx(90.0 - width, abs=1e-3)
 
@@ -316,13 +327,213 @@ class TestText:
             _svg('<text x="0" y="10" font-family="Courier New, monospace">m</text>')
         )
         serif = _render(_svg('<text x="0" y="10" font-family="serif">s</text>'))
-        assert mono.used_svg_fonts == {"FsvgC": "Courier"}
-        assert serif.used_svg_fonts == {"FsvgT": "Times-Roman"}
-        assert "/FsvgC" in _ops(mono)
+        assert list(mono.used_svg_fonts) == ["FsvgCPR"]
+        assert list(serif.used_svg_fonts) == ["FsvgSFR"]
+        assert "/FsvgCPR" in _ops(mono)
 
-    def test_tspan_flattening(self):
+    def test_font_weight_style_select_bold_italic_variant(self):
+        stream = _render(
+            _svg(
+                '<text x="0" y="10" font-weight="bold" font-style="italic">B</text>'
+            )
+        )
+        assert list(stream.used_svg_fonts) == ["FsvgSSBI"]
+
+    def test_tspan_without_position_chains_on_same_baseline(self):
         stream = _render(_svg('<text x="0" y="10">A<tspan>B</tspan>C</text>'))
-        assert "(ABC) Tj" in _ops(stream)
+        lines = _lines(stream)
+        tj_lines = [ln for ln in lines if ln.endswith(" Tj")]
+        assert len(tj_lines) == 3
+        td_lines = [ln for ln in lines if ln.endswith(" Td")]
+        ys = {round(_floats(ln)[1], 3) for ln in td_lines}
+        assert ys == {90.0}  # single baseline: svg height 100 - y=10
+
+
+class TestTspanPositioning:
+    def test_explicit_xy_starts_new_baseline(self):
+        stream = _render(
+            _svg(
+                '<text x="0" y="10"><tspan x="0" y="10">Line1</tspan>'
+                '<tspan x="0" y="25">Line2</tspan></text>',
+                100,
+                100,
+            )
+        )
+        td = [ln for ln in _lines(stream) if ln.endswith(" Td")]
+        assert len(td) == 2
+        ys = sorted({round(_floats(ln)[1], 3) for ln in td})
+        assert ys == [75.0, 90.0]
+
+    def test_relative_dy_offsets_from_previous_baseline(self):
+        stream = _render(
+            _svg(
+                '<text x="0" y="10"><tspan x="0" y="10">Line1</tspan>'
+                '<tspan x="0" dy="12">Line2</tspan></text>',
+                100,
+                100,
+            )
+        )
+        td = [ln for ln in _lines(stream) if ln.endswith(" Td")]
+        ys = sorted((round(_floats(ln)[1], 3) for ln in td), reverse=True)
+        assert ys[0] == pytest.approx(90.0)
+        assert ys[1] == pytest.approx(78.0)
+
+    def test_nested_tspan_does_not_crash_and_flattens(self):
+        stream = _render(
+            _svg('<text x="0" y="10"><tspan>outer<tspan>inner</tspan></tspan></text>')
+        )
+        assert sum(1 for ln in _lines(stream) if ln.endswith(" Tj")) == 2
+
+    def test_tspan_overrides_font_size(self):
+        stream = _render(
+            _svg(
+                '<text x="0" y="20" font-size="10">'
+                "<tspan>normal</tspan><tspan font-size=\"20\">big</tspan></text>",
+                200,
+                50,
+            )
+        )
+        tf_lines = [ln for ln in _lines(stream) if ln.endswith(" Tf")]
+        sizes = [float(ln.split()[1]) for ln in tf_lines]
+        assert sizes == pytest.approx([10.0, 20.0])
+
+
+class TestDasharray:
+    def test_dasharray_emits_d_operator(self):
+        stream = _render(
+            _svg(
+                '<line x1="0" y1="0" x2="10" y2="0" stroke="black"'
+                ' stroke-dasharray="3,2"/>',
+                20,
+                20,
+            )
+        )
+        lines = _lines(stream)
+        assert any(ln.startswith("[3.0000 2.0000]") and ln.endswith(" d") for ln in lines)
+
+    def test_dasharray_none_is_solid(self):
+        stream = _render(
+            _svg(
+                '<line x1="0" y1="0" x2="10" y2="0" stroke="black"'
+                ' stroke-dasharray="none"/>',
+                20,
+                20,
+            )
+        )
+        assert not any(ln.endswith(" d") for ln in _lines(stream))
+
+    def test_dashoffset_included(self):
+        stream = _render(
+            _svg(
+                '<rect width="10" height="10" fill="none" stroke="black"'
+                ' stroke-dasharray="4 2" stroke-dashoffset="1.5"/>',
+                20,
+                20,
+            )
+        )
+        d_lines = [ln for ln in _lines(stream) if ln.endswith(" d")]
+        assert d_lines == ["[4.0000 2.0000] 1.5000 d"]
+
+    def test_dasharray_forces_modern_path_for_otherwise_legacy_shape(self):
+        stream = _render(
+            _svg(
+                '<rect width="10" height="10" fill="red" stroke="black"'
+                ' stroke-dasharray="2 2"/>',
+                20,
+                20,
+            )
+        )
+        assert any(ln.endswith(" d") for ln in _lines(stream))
+
+
+class TestSymbolViewBox:
+    def test_symbol_viewbox_scales_to_requested_size(self):
+        svg = _svg(
+            '<defs><symbol id="icon" viewBox="0 0 10 10">'
+            '<rect width="10" height="10" fill="red"/></symbol></defs>'
+            '<use href="#icon" x="0" y="0" width="20" height="20"/>',
+            20,
+            20,
+        )
+        stream = _render(svg)
+        cm_lines = [ln for ln in _lines(stream) if ln.endswith(" cm")]
+        assert cm_lines
+        vals = _floats(cm_lines[0])
+        assert vals[0] == pytest.approx(2.0, abs=1e-3)
+        assert vals[3] == pytest.approx(-2.0, abs=1e-3)
+
+    def test_symbol_without_viewbox_renders_1to1_via_legacy_path(self):
+        svg = _svg(
+            '<defs><symbol id="icon"><rect width="5" height="5" fill="red"/>'
+            "</symbol></defs>"
+            '<use href="#icon"/>',
+            20,
+            20,
+        )
+        stream = _render(svg)
+        assert any(ln.endswith(" re") for ln in _lines(stream))
+
+
+class TestMarkers:
+    MARKER_DEFS = (
+        '<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5"'
+        ' markerWidth="6" markerHeight="6" orient="auto">'
+        '<path d="M 0 0 L 10 5 L 0 10 Z" fill="black"/></marker></defs>'
+    )
+
+    def test_marker_end_renders_a_second_shape(self):
+        stream = _render(
+            _svg(
+                self.MARKER_DEFS + '<line x1="0" y1="10" x2="20" y2="10" '
+                'stroke="black" marker-end="url(#arrow)"/>',
+                40,
+                20,
+            )
+        )
+        cm_lines = [ln for ln in _lines(stream) if ln.endswith(" cm")]
+        assert len(cm_lines) >= 2
+
+    def test_marker_orients_along_horizontal_tangent_without_shear(self):
+        stream = _render(
+            _svg(
+                self.MARKER_DEFS + '<line x1="0" y1="10" x2="20" y2="10" '
+                'stroke="black" marker-end="url(#arrow)"/>',
+                40,
+                20,
+            )
+        )
+        cm_lines = [ln for ln in _lines(stream) if ln.endswith(" cm")]
+        last = _floats(cm_lines[-1])
+        assert last[1] == pytest.approx(0.0, abs=1e-6)
+        assert last[2] == pytest.approx(0.0, abs=1e-6)
+
+    def test_marker_start_auto_start_reverse(self):
+        defs = (
+            '<defs><marker id="arrow2" viewBox="0 0 10 10" refX="5" refY="5"'
+            ' markerWidth="4" markerHeight="4" orient="auto-start-reverse">'
+            '<path d="M 0 0 L 10 5 L 0 10 Z" fill="black"/></marker></defs>'
+        )
+        stream = _render(
+            _svg(
+                defs + '<line x1="0" y1="10" x2="20" y2="10" stroke="black" '
+                'marker-start="url(#arrow2)"/>',
+                40,
+                20,
+            )
+        )
+        cm_lines = [ln for ln in _lines(stream) if ln.endswith(" cm")]
+        assert len(cm_lines) >= 2
+
+    def test_unresolvable_marker_ref_is_a_no_op(self):
+        stream = _render(
+            _svg(
+                '<line x1="0" y1="0" x2="10" y2="10" stroke="black" '
+                'marker-end="url(#missing)"/>',
+                20,
+                20,
+            )
+        )
+        assert stream.to_bytes()
 
 
 class TestOpacity:

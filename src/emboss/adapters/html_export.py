@@ -42,6 +42,7 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
         Callout,
         Chart,
         CodeBlock,
+        Columns,
         DocumentControl,
         Footnote,
         Heading,
@@ -60,7 +61,7 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
     parts: list[str] = []
     parts.append('<article class="emboss-document">')
 
-    for element in document.content:
+    def _render_element(element, parts: list[str]) -> None:
         if isinstance(element, Heading):
             tag = f"h{element.level}"
             style_str = _heading_style(sheet, element.level)
@@ -228,6 +229,20 @@ def to_html(document: "Document", *, standalone: bool = True) -> str:
 
         elif isinstance(element, PageBreak):
             parts.append('<div style="page-break-before:always"></div>')
+
+        elif isinstance(element, Columns):
+            n = len(element.columns)
+            weights = list(element.widths) if element.widths else [1.0] * n
+            parts.append(f'<div style="display:flex;gap:{element.gap}pt">')
+            for col_blocks, weight in zip(element.columns, weights):
+                parts.append(f'<div style="flex:{weight} 1 0">')
+                for sub in col_blocks:
+                    _render_element(sub, parts)
+                parts.append("</div>")
+            parts.append("</div>")
+
+    for element in document.content:
+        _render_element(element, parts)
 
     parts.append("</article>")
     content = "\n".join(parts)

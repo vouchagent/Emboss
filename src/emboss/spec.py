@@ -34,6 +34,7 @@ __all__ = [
     "Series",
     "Footnote",
     "Callout",
+    "Columns",
     "MathBlock",
     "CodeBlock",
     "SvgBlock",
@@ -472,6 +473,39 @@ _CALLOUT_ICONS = {
     "danger": "x",
     "note": ">",
 }
+
+
+@dataclass
+class Columns:
+    """Side-by-side content regions, e.g. a two-up summary or comparison.
+
+    Each entry in ``columns`` is a list of block elements laid out in that
+    column's own flow; every column starts at the same vertical position
+    and the row is placed as one atomic (non page-splitting) unit whose
+    height is its tallest column. ``widths`` gives relative weights (any
+    positive numbers, not necessarily summing to 1) for uneven columns;
+    ``None`` splits the available width evenly. This is unrelated to
+    `PageSpec.columns`, which reflows body text into newspaper-style
+    columns across the whole page.
+    """
+
+    columns: Sequence[Sequence] = field(default_factory=list)
+    widths: Sequence[float] | None = None
+    gap: float = 12.0
+    style: Style | None = None
+    id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.columns:
+            raise ValueError("Columns requires at least one column")
+        if self.widths is not None and len(self.widths) != len(self.columns):
+            raise ValueError("widths must have one entry per column")
+        if self.widths is not None and any(w <= 0 for w in self.widths):
+            raise ValueError("widths must all be positive")
+
+    @property
+    def structure_tag(self) -> str:
+        return "Div"
 
 
 @dataclass
@@ -996,10 +1030,12 @@ BlockElement = Union[
     NumberedList,
     Table,
     BlockQuote,
+    Columns,
     Image,
     Chart,
     Footnote,
     Callout,
+    Columns,
     CodeBlock,
     MathBlock,
     BibliographyBlock,
@@ -1296,6 +1332,9 @@ class Document:
 
     def callout(self, content, variant="note", **kw) -> "Document":
         return self.add(Callout(content=content, variant=variant, **kw))
+
+    def columns(self, columns, **kw) -> "Document":
+        return self.add(Columns(columns=columns, **kw))
 
     def code_block(self, code, language="text", **kw) -> "Document":
         return self.add(CodeBlock(code=code, language=language, **kw))
@@ -1809,6 +1848,29 @@ class Document:
         if number_sections is not None:
             doc.number_sections = number_sections
         return doc
+
+    @classmethod
+    def from_html(cls, text: str, **kw) -> "Document":
+        """Create a Document from a supported HTML/CSS subset.
+
+        Compiles a bounded, report-template subset of HTML/CSS (see
+        `emboss.adapters.html_import` for exactly what's covered) into
+        `Document` blocks -- a migration path for existing WeasyPrint or
+        headless-Chrome HTML->PDF pipelines. `title`/`language` resolve
+        from the HTML (`<title>`, `html[lang]`) unless passed explicitly;
+        `base_font_size` (default 12.0pt) anchors `em`/`rem` units. Any
+        other keyword arguments (style, page, legal, header, footer, ...)
+        are applied to the resulting Document via its constructor.
+        """
+        from .adapters.html_import import import_html
+
+        base_font_size = kw.pop("base_font_size", 12.0)
+        title = kw.pop("title", None)
+        language = kw.pop("language", None)
+        parsed = import_html(
+            text, base_font_size=base_font_size, title=title, language=language
+        )
+        return cls(title=parsed.title, language=parsed.language, content=parsed.content, **kw)
 
     @classmethod
     def from_llm(cls, text: str, **kw) -> "Document":

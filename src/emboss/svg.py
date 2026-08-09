@@ -2,8 +2,10 @@
 
 Supported: basic shapes, full path data (M/L/H/V/C/S/Q/T/A/Z with relative
 and implicit-repeat forms), transform stacks with nested groups (emitted as
-``cm`` inside ``q``/``Q``), defs/use with a reference-depth cap, clipPath
-(``W n``), linear/radial gradients, opacity, and basic ``<text>``.
+``cm`` inside ``q``/``Q``), defs/use with a reference-depth cap (including
+``<symbol>`` viewBox scaling), clipPath (``W n``), linear/radial gradients,
+opacity, stroke-dasharray, marker-start/marker-end arrowheads, and
+``<text>``/``<tspan>`` with multi-line positioning.
 
 Integration notes (page resources are built in writer.py, not here):
 - Gradients paint as clipped color bands so no page resources are needed;
@@ -13,8 +15,11 @@ Integration notes (page resources are built in writer.py, not here):
 - Opacity emits real ExtGState ``gs`` operators; requested states are
   recorded on the stream as ``used_svg_gstates`` (name -> {ca, CA}) and
   must be registered in page resources by the writer.
-- ``<text>`` uses base-14 metrics; used fonts are recorded on the stream
-  as ``used_svg_fonts`` (resource key -> base-14 name) for writer wiring.
+- ``<text>``/``<tspan>`` resolve generic font families (serif/sans-serif/
+  monospace and common aliases) to the bundled embedded Source Sans/Serif/
+  Code families for real glyph metrics rather than base-14 approximation;
+  used fonts are recorded on the stream as ``used_svg_fonts`` (resource
+  key -> embedded FontMetrics) for writer wiring.
 
 Excluded: filters, animation, masks, patterns, CSS beyond the ``style``
 presentation attribute.
@@ -27,6 +32,7 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, replace
 
+from .bundled_fonts import bundled_font_path
 from .colors import rgb_to_cmyk
 from .typography.font_metrics import FontMetrics
 
@@ -64,7 +70,20 @@ _NON_RENDERED = {
     "metadata",
 }
 _DRAWABLE = {"rect", "circle", "ellipse", "line", "path", "polygon", "polyline"}
-_FAMILY_KEYS = {"Helvetica": "FsvgH", "Times-Roman": "FsvgT", "Courier": "FsvgC"}
+_MARKERABLE = {"path", "line", "polyline", "polygon"}
+_FAMILY_ABBR = {"Source Sans 3": "SS", "Source Serif 4": "SF", "Source Code Pro": "CP"}
+_EMBEDDED_FONT_CACHE: dict = {}
+
+
+def _embedded_font(family: str, bold: bool, italic: bool) -> FontMetrics:
+    """Load (and cache) a bundled family's embedded metrics for one variant."""
+    key = (family, bold, italic)
+    cached = _EMBEDDED_FONT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    metrics = FontMetrics.from_file(bundled_font_path(family, bold=bold, italic=italic))
+    _EMBEDDED_FONT_CACHE[key] = metrics
+    return metrics
 
 
 @dataclass
@@ -240,6 +259,27 @@ def _url_id(value: str | None) -> str | None:
         return None
     match = _URL_RE.search(value)
     return match.group(1) if match else None
+
+
+def _parse_viewbox(value: str | None) -> tuple | None:
+    if not value:
+        return None
+    parts = re.split(r"[\s,]+", value.strip())
+    if len(parts) != 4:
+        return None
+    try:
+        return tuple(float(p) for p in parts)
+    except ValueError:
+        return None
+
+
+def _parse_dasharray(value: str | None) -> list | None:
+    if not value or value.strip().lower() == "none":
+        return None
+    nums = [abs(float(v)) for v in _NUM_RE.findall(value)]
+    if not nums or all(n == 0.0 for n in nums):
+        return None
+    return nums
 
 
 # -- matrices --
@@ -558,6 +598,41 @@ def _segs_bbox(segs: list) -> tuple | None:
     if not xs:
         return None
     return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+
+def _path_endpoint_tangent(segs: list, at_start: bool) -> tuple:
+    """Return ((x, y), angle_radians) at a shape's first or last vertex.
+
+    Uses the true Bezier tangent (direction to/from the nearest control
+    point) for curve segments, and straight-line direction otherwise.
+    """
+    if not segs:
+        return (0.0, 0.0), 0.0
+    if at_start:
+        mx, my = segs[0][1], segs[0][2]
+        if len(segs) > 1 and segs[1][0] in ("c", "l", "m"):
+            nxt = segs[1]
+            dx, dy = nxt[1] - mx, nxt[2] - my
+        else:
+            dx, dy = 0.0, 0.0
+        point = (mx, my)
+    else:
+        last = segs[-1]
+        if last[0] == "z":
+            point = (segs[0][1], segs[0][2])
+            prev = segs[-2] if len(segs) > 1 else segs[0]
+            dx, dy = point[0] - prev[-2], point[1] - prev[-1]
+        else:
+            point = (last[-2], last[-1])
+            if last[0] == "c":
+                dx, dy = point[0] - last[3], point[1] - last[4]
+            elif len(segs) > 1:
+                prev = segs[-2]
+                dx, dy = point[0] - prev[-2], point[1] - prev[-1]
+            else:
+                dx, dy = 0.0, 0.0
+    angle = math.atan2(dy, dx) if (dx or dy) else 0.0
+    return point, angle
 
 
 def _ellipse_segs(cx, cy, rx, ry) -> list:
@@ -961,10 +1036,24 @@ class _Renderer:
         child_ctx = self._inherit(ctx, attrs)
         ux = _parse_float(attrs.get("x"), 0.0)
         uy = _parse_float(attrs.get("y"), 0.0)
-        if ux or uy:
+        local = (1.0, 0.0, 0.0, 1.0, ux, uy)
+        if target.tag == "symbol":
+            view_box = _parse_viewbox(target.attrs.get("viewBox"))
+            if view_box is not None:
+                vbx, vby, vbw, vbh = view_box
+                req_w = _parse_float(
+                    attrs.get("width"), _parse_float(target.attrs.get("width"), vbw)
+                )
+                req_h = _parse_float(
+                    attrs.get("height"), _parse_float(target.attrs.get("height"), vbh)
+                )
+                sx = req_w / vbw if vbw else 1.0
+                sy = req_h / vbh if vbh else 1.0
+                symbol_mat = (sx, 0.0, 0.0, sy, -vbx * sx, -vby * sy)
+                local = _mat_mul(local, symbol_mat)
+        if local != _IDENT:
             child_ctx = replace(
-                child_ctx,
-                transform=_mat_mul(child_ctx.transform, (1.0, 0.0, 0.0, 1.0, ux, uy)),
+                child_ctx, transform=_mat_mul(child_ctx.transform, local)
             )
         self._walk(target, child_ctx, depth + 1)
 
@@ -1051,6 +1140,12 @@ class _Renderer:
             fill = None
             gradient = None
 
+        dasharray = _parse_dasharray(attrs.get("stroke-dasharray"))
+        dash_offset = _parse_float(attrs.get("stroke-dashoffset"), 0.0)
+        has_markers = tag in _MARKERABLE and bool(
+            _url_id(attrs.get("marker-start")) or _url_id(attrs.get("marker-end"))
+        )
+
         clip = self._clip_ops(attrs.get("clip-path"), transform)
         legacy = (
             transform == _IDENT
@@ -1058,26 +1153,34 @@ class _Renderer:
             and clip is None
             and fill_alpha >= 1.0
             and stroke_alpha >= 1.0
+            and dasharray is None
+            and not has_markers
         )
         if legacy:
             self._draw_legacy(tag, attrs, fill, stroke, stroke_w)
             return
-        if gradient is None and not fill and not stroke:
-            return
-        segs = self._shape_segs(tag, attrs)
-        if not segs:
-            return
-        self._emit_modern(
-            segs,
-            transform,
-            fill,
-            stroke,
-            stroke_w,
-            gradient,
-            fill_alpha,
-            stroke_alpha,
-            clip,
-        )
+        segs = None
+        if gradient is not None or fill or stroke:
+            segs = self._shape_segs(tag, attrs)
+            if segs:
+                self._emit_modern(
+                    segs,
+                    transform,
+                    fill,
+                    stroke,
+                    stroke_w,
+                    gradient,
+                    fill_alpha,
+                    stroke_alpha,
+                    clip,
+                    dasharray,
+                    dash_offset,
+                )
+        if has_markers:
+            if segs is None:
+                segs = self._shape_segs(tag, attrs)
+            if segs:
+                self._render_markers(tag, attrs, segs, transform, stroke_w)
 
     def _draw_legacy(self, tag, attrs, fill, stroke, stroke_w) -> None:
         """Render with the original ops so the old subset stays byte-stable."""
@@ -1149,6 +1252,8 @@ class _Renderer:
         fill_alpha,
         stroke_alpha,
         clip,
+        dasharray=None,
+        dash_offset=0.0,
     ) -> None:
         """Render a shape inside q/Q with cm, ExtGState, clip, or gradient."""
         lines = ["q"]
@@ -1161,6 +1266,10 @@ class _Renderer:
             f"{full[0]:.4f} {full[1]:.4f} {full[2]:.4f} "
             f"{full[3]:.4f} {full[4]:.4f} {full[5]:.4f} cm"
         )
+        dash_op = None
+        if dasharray and (stroke or (gradient is not None)):
+            arr = " ".join(f"{v:.4f}" for v in dasharray)
+            dash_op = f"[{arr}] {dash_offset:.4f} d"
         ops = _seg_ops(segs, lambda px, py: (px, py))
         if gradient is not None:
             bbox = _segs_bbox(segs)
@@ -1171,6 +1280,8 @@ class _Renderer:
             if stroke:
                 lines.append(_color_op(stroke, self.color_mode, stroke=True))
                 lines.append(f"{stroke_w:.4f} w")
+                if dash_op:
+                    lines.append(dash_op)
                 lines.extend(ops)
                 lines.append("S")
         else:
@@ -1179,6 +1290,8 @@ class _Renderer:
             if stroke:
                 lines.append(_color_op(stroke, self.color_mode, stroke=True))
                 lines.append(f"{stroke_w:.4f} w")
+                if dash_op:
+                    lines.append(dash_op)
             lines.extend(ops)
             if fill and stroke:
                 lines.append("B")
@@ -1188,6 +1301,83 @@ class _Renderer:
                 lines.append("S")
         lines.append("Q")
         self.stream.raw("\n".join(lines).encode("ascii"))
+
+    # -- markers --
+
+    def _render_markers(self, tag, attrs, segs, transform, stroke_w) -> None:
+        start_id = _url_id(attrs.get("marker-start"))
+        if start_id:
+            target = self.defs.get(start_id)
+            if target is not None and target.tag == "marker":
+                point, angle = _path_endpoint_tangent(segs, at_start=True)
+                self._draw_marker(target, transform, point, angle, stroke_w, is_start=True)
+        end_id = _url_id(attrs.get("marker-end"))
+        if end_id:
+            target = self.defs.get(end_id)
+            if target is not None and target.tag == "marker":
+                point, angle = _path_endpoint_tangent(segs, at_start=False)
+                self._draw_marker(target, transform, point, angle, stroke_w, is_start=False)
+
+    def _draw_marker(self, marker_el, transform, point, angle, stroke_w, is_start) -> None:
+        """Render one marker instance at *point*, oriented along the path.
+
+        Per SVG defaults: ``orient="auto"`` rotates to the path tangent
+        (``auto-start-reverse`` flips the start marker 180 degrees);
+        ``markerUnits="strokeWidth"`` (the default) additionally scales the
+        marker by the element's stroke width. The composed marker-local ->
+        shape-local matrix is folded into a synthetic ``_Ctx.transform`` and
+        walked through the normal `_walk`/`_draw` path (not emitted as a
+        raw ``cm``) so it still composes with `self.base` and so any
+        untransformed marker child correctly takes the *modern* draw path
+        rather than the legacy path, which ignores the content stream's
+        current transformation matrix entirely.
+        """
+        mattrs = _style_attrs(marker_el)
+        orient = (mattrs.get("orient") or "0").strip()
+        if orient == "auto":
+            rot = angle
+        elif orient == "auto-start-reverse":
+            rot = angle + math.pi if is_start else angle
+        else:
+            try:
+                rot = math.radians(float(orient))
+            except ValueError:
+                rot = 0.0
+
+        mw = _parse_float(mattrs.get("markerWidth"), 3.0)
+        mh = _parse_float(mattrs.get("markerHeight"), 3.0)
+        ref_x = _parse_float(mattrs.get("refX"), 0.0)
+        ref_y = _parse_float(mattrs.get("refY"), 0.0)
+        view_box = _parse_viewbox(mattrs.get("viewBox"))
+        if view_box is not None:
+            vbx, vby, vbw, vbh = view_box
+            svx = mw / vbw if vbw else 1.0
+            svy = mh / vbh if vbh else 1.0
+            viewbox_mat = (svx, 0.0, 0.0, svy, -vbx * svx, -vby * svy)
+        else:
+            viewbox_mat = _IDENT
+
+        rx, ry = _mat_apply(viewbox_mat, ref_x, ref_y)
+        ref_translate = (1.0, 0.0, 0.0, 1.0, -rx, -ry)
+        units = (mattrs.get("markerUnits") or "strokeWidth").strip()
+        unit_mat = (
+            (stroke_w, 0.0, 0.0, stroke_w, 0.0, 0.0)
+            if units != "userSpaceOnUse"
+            else _IDENT
+        )
+        cos_a, sin_a = math.cos(rot), math.sin(rot)
+        rotate_mat = (cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0)
+        translate_vertex = (1.0, 0.0, 0.0, 1.0, point[0], point[1])
+
+        step = viewbox_mat
+        step = _mat_mul(ref_translate, step)
+        step = _mat_mul(unit_mat, step)
+        step = _mat_mul(rotate_mat, step)
+        step = _mat_mul(translate_vertex, step)
+
+        marker_ctx = _Ctx(fill="000000", transform=_mat_mul(transform, step))
+        for child in marker_el.children:
+            self._walk(child, marker_ctx, 0)
 
     # -- resources recorded on the stream for writer wiring --
 
@@ -1205,13 +1395,16 @@ class _Renderer:
         registry[name] = {"ca": ca, "CA": stroke_ca}
         return name
 
-    def _register_font(self, font_name: str) -> str:
+    def _register_font(self, family: str, bold: bool, italic: bool) -> str:
         registry = getattr(self.stream, "used_svg_fonts", None)
         if registry is None:
             registry = {}
             self.stream.used_svg_fonts = registry
-        key = _FAMILY_KEYS[font_name]
-        registry[key] = font_name
+        abbr = _FAMILY_ABBR.get(family, "SS")
+        suffix = ("B" if bold else "") + ("I" if italic else "") or "R"
+        key = f"Fsvg{abbr}{suffix}"
+        if key not in registry:
+            registry[key] = _embedded_font(family, bold, italic)
         return key
 
     # -- clipping --
@@ -1319,64 +1512,167 @@ class _Renderer:
         transform = ctx.transform
         if "transform" in attrs:
             transform = _mat_mul(transform, _parse_transform(attrs["transform"]))
-        content = " ".join(_flatten_text(el).split())
-        if not content:
-            return
         fill_raw = attrs.get("fill", ctx.fill)
         if fill_raw == "none":
             return
-        color = _hex_color(fill_raw) or "000000"
-        anchor_x = _first_num(attrs.get("x", "0"))
-        anchor_y = _first_num(attrs.get("y", "0"))
-        size = _parse_length(attrs.get("font-size", "16")) or 16.0
-        font_name = _map_family(attrs.get("font-family", ""))
-        metrics = FontMetrics.base14(font_name)
-        width = metrics.text_width(content, size)
-        anchor = attrs.get("text-anchor", "start")
-        if anchor == "middle":
-            anchor_x -= width / 2.0
-        elif anchor == "end":
-            anchor_x -= width
-        full = _mat_mul(self.base, transform)
-        px, py = _mat_apply(full, anchor_x, anchor_y)
-        det = abs(full[0] * full[3] - full[1] * full[2])
-        page_size = size * math.sqrt(det)
-        key = self._register_font(font_name)
-        alpha = (
-            ctx.opacity
-            * _parse_float(attrs.get("opacity"), 1.0)
-            * _parse_float(attrs.get("fill-opacity"), ctx.fill_opacity)
+        base_state = _TextState(
+            family=_map_family(attrs.get("font-family", "")),
+            bold=_weight_is_bold(attrs.get("font-weight", "")),
+            italic=attrs.get("font-style", "").strip().lower() in ("italic", "oblique"),
+            size=_parse_length(attrs.get("font-size", "16")) or 16.0,
+            anchor=attrs.get("text-anchor", "start").strip() or "start",
+            fill=_hex_color(fill_raw) or "000000",
+            group_opacity=ctx.opacity * _parse_float(attrs.get("opacity"), 1.0),
+            fill_opacity=_parse_float(attrs.get("fill-opacity"), ctx.fill_opacity),
         )
+        cursor = [_first_num(attrs.get("x", "0")), _first_num(attrs.get("y", "0"))]
+        segments: list = []
+        self._walk_text_children(el, base_state, cursor, segments)
+        if not segments:
+            return
+        full = _mat_mul(self.base, transform)
+        for text, state, x, y in segments:
+            self._draw_text_segment(text, state, x, y, full)
+
+    def _walk_text_children(
+        self, node: SvgElement, state: "_TextState", cursor: list, out: list
+    ) -> None:
+        """Depth-first walk of a <text>/<tspan> tree, threading a shared cursor.
+
+        Each <tspan> may reposition the cursor (absolute x/y, relative
+        dx/dy) and override font/paint state; plain text and tail text use
+        the enclosing state. Nesting is unbounded -- a <tspan> inside a
+        <tspan> just recurses with its own resolved state.
+        """
+        if node.text:
+            self._emit_text_run(node.text, state, cursor, out)
+        for child in node.children:
+            if child.tag == "tspan":
+                cattrs = _style_attrs(child)
+                child_state = _resolve_text_state(state, cattrs)
+                cx, cy = cattrs.get("x"), cattrs.get("y")
+                cursor[0] = _first_num(cx) if cx is not None else (
+                    cursor[0] + _first_num(cattrs.get("dx", "0"))
+                )
+                cursor[1] = _first_num(cy) if cy is not None else (
+                    cursor[1] + _first_num(cattrs.get("dy", "0"))
+                )
+                self._walk_text_children(child, child_state, cursor, out)
+            else:
+                self._walk_text_children(child, state, cursor, out)
+            if child.tail:
+                self._emit_text_run(child.tail, state, cursor, out)
+
+    def _emit_text_run(
+        self, text: str, state: "_TextState", cursor: list, out: list
+    ) -> None:
+        out.append((text, state, cursor[0], cursor[1]))
+        metrics = _embedded_font(state.family, state.bold, state.italic)
+        cursor[0] += metrics.text_width(text, state.size)
+
+    def _draw_text_segment(
+        self, text: str, state: "_TextState", x: float, y: float, full: tuple
+    ) -> None:
+        # Whitespace is collapsed per segment; a chained (no explicit x/y)
+        # sibling tspan's leading/trailing space may not round-trip exactly,
+        # an accepted simplification for the common one-tspan-per-line case.
+        stripped = " ".join(text.split())
+        if not stripped:
+            return
+        metrics = _embedded_font(state.family, state.bold, state.italic)
+        width = metrics.text_width(stripped, state.size)
+        anchor_x = x
+        if state.anchor == "middle":
+            anchor_x -= width / 2.0
+        elif state.anchor == "end":
+            anchor_x -= width
+        px, py = _mat_apply(full, anchor_x, y)
+        det = abs(full[0] * full[3] - full[1] * full[2])
+        page_size = state.size * math.sqrt(det)
+        key = self._register_font(state.family, state.bold, state.italic)
+        alpha = state.alpha
         wrapped = alpha < 1.0
         if wrapped:
             self.stream.raw(b"q")
             self.stream.raw(f"/{self._gstate(alpha, alpha)} gs".encode("ascii"))
-        self.stream.text_line(content, key, page_size, px, py, color)
+        self.stream.text_line(
+            stripped, key, page_size, px, py, state.fill or "000000",
+            gid_map=metrics.gid_map,
+        )
         if wrapped:
             self.stream.raw(b"Q")
 
 
-def _flatten_text(el: SvgElement) -> str:
-    parts = [el.text]
-    for child in el.children:
-        parts.append(_flatten_text(child))
-        parts.append(child.tail)
-    return "".join(parts)
+@dataclass
+class _TextState:
+    """Inherited font/paint state carried down a <text>/<tspan> tree."""
+
+    family: str = "Source Sans 3"
+    bold: bool = False
+    italic: bool = False
+    size: float = 16.0
+    anchor: str = "start"
+    fill: str | None = "000000"
+    #: `opacity` compounds down the tree; `fill-opacity` replaces, matching
+    #: SVG semantics (mirrors _Ctx.opacity vs _Ctx.fill_opacity).
+    group_opacity: float = 1.0
+    fill_opacity: float = 1.0
+
+    @property
+    def alpha(self) -> float:
+        return self.group_opacity * self.fill_opacity
+
+
+def _resolve_text_state(parent: _TextState, attrs: dict) -> _TextState:
+    family = _map_family(attrs["font-family"]) if "font-family" in attrs else parent.family
+    bold = (
+        _weight_is_bold(attrs["font-weight"]) if "font-weight" in attrs else parent.bold
+    )
+    if "font-style" in attrs:
+        italic = attrs["font-style"].strip().lower() in ("italic", "oblique")
+    else:
+        italic = parent.italic
+    size = _parse_length(attrs["font-size"]) if "font-size" in attrs else parent.size
+    anchor = attrs.get("text-anchor", "").strip() or parent.anchor
+    fill_raw = attrs.get("fill")
+    fill = _hex_color(fill_raw) if fill_raw and fill_raw != "none" else parent.fill
+    group_opacity = parent.group_opacity * _parse_float(attrs.get("opacity"), 1.0)
+    fill_opacity = _parse_float(attrs.get("fill-opacity"), parent.fill_opacity)
+    return _TextState(
+        family=family,
+        bold=bold,
+        italic=italic,
+        size=size or parent.size,
+        anchor=anchor,
+        fill=fill,
+        group_opacity=group_opacity,
+        fill_opacity=fill_opacity,
+    )
+
+
+def _weight_is_bold(value: str) -> bool:
+    v = (value or "").strip().lower()
+    if v in ("bold", "bolder"):
+        return True
+    try:
+        return float(v) >= 600.0
+    except ValueError:
+        return False
 
 
 def _map_family(value: str) -> str:
-    """Map a font-family list onto the nearest base-14 family."""
+    """Map a font-family list onto the nearest bundled embedded family."""
     for token in (value or "").split(","):
         fam = token.strip().strip("'\"").lower()
         if not fam:
             continue
-        if "mono" in fam or "courier" in fam:
-            return "Courier"
+        if "mono" in fam or "courier" in fam or "consolas" in fam:
+            return "Source Code Pro"
         if "sans" in fam or "helvetica" in fam or "arial" in fam:
-            return "Helvetica"
+            return "Source Sans 3"
         if "serif" in fam or "times" in fam:
-            return "Times-Roman"
-    return "Helvetica"
+            return "Source Serif 4"
+    return "Source Sans 3"
 
 
 def render_svg(

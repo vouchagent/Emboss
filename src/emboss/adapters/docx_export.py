@@ -37,6 +37,7 @@ def to_office_dict(document: "Document") -> dict:
         Callout,
         Chart,
         CodeBlock,
+        Columns,
         Footnote,
         Heading,
         HorizontalRule,
@@ -50,9 +51,17 @@ def to_office_dict(document: "Document") -> dict:
     sheet = document.stylesheet
     blocks = []
 
-    for element in document.content:
+    def _serialize_elements(elements) -> list:
+        out = []
+        for element in elements:
+            block = _serialize_element(element)
+            if block is not None:
+                out.append(block)
+        return out
+
+    def _serialize_element(element) -> dict | None:
         if isinstance(element, Heading):
-            blocks.append(
+            return (
                 {
                     "type": "heading",
                     "level": element.level,
@@ -64,7 +73,7 @@ def to_office_dict(document: "Document") -> dict:
 
         elif isinstance(element, Paragraph):
             style = sheet.resolved(sheet.body, element.style)
-            blocks.append(
+            return (
                 {
                     "type": "paragraph",
                     "runs": _serialize_runs(element.runs),
@@ -77,7 +86,7 @@ def to_office_dict(document: "Document") -> dict:
             items = []
             for item_runs in element.item_runs:
                 items.append({"runs": _serialize_runs(item_runs)})
-            blocks.append(
+            return (
                 {
                     "type": "list",
                     "bullet": element.bullet,
@@ -86,10 +95,10 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, Table):
-            blocks.append(_serialize_table(element))
+            return (_serialize_table(element))
 
         elif isinstance(element, Image):
-            blocks.append(
+            return (
                 {
                     "type": "image",
                     "source": element.source
@@ -104,7 +113,7 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, Chart):
-            blocks.append(
+            return (
                 {
                     "type": "chart",
                     "chart_type": element.chart_type,
@@ -117,7 +126,7 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, Footnote):
-            blocks.append(
+            return (
                 {
                     "type": "footnote",
                     "marker": element.marker,
@@ -126,7 +135,7 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, Callout):
-            blocks.append(
+            return (
                 {
                     "type": "callout",
                     "variant": element.variant,
@@ -138,7 +147,7 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, CodeBlock):
-            blocks.append(
+            return (
                 {
                     "type": "code_block",
                     "code": element.code,
@@ -149,7 +158,7 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, MathBlock):
-            blocks.append(
+            return (
                 {
                     "type": "math",
                     "source": element.source,
@@ -161,7 +170,7 @@ def to_office_dict(document: "Document") -> dict:
         elif isinstance(element, BibliographyBlock):
             from ..bibliography import format_bibliography
 
-            blocks.append(
+            return (
                 {
                     "type": "bibliography",
                     "title": element.title,
@@ -173,10 +182,25 @@ def to_office_dict(document: "Document") -> dict:
             )
 
         elif isinstance(element, HorizontalRule):
-            blocks.append({"type": "horizontal_rule"})
+            return ({"type": "horizontal_rule"})
 
         elif isinstance(element, PageBreak):
-            blocks.append({"type": "page_break"})
+            return ({"type": "page_break"})
+
+        elif isinstance(element, Columns):
+            return {
+                "type": "columns",
+                "gap_pt": element.gap,
+                "widths": list(element.widths) if element.widths else None,
+                "columns": [_serialize_elements(col) for col in element.columns],
+            }
+
+        return None
+
+    for element in document.content:
+        block = _serialize_element(element)
+        if block is not None:
+            blocks.append(block)
 
     page = document.page
     return {

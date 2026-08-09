@@ -42,6 +42,7 @@ from .spec import (
     Chart,
     CheckboxField,
     CodeBlock,
+    Columns,
     CoverPage,
     Document,
     DocumentControl,
@@ -179,7 +180,7 @@ class Renderer:
         self._section_titles: list = []
         # page index -> {gstate name -> {ca, CA}} recorded by SVG rendering
         self._svg_gstates_by_page: dict = {}
-        # SVG text resource key -> base-14 family name
+        # SVG text resource key -> embedded FontMetrics (see svg.py)
         self._svg_fonts: dict = {}
         # node id -> list of {page, x0, y0, x1, y1} placements
         self._layout_map: dict = {}
@@ -847,10 +848,8 @@ class Renderer:
 
         # Register fonts after rendering so usage is known for subsetting.
         if self._svg_fonts:
-            from .typography.font_metrics import FontMetrics
-
             for key in sorted(self._svg_fonts):
-                font_resources.setdefault(key, FontMetrics.base14(self._svg_fonts[key]))
+                font_resources.setdefault(key, self._svg_fonts[key])
         font_dict = PdfDict()
         for key, metrics in sorted(font_resources.items()):
             resource = build_font_resource(assembler, key, metrics)
@@ -1227,112 +1226,9 @@ class Renderer:
                 ]
 
         for placed in page_blocks:
-            element = placed.block.element
-            struct_before = len(root.children)
-            self._record_layout(page_spec, placed, page_index)
-            if isinstance(element, Heading):
-                self._draw_text_block(
-                    stream,
-                    placed,
-                    page_index,
-                    root,
-                    font_registry,
-                    tag=element.structure_tag,
-                )
-            elif isinstance(element, Paragraph):
-                self._draw_text_block(
-                    stream, placed, page_index, root, font_registry, tag="P"
-                )
-            elif isinstance(element, BlockQuote):
-                self._draw_blockquote(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, BulletList):
-                self._draw_list(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, NumberedList):
-                self._draw_numbered_list(
-                    stream, placed, page_index, root, font_registry
-                )
-            elif isinstance(element, Table):
-                self._draw_table(stream, placed, page_index, root, font_registry, sheet)
-            elif isinstance(element, Footnote):
-                self._draw_footnote(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, Callout):
-                self._draw_callout(
-                    stream,
-                    placed,
-                    page_index,
-                    root,
-                    font_registry,
-                    page_spec.content_width,
-                )
-            elif isinstance(element, Image):
-                self._draw_image(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, Chart):
-                self._draw_chart(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, CodeBlock):
-                self._draw_code_block(
-                    stream,
-                    placed,
-                    page_index,
-                    root,
-                    font_registry,
-                    page_spec.content_width,
-                )
-            elif isinstance(element, MathBlock):
-                self._draw_math(
-                    stream,
-                    placed,
-                    page_index,
-                    root,
-                    font_registry,
-                    page_spec.content_width,
-                )
-            elif isinstance(element, BibliographyBlock):
-                self._draw_bibliography(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, SvgBlock):
-                self._draw_svg(
-                    stream,
-                    placed,
-                    page_index,
-                    root,
-                    font_registry,
-                    page_spec.content_width,
-                )
-            elif isinstance(element, CoverPage):
-                self._draw_cover(
-                    stream, placed, page_index, root, font_registry, page_spec
-                )
-            elif isinstance(element, Abstract):
-                self._draw_abstract(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, Authors):
-                self._draw_authors(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, PullQuote):
-                self._draw_pullquote(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, StatTiles):
-                self._draw_stat_tiles(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, TableOfContents):
-                self._draw_toc(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, Glossary):
-                self._draw_glossary(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, Index):
-                self._draw_index(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, HorizontalRule):
-                self._draw_rule(stream, placed, page_spec.content_width)
-            elif isinstance(element, TextField):
-                self._draw_text_field(stream, placed, page_index, root, font_registry)
-            elif isinstance(element, CheckboxField):
-                self._draw_checkbox_field(
-                    stream, placed, page_index, root, font_registry
-                )
-            elif isinstance(element, DropdownField):
-                self._draw_dropdown_field(
-                    stream, placed, page_index, root, font_registry
-                )
-
-            node_id = getattr(element, "id", None)
-            if node_id:
-                for child in root.children[struct_before:]:
-                    if child.node_id is None:
-                        child.node_id = node_id
+            self._draw_placed_block(
+                stream, placed, page_index, root, font_registry, page_spec, sheet
+            )
 
         for placed_note in page_footnotes:
             self._draw_footnote_area(
@@ -1378,8 +1274,147 @@ class Renderer:
                 self._svg_fonts.setdefault(key, svg_fonts[key])
         return stream.to_bytes(), root
 
+    def _draw_placed_block(
+        self, stream, placed, page_index, root, font_registry, page_spec, sheet
+    ) -> None:
+        """Dispatch one placed block to its draw method by element type.
+
+        Shared by the main per-page block list and `_draw_columns`, which
+        recurses into this for every block nested inside a column cell.
+        """
+        element = placed.block.element
+        struct_before = len(root.children)
+        self._record_layout(page_spec, placed, page_index)
+        block_width = (
+            placed.width if placed.width is not None else page_spec.content_width
+        )
+        if isinstance(element, Heading):
+            self._draw_text_block(
+                stream,
+                placed,
+                page_index,
+                root,
+                font_registry,
+                tag=element.structure_tag,
+            )
+        elif isinstance(element, Paragraph):
+            self._draw_text_block(
+                stream, placed, page_index, root, font_registry, tag="P"
+            )
+        elif isinstance(element, BlockQuote):
+            self._draw_blockquote(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, BulletList):
+            self._draw_list(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, NumberedList):
+            self._draw_numbered_list(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, Table):
+            self._draw_table(stream, placed, page_index, root, font_registry, sheet)
+        elif isinstance(element, Footnote):
+            self._draw_footnote(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, Callout):
+            self._draw_callout(
+                stream, placed, page_index, root, font_registry, block_width
+            )
+        elif isinstance(element, Columns):
+            self._draw_columns(
+                stream, placed, page_index, root, font_registry, page_spec, sheet
+            )
+        elif isinstance(element, Image):
+            self._draw_image(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, Chart):
+            self._draw_chart(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, CodeBlock):
+            self._draw_code_block(
+                stream, placed, page_index, root, font_registry, block_width
+            )
+        elif isinstance(element, MathBlock):
+            self._draw_math(
+                stream, placed, page_index, root, font_registry, block_width
+            )
+        elif isinstance(element, BibliographyBlock):
+            self._draw_bibliography(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, SvgBlock):
+            self._draw_svg(
+                stream, placed, page_index, root, font_registry, block_width
+            )
+        elif isinstance(element, CoverPage):
+            self._draw_cover(stream, placed, page_index, root, font_registry, page_spec)
+        elif isinstance(element, Abstract):
+            self._draw_abstract(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, Authors):
+            self._draw_authors(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, PullQuote):
+            self._draw_pullquote(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, StatTiles):
+            self._draw_stat_tiles(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, TableOfContents):
+            self._draw_toc(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, Glossary):
+            self._draw_glossary(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, Index):
+            self._draw_index(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, HorizontalRule):
+            self._draw_rule(stream, placed, block_width)
+        elif isinstance(element, TextField):
+            self._draw_text_field(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, CheckboxField):
+            self._draw_checkbox_field(stream, placed, page_index, root, font_registry)
+        elif isinstance(element, DropdownField):
+            self._draw_dropdown_field(stream, placed, page_index, root, font_registry)
+
+        node_id = getattr(element, "id", None)
+        if node_id:
+            for child in root.children[struct_before:]:
+                if child.node_id is None:
+                    child.node_id = node_id
+
+    def _draw_columns(
+        self, stream, placed, page_index, root, font_registry, page_spec, sheet
+    ) -> None:
+        """Draw a `Columns` row: each cell's blocks stacked in their own flow.
+
+        Cell content was measured (and thus line-wrapped) against its
+        column's width in `_measure_columns`; drawing replays that flow at
+        the column's x-offset by recursing into `_draw_placed_block` with a
+        synthetic `PlacedBlock` per nested block, sharing one `Div` parent
+        so the structure tree nests correctly for PDF/UA tagging.
+        """
+        element = placed.block.element
+        columns = placed.block.extras["columns"]
+        col_widths = placed.block.extras["col_widths"]
+
+        div_el = StructureElement(tag="Div")
+        root.children.append(div_el)
+
+        x = placed.x
+        for measured_blocks, col_w in zip(columns, col_widths):
+            y = placed.y
+            for measured in measured_blocks:
+                y -= measured.space_before
+                sub_placed = PlacedBlock(
+                    block=measured,
+                    x=x,
+                    y=y,
+                    height=measured.height,
+                    lines=measured.lines,
+                    width=col_w,
+                )
+                self._draw_placed_block(
+                    stream,
+                    sub_placed,
+                    page_index,
+                    div_el,
+                    font_registry,
+                    page_spec,
+                    sheet,
+                )
+                y -= measured.height + measured.space_after
+            x += col_w + element.gap
+
     def _block_width(self, placed, page_spec) -> float:
         """Horizontal extent of a placed block for its layout-map bbox."""
+        if placed.width is not None:
+            return placed.width
         if getattr(placed.block, "full_page", False):
             return page_spec.content_width
         cols = getattr(page_spec, "columns", 1)

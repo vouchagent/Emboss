@@ -254,7 +254,7 @@ class TestDocumentIntegration:
         assert b"Diagram: 3 nodes" in data  # /Alt in the structure tree
         ops = _content_ops(data)
         assert b" re\n" in ops or b" re " in ops  # node rects
-        assert b"/FsvgH 9 Tf" in ops  # 9pt Helvetica labels
+        assert b"/FsvgSSR 9 Tf" in ops  # 9pt Source Sans (embedded) labels
         assert ops.count(b"h\nf") >= len(self.EDGES)  # filled arrowheads
         assert b"(Pipeline)" in ops or b"Pipeline" in ops
 
