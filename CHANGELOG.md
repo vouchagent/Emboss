@@ -3,6 +3,32 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-08-09
+
+### Fixed
+- **SVG `<text>`/`<tspan>` could render invisibly.** Embedded fonts
+  (Source Sans/Serif/Code) were resolved through a process-wide cache
+  that never marked glyphs as used; subsetting then embedded just a
+  space and blanked every other glyph's outline while retaining its
+  slot, so the font resource and every text operator looked correct
+  but nothing was visible. This broke real diagram output --
+  architecture-diagram service/group labels and sequence-diagram
+  participant labels came out as blank boxes. Fixed by resolving SVG
+  fonts through the document's own `FontRegistry` (already used for
+  body text) instead of a module-level cache, which also fixes a
+  latent determinism bug where glyph usage could leak between
+  unrelated documents rendered in the same process.
+- **`\left(...\right)` corrupted anything nested inside it.** The
+  delimiter parser stopped at the first backslash it saw looking for
+  `\right`, so any nested command -- `\frac`, `\sqrt`, a Greek letter
+  -- inside a `\left...\right` group truncated the group early and
+  corrupted the rest of the expression.
+  `\left(1 + \frac{1}{x}\right)^x` rendered as garbled text instead of
+  a parenthesized fraction; this is an extremely common LaTeX pattern.
+- Fixed 8 open Dependabot alerts in `docs/` (nanoid, brace-expansion,
+  dompurify, mermaid), each a same-major patch bump via
+  `package.json` overrides.
+
 ## [1.3.0] - 2026-08-08
 
 ### Added
