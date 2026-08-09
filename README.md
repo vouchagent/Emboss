@@ -24,7 +24,7 @@ No coordinates. No manual page-break handling. No separate accessibility pass.
 
 Emboss treats a PDF as structured, self-describing data with a deterministic, accessible, verifiable lifecycle, not as final ink. Six properties set it apart:
 
-1. **Native typesetting, no browser.** Emboss is a real typesetting engine (Knuth-Plass line breaking, true font metrics), not HTML-to-PDF like WeasyPrint or Prince, and not headless Chrome. That is why output is deterministic and why there is no Chromium or Node attack surface. It runs anywhere, including locked-down servers.
+1. **Native typesetting, no browser.** Emboss is a real typesetting engine (Knuth-Plass line breaking, true font metrics), not HTML-to-PDF like WeasyPrint or Prince, and not headless Chrome. That is why output is deterministic and why there is no Chromium or Node attack surface. It runs anywhere, including locked-down servers. A bounded HTML/CSS subset can still be *imported* (`Document.from_html`, see [HTML/CSS Import](#htmlcss-import)) as a migration path for existing HTML pipelines -- it compiles down to the same semantic spec and native rendering, it is not a browser bolted on the side.
 
 2. **Pure-Python core, one hard dependency.** Only `fonttools` is required; pydantic, pikepdf, cryptography, and the MCP SDK are optional extras. Easy to vendor, audit, and deploy in restricted environments.
 
@@ -67,6 +67,7 @@ The one-line version: **an Emboss document is structured data you can also read.
 - [SVG Embedding](#svg-embedding)
 - [Diagrams](#diagrams)
 - [Multi-Column Layout](#multi-column-layout)
+- [Side-by-Side Columns](#side-by-side-columns)
 - [Math Notation](#math-notation)
 - [Code Blocks](#code-blocks)
 - [Charts](#charts)
@@ -77,6 +78,7 @@ The one-line version: **an Emboss document is structured data you can also read.
 - [Redaction](#redaction)
 - [Validation](#validation)
 - [Adapters](#adapters)
+- [HTML/CSS Import](#htmlcss-import)
 - [API Reference](#api-reference)
 - [Performance](#performance)
 - [Development](#development)
@@ -182,11 +184,11 @@ This side matters just as much. Stated plainly:
 | Dimension | Emboss | Typical general-purpose PDF tools |
 |---|---|---|
 | Complex-script shaping (Arabic, Indic) | Not supported | Several engines support it |
-| Arbitrary HTML and CSS input | Not supported | HTML/CSS engines accept it |
+| Arbitrary HTML and CSS input | A bounded report-template subset (`Document.from_html`) -- no CSS Grid, wrapping flexbox, or arbitrary layout CSS | HTML/CSS engines accept arbitrary markup |
 | Image formats | PNG and JPEG | Often broader |
 | Production maturity | New, released 2026 | Many have 10 to 20 years in production |
 
-For turning structured or LLM-generated content into accessible, verifiable, auditable PDFs, Emboss covers ground the general category does not. For arbitrary HTML rendering, complex-script typesetting, or a long track record in production, an established tool is the safer choice.
+For turning structured or LLM-generated content into accessible, verifiable, auditable PDFs, Emboss covers ground the general category does not. `Document.from_html` gives a real path off an existing HTML/CSS report template without a rewrite (see [HTML/CSS Import](#htmlcss-import)), but for arbitrary web-page rendering, complex-script typesetting, or a long track record in production, an established tool is the safer choice.
 
 ---
 
@@ -414,6 +416,7 @@ The spec is the single source of truth. From it, Emboss derives:
 | `Appendix` | Lettered section (Appendix A, B, ...) with its own `A.1` numbering | `title`, `content` |
 | `Index` | Back-of-book index resolved from `index_terms` marks | `title` |
 | `Glossary` | Alphabetized term/definition list with auto-linked first occurrences | `entries`, `title` |
+| `Columns` | Side-by-side content regions, each its own block flow (see [Side-by-Side Columns](#side-by-side-columns)) | `columns`, `widths`, `gap` |
 | Diagram | Node/edge graph with automatic layout, via `doc.diagram(...)` | `nodes`, `edges`, `direction`, `caption` |
 
 ### Inline Formatting
@@ -1088,7 +1091,7 @@ doc.svg("""
 """, width=200, height=100)
 ```
 
-A substantial subset of static SVG is supported, using only the standard library:
+A substantial subset of static SVG is supported, using only the standard library -- enough to cover most output from Illustrator, matplotlib, Mermaid, and D3, not just hand-written diagrams:
 
 - **Shapes**: `rect`, `circle`, `ellipse`, `line`, `polygon`, `polyline`.
 - **Full path data**: `path` supports `M/L/H/V/C/S/Q/T/A/Z`, including relative lowercase forms and implicit command repetition -- elliptical arcs (`A`) are converted to cubic Bezier segments.
@@ -1096,8 +1099,10 @@ A substantial subset of static SVG is supported, using only the standard library
 - **Gradients**: `linearGradient` and `radialGradient`, including `href` stop inheritance, rendered as banded fills; `gradient_shading` builds the equivalent true PDF type 2/3 `/Shading` dictionary for callers wiring page resources directly.
 - **Clipping**: `clipPath` compiles to a real PDF clip (`W n`).
 - **Opacity**: element and group `opacity`/`fill-opacity`/`stroke-opacity` emit real `ExtGState` (`gs`) operators, not simulated transparency.
-- **Text**: `<text>` with `text-anchor`, using base-14 metrics mapped from the requested `font-family`.
-- **`<use>`/`<defs>`**: reference-based reuse with a bounded reference depth to guard against cycles.
+- **Text**: `<text>` and `<tspan>` (arbitrarily nested, with `x`/`y`/`dx`/`dy` positioning for multi-line labels) resolve `font-family`/`font-weight`/`font-style` to the bundled embedded Source Sans/Serif/Code families for real glyph metrics, not a base-14 approximation.
+- **Strokes**: `stroke-dasharray`/`stroke-dashoffset` emit a real PDF dash pattern.
+- **Markers**: `marker-start`/`marker-end` arrowheads, oriented along the true path tangent (`orient="auto"`/`auto-start-reverse`, or a fixed angle) and scaled by `markerWidth`/`markerHeight`/`markerUnits`.
+- **`<use>`/`<defs>`**: reference-based reuse with a bounded reference depth to guard against cycles; `<use>` of a `<symbol>` applies the symbol's own `viewBox` scaling to the requested size.
 - Excluded by design: filters, animation, masks, patterns, and CSS beyond the `style` attribute.
 
 ---
@@ -1271,6 +1276,27 @@ doc.paragraph("Content flows automatically across columns...")
 ```
 
 Content flows between columns automatically. Column-spanning elements (headings, wide tables) are supported via the `column_span` style property.
+
+---
+
+## Side-by-Side Columns
+
+`Columns` places independent block flows side by side -- a two-up summary, a highlights/risks pair, a comparison layout -- distinct from the page-level multi-column reflow above, which wraps one running text flow across newspaper-style columns. Each `Columns` entry is its own list of ordinary block elements (paragraphs, headings, lists, tables, images, even nested `Columns`), rendered as one atomic row that will not split across a page:
+
+```python
+from emboss import BulletList, Heading, Paragraph
+
+doc.columns(
+    columns=[
+        [Heading("Highlights", level=2), BulletList(["Revenue up 12%", "New markets"])],
+        [Heading("Risks", level=2), Paragraph("Supply chain remains constrained.")],
+    ],
+    widths=[2, 1],   # relative weights; omit for an even split
+    gap=16.0,
+)
+```
+
+Row height is the tallest column; if the row does not fit in the remaining space on a page, the whole row moves to the next page rather than splitting mid-column. This is also the compilation target for a `display: flex` row in [HTML/CSS Import](#htmlcss-import).
 
 ---
 
@@ -1543,6 +1569,44 @@ pdf_bytes = doc.render()
 
 ---
 
+## HTML/CSS Import
+
+`Document.from_html` compiles a bounded, report-template subset of HTML/CSS into a `Document` -- a migration path for teams whose existing document pipeline already produces HTML, without rewriting templates from scratch:
+
+```python
+from emboss import Document
+
+doc = Document.from_html("""
+<html lang="en-US"><head><title>Quarterly Report</title>
+<style>
+  :root { --brand: #1a73e8; }
+  h1 { color: var(--brand); text-align: center; }
+  .row { display: flex; gap: 16px; }
+</style></head>
+<body>
+  <h1>Quarterly Report</h1>
+  <p>Revenue increased <strong>12%</strong> year over year.</p>
+  <div class="row">
+    <div><h2>Highlights</h2><ul><li>Revenue up 12%</li></ul></div>
+    <div><h2>Risks</h2><p>Supply chain remains constrained.</p></div>
+  </div>
+  <table><tr><th>Region</th><th>Q3</th></tr><tr><td>North</td><td>$2.4M</td></tr></table>
+</body></html>
+""", style="corporate")
+doc.save("report.pdf")
+```
+
+`<title>`/`html[lang]` seed `title`/`language` unless overridden; any other `Document` keyword argument (`style`, `page`, `legal`, `header`, `footer`, ...) layers on top of what the markup implies.
+
+**Supported:**
+- Tags: `h1`-`h6`, `p`, `div`/`section`/`article`, `ul`/`ol`/`li` (with nesting), `table`/`thead`/`tbody`/`tr`/`th`/`td` (with `colspan`), `img` (local paths or `data:` URIs), `a`, `strong`/`b`/`em`/`i`/`code`/`u`/`s`/`strike`/`del`/`br`/`hr`/`span`, `blockquote`.
+- CSS: inline `style=` and `<style>` blocks, with a real cascade -- tag/class/id specificity, descendant combinators (`div.card p`), comma-separated selector lists, and custom properties (`--x: ...` / `var(--x, fallback)`). Properties: `color`, `text-align`, `font-family`/`size`/`weight`/`style`, `text-decoration`, `margin` (shorthand and longhand), `page-break-before`, and on a flex-row container: `display`, `flex-direction`, `gap`, `flex`/`flex-grow` (drives [`Columns`](#side-by-side-columns) widths).
+- Units: `px`, `pt`, `em`, `rem`, `%`, and hex/`rgb()`/`rgba()`/named CSS colors.
+
+**Explicitly out of scope**, ignored or raising a clear error rather than silently misrendering: child/sibling/attribute/pseudo-class selectors beyond `:root`, `!important`, background/border on a generic container (there is no generic styled-container block in the spec model -- use a real `Callout` in the source document for that), flexbox wrapping/alignment beyond a single non-wrapping row, CSS Grid, positioning, and remote image URLs (not fetched; inline as a `data:` URI instead).
+
+---
+
 ## API Reference
 
 ### Document
@@ -1692,6 +1756,7 @@ src/emboss/
     attachments.py      # /AF embedded-file attachments (PDF/A-3)
   adapters/
     html_export.py      # HTML export
+    html_import.py      # HTML/CSS -> EmbossSpec import (Document.from_html)
     markdown_export.py  # Markdown export
     docx_export.py      # DOCX export
     pydantic_schema.py  # JSON Schema / Pydantic models for LLM
@@ -1738,6 +1803,7 @@ src/emboss/
 | 6 | Micro-typography, GPOS kerning, performance, CMYK | Done |
 | 7 | BrandKit, SlideDeck, diagrams, MathML, real veraPDF conformance, self-describing PDFs (`embed_spec`/`from_pdf`/`strip`), document diff and redline, reproducibility manifest, construction-time redaction, DocMDP certification signatures, encrypted attachments, node-scoped patching | Done |
 | 8 | Text-position index and annotation round-trip, incremental amendment with signature coverage, MCP server, Factur-X/ZUGFeRD, table arithmetic validation, PAdES/eIDAS baseline signatures, PDF/X-4, WTPDF 1.0, Mermaid parsing, include-from-source, `emboss build`, controlled-document block | Done |
+| 9 | HTML/CSS import (`Document.from_html`), `Columns` side-by-side layout, SVG completeness (`<tspan>` positioning, embedded-font text, `stroke-dasharray`, `<symbol>` viewBox scaling, marker arrowheads) | Done |
 
 ---
 

@@ -3,6 +3,40 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-08-08
+
+### Added
+- **HTML/CSS import**: `Document.from_html(html, **kw)` compiles a bounded,
+  report-template subset of HTML/CSS into a `Document` -- a migration path
+  for existing HTML-based document pipelines. Stdlib-only parser; a real
+  CSS cascade (tag/class/id specificity, descendant combinators,
+  comma-separated selectors, inline-style override, custom properties with
+  `var()`/fallback resolution); tags for headings, paragraphs, lists
+  (nested), tables (`colspan`), images (local paths and `data:` URIs),
+  links, inline formatting, and blockquotes; a `display: flex` row
+  compiles to the new `Columns` block. See `emboss.adapters.html_import`.
+- **`Columns` block**: side-by-side content regions, each an independent
+  block flow (paragraphs, headings, lists, tables, images, even nested
+  `Columns`), rendered as one atomic row sized to its tallest column.
+  `doc.columns(columns=[[...], [...]], widths=None, gap=12.0)`. Distinct
+  from `PageSpec.columns`, which reflows one text stream across
+  newspaper-style page columns. Wired through every export adapter
+  (HTML, Markdown, DOCX) and the Pydantic LLM schema (`ColumnsSpec`).
+- **SVG completeness fixes**:
+  - `<tspan>` multi-line/positioned text (`x`/`y`/`dx`/`dy`, arbitrary
+    nesting) -- previously flattened to a single line, which broke
+    multi-line labels from Mermaid, D3, and matplotlib output.
+  - `<text>`/`<tspan>` now resolve `font-family` to the bundled embedded
+    Source Sans/Serif/Code families (with `font-weight`/`font-style`
+    variant selection) for real glyph metrics, instead of a base-14
+    approximation.
+  - `stroke-dasharray`/`stroke-dashoffset` emit a real PDF dash pattern.
+  - `<use>` of a `<symbol>` now applies the symbol's own `viewBox` scaling
+    to the requested width/height, instead of rendering 1:1.
+  - `marker-start`/`marker-end` arrowheads, oriented along the true path
+    tangent (`orient="auto"`/`auto-start-reverse`, or a fixed angle) and
+    scaled by `markerWidth`/`markerHeight`/`markerUnits`.
+
 ## [1.2.0] - 2026-07-30
 
 ### Added
