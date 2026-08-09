@@ -333,9 +333,7 @@ class TestText:
 
     def test_font_weight_style_select_bold_italic_variant(self):
         stream = _render(
-            _svg(
-                '<text x="0" y="10" font-weight="bold" font-style="italic">B</text>'
-            )
+            _svg('<text x="0" y="10" font-weight="bold" font-style="italic">B</text>')
         )
         assert list(stream.used_svg_fonts) == ["FsvgSSBI"]
 
@@ -388,7 +386,7 @@ class TestTspanPositioning:
         stream = _render(
             _svg(
                 '<text x="0" y="20" font-size="10">'
-                "<tspan>normal</tspan><tspan font-size=\"20\">big</tspan></text>",
+                '<tspan>normal</tspan><tspan font-size="20">big</tspan></text>',
                 200,
                 50,
             )
@@ -409,7 +407,9 @@ class TestDasharray:
             )
         )
         lines = _lines(stream)
-        assert any(ln.startswith("[3.0000 2.0000]") and ln.endswith(" d") for ln in lines)
+        assert any(
+            ln.startswith("[3.0000 2.0000]") and ln.endswith(" d") for ln in lines
+        )
 
     def test_dasharray_none_is_solid(self):
         stream = _render(

@@ -38,7 +38,11 @@ _TINY_PNG_B64 = (
 class TestBasicTags:
     def test_headings_and_paragraph(self):
         doc = import_html("<h1>Title</h1><h2>Sub</h2><p>Body text.</p>")
-        assert [type(b).__name__ for b in doc.content] == ["Heading", "Heading", "Paragraph"]
+        assert [type(b).__name__ for b in doc.content] == [
+            "Heading",
+            "Heading",
+            "Paragraph",
+        ]
         assert doc.content[0].text == "Title"
         assert doc.content[0].level == 1
         assert doc.content[1].level == 2
@@ -96,7 +100,9 @@ class TestBasicTags:
         assert table.body_rows[0][0].colspan == 2
 
     def test_data_uri_image(self):
-        doc = import_html(f'<img src="data:image/png;base64,{_TINY_PNG_B64}" alt="dot">')
+        doc = import_html(
+            f'<img src="data:image/png;base64,{_TINY_PNG_B64}" alt="dot">'
+        )
         img = doc.content[0]
         assert isinstance(img, Image)
         assert isinstance(img.source, bytes)
@@ -123,7 +129,7 @@ class TestBasicTags:
 class TestInlineFormatting:
     def test_bold_italic_code_link(self):
         doc = import_html(
-            '<p><b>bold</b> <i>italic</i> <code>code</code> '
+            "<p><b>bold</b> <i>italic</i> <code>code</code> "
             '<a href="https://x.test">link</a></p>'
         )
         runs = doc.content[0].runs
@@ -249,7 +255,7 @@ class TestCssCustomProperties:
         html = (
             "<style>:root { --brand: #0000aa; } "
             "p { color: var(--brand); }</style>"
-            '<div><div><p>Nested</p></div></div>'
+            "<div><div><p>Nested</p></div></div>"
         )
         doc = import_html(html)
         assert doc.content[0].style.color == "0000aa"

@@ -1870,7 +1870,9 @@ class Document:
         parsed = import_html(
             text, base_font_size=base_font_size, title=title, language=language
         )
-        return cls(title=parsed.title, language=parsed.language, content=parsed.content, **kw)
+        return cls(
+            title=parsed.title, language=parsed.language, content=parsed.content, **kw
+        )
 
     @classmethod
     def from_llm(cls, text: str, **kw) -> "Document":

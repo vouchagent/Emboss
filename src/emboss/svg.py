@@ -91,8 +91,10 @@ def _resolve_svg_font(registry, family: str, bold: bool, italic: bool) -> FontMe
     key = (family.lower(), bold, italic)
     if key not in registry._custom:
         registry.register(
-            family, bundled_font_path(family, bold=bold, italic=italic),
-            bold=bold, italic=italic,
+            family,
+            bundled_font_path(family, bold=bold, italic=italic),
+            bold=bold,
+            italic=italic,
         )
     return registry.resolve(family, bold=bold, italic=italic)
 
@@ -966,7 +968,13 @@ class _Renderer:
     """Walks an SvgImage tree and emits PDF operators to a content stream."""
 
     def __init__(
-        self, stream, svg: SvgImage, x, y, display_width, display_height,
+        self,
+        stream,
+        svg: SvgImage,
+        x,
+        y,
+        display_width,
+        display_height,
         font_registry=None,
     ):
         self.stream = stream
@@ -1329,15 +1337,21 @@ class _Renderer:
             target = self.defs.get(start_id)
             if target is not None and target.tag == "marker":
                 point, angle = _path_endpoint_tangent(segs, at_start=True)
-                self._draw_marker(target, transform, point, angle, stroke_w, is_start=True)
+                self._draw_marker(
+                    target, transform, point, angle, stroke_w, is_start=True
+                )
         end_id = _url_id(attrs.get("marker-end"))
         if end_id:
             target = self.defs.get(end_id)
             if target is not None and target.tag == "marker":
                 point, angle = _path_endpoint_tangent(segs, at_start=False)
-                self._draw_marker(target, transform, point, angle, stroke_w, is_start=False)
+                self._draw_marker(
+                    target, transform, point, angle, stroke_w, is_start=False
+                )
 
-    def _draw_marker(self, marker_el, transform, point, angle, stroke_w, is_start) -> None:
+    def _draw_marker(
+        self, marker_el, transform, point, angle, stroke_w, is_start
+    ) -> None:
         """Render one marker instance at *point*, oriented along the path.
 
         Per SVG defaults: ``orient="auto"`` rotates to the path tangent
@@ -1571,11 +1585,15 @@ class _Renderer:
                 cattrs = _style_attrs(child)
                 child_state = _resolve_text_state(state, cattrs)
                 cx, cy = cattrs.get("x"), cattrs.get("y")
-                cursor[0] = _first_num(cx) if cx is not None else (
-                    cursor[0] + _first_num(cattrs.get("dx", "0"))
+                cursor[0] = (
+                    _first_num(cx)
+                    if cx is not None
+                    else (cursor[0] + _first_num(cattrs.get("dx", "0")))
                 )
-                cursor[1] = _first_num(cy) if cy is not None else (
-                    cursor[1] + _first_num(cattrs.get("dy", "0"))
+                cursor[1] = (
+                    _first_num(cy)
+                    if cy is not None
+                    else (cursor[1] + _first_num(cattrs.get("dy", "0")))
                 )
                 self._walk_text_children(child, child_state, cursor, out)
             else:
@@ -1624,7 +1642,12 @@ class _Renderer:
             self.stream.raw(b"q")
             self.stream.raw(f"/{self._gstate(alpha, alpha)} gs".encode("ascii"))
         self.stream.text_line(
-            stripped, key, page_size, px, py, state.fill or "000000",
+            stripped,
+            key,
+            page_size,
+            px,
+            py,
+            state.fill or "000000",
             gid_map=metrics.gid_map,
         )
         if wrapped:
@@ -1652,7 +1675,9 @@ class _TextState:
 
 
 def _resolve_text_state(parent: _TextState, attrs: dict) -> _TextState:
-    family = _map_family(attrs["font-family"]) if "font-family" in attrs else parent.family
+    family = (
+        _map_family(attrs["font-family"]) if "font-family" in attrs else parent.family
+    )
     bold = (
         _weight_is_bold(attrs["font-weight"]) if "font-weight" in attrs else parent.bold
     )

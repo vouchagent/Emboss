@@ -61,131 +61,109 @@ def to_office_dict(document: "Document") -> dict:
 
     def _serialize_element(element) -> dict | None:
         if isinstance(element, Heading):
-            return (
-                {
-                    "type": "heading",
-                    "level": element.level,
-                    "text": element.text,
-                    "numbering": element.numbering,
-                    "runs": _serialize_runs(element.runs),
-                }
-            )
+            return {
+                "type": "heading",
+                "level": element.level,
+                "text": element.text,
+                "numbering": element.numbering,
+                "runs": _serialize_runs(element.runs),
+            }
 
         elif isinstance(element, Paragraph):
             style = sheet.resolved(sheet.body, element.style)
-            return (
-                {
-                    "type": "paragraph",
-                    "runs": _serialize_runs(element.runs),
-                    "align": style.require("align"),
-                    "indent_first": style.indent_first or 0,
-                }
-            )
+            return {
+                "type": "paragraph",
+                "runs": _serialize_runs(element.runs),
+                "align": style.require("align"),
+                "indent_first": style.indent_first or 0,
+            }
 
         elif isinstance(element, BulletList):
             items = []
             for item_runs in element.item_runs:
                 items.append({"runs": _serialize_runs(item_runs)})
-            return (
-                {
-                    "type": "list",
-                    "bullet": element.bullet,
-                    "items": items,
-                }
-            )
+            return {
+                "type": "list",
+                "bullet": element.bullet,
+                "items": items,
+            }
 
         elif isinstance(element, Table):
-            return (_serialize_table(element))
+            return _serialize_table(element)
 
         elif isinstance(element, Image):
-            return (
-                {
-                    "type": "image",
-                    "source": element.source
-                    if isinstance(element.source, str)
-                    else "<bytes>",
-                    "alt_text": element.alt_text,
-                    "width": element.width,
-                    "height": element.height,
-                    "caption": element.caption,
-                    "align": element.align,
-                }
-            )
+            return {
+                "type": "image",
+                "source": element.source
+                if isinstance(element.source, str)
+                else "<bytes>",
+                "alt_text": element.alt_text,
+                "width": element.width,
+                "height": element.height,
+                "caption": element.caption,
+                "align": element.align,
+            }
 
         elif isinstance(element, Chart):
-            return (
-                {
-                    "type": "chart",
-                    "chart_type": element.chart_type,
-                    "labels": list(element.labels),
-                    "values": list(element.values),
-                    "title": element.title,
-                    "width": element.width,
-                    "height": element.height,
-                }
-            )
+            return {
+                "type": "chart",
+                "chart_type": element.chart_type,
+                "labels": list(element.labels),
+                "values": list(element.values),
+                "title": element.title,
+                "width": element.width,
+                "height": element.height,
+            }
 
         elif isinstance(element, Footnote):
-            return (
-                {
-                    "type": "footnote",
-                    "marker": element.marker,
-                    "runs": _serialize_runs(element.runs),
-                }
-            )
+            return {
+                "type": "footnote",
+                "marker": element.marker,
+                "runs": _serialize_runs(element.runs),
+            }
 
         elif isinstance(element, Callout):
-            return (
-                {
-                    "type": "callout",
-                    "variant": element.variant,
-                    "title": element.title,
-                    "runs": _serialize_runs(element.runs),
-                    "background": element.background,
-                    "border_color": element.border_color,
-                }
-            )
+            return {
+                "type": "callout",
+                "variant": element.variant,
+                "title": element.title,
+                "runs": _serialize_runs(element.runs),
+                "background": element.background,
+                "border_color": element.border_color,
+            }
 
         elif isinstance(element, CodeBlock):
-            return (
-                {
-                    "type": "code_block",
-                    "code": element.code,
-                    "language": element.language,
-                    "line_numbers": element.line_numbers,
-                    "caption": element.caption,
-                }
-            )
+            return {
+                "type": "code_block",
+                "code": element.code,
+                "language": element.language,
+                "line_numbers": element.line_numbers,
+                "caption": element.caption,
+            }
 
         elif isinstance(element, MathBlock):
-            return (
-                {
-                    "type": "math",
-                    "source": element.source,
-                    "display": element.display,
-                    "caption": element.caption,
-                }
-            )
+            return {
+                "type": "math",
+                "source": element.source,
+                "display": element.display,
+                "caption": element.caption,
+            }
 
         elif isinstance(element, BibliographyBlock):
             from ..bibliography import format_bibliography
 
-            return (
-                {
-                    "type": "bibliography",
-                    "title": element.title,
-                    "heading_level": element.heading_level,
-                    "entries": format_bibliography(
-                        element.citations, element.bib_style
-                    ),
-                }
-            )
+            return {
+                "type": "bibliography",
+                "title": element.title,
+                "heading_level": element.heading_level,
+                "entries": format_bibliography(element.citations, element.bib_style),
+            }
 
         elif isinstance(element, HorizontalRule):
-            return ({"type": "horizontal_rule"})
+            return {"type": "horizontal_rule"}
 
         elif isinstance(element, PageBreak):
-            return ({"type": "page_break"})
+            return {"type": "page_break"}
 
         elif isinstance(element, Columns):
             return {

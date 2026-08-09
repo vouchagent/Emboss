@@ -54,10 +54,30 @@ from ..styles import Style
 __all__ = ["import_html"]
 
 _VOID_TAGS = {
-    "area", "base", "br", "col", "embed", "hr", "img", "input",
-    "link", "meta", "source", "track", "wbr",
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr",
 }
-_SKIP_TAGS = {"script", "style", "head", "meta", "link", "title", "noscript", "template"}
+_SKIP_TAGS = {
+    "script",
+    "style",
+    "head",
+    "meta",
+    "link",
+    "title",
+    "noscript",
+    "template",
+}
 _HEADING_TAGS = {f"h{n}" for n in range(1, 7)}
 
 
@@ -225,7 +245,9 @@ def _parse_css(css_text: str) -> list[_Rule]:
             if chain:
                 chains.append(chain)
         if chains:
-            rules.append(_Rule(selectors=chains, declarations=declarations, order=order))
+            rules.append(
+                _Rule(selectors=chains, declarations=declarations, order=order)
+            )
             order += 1
     return rules
 
@@ -321,28 +343,73 @@ def _resolve_node(ancestors: list, rules: list, parent_custom: dict) -> tuple:
 _LENGTH_RE = re.compile(r"^(-?[\d.]+)\s*(px|pt|em|rem|%)?$")
 
 _CSS_NAMED_COLORS = {
-    "black": "000000", "white": "ffffff", "red": "ff0000", "green": "008000",
-    "blue": "0000ff", "yellow": "ffff00", "orange": "ffa500", "purple": "800080",
-    "gray": "808080", "grey": "808080", "silver": "c0c0c0", "maroon": "800000",
-    "navy": "000080", "teal": "008080", "olive": "808000", "lime": "00ff00",
-    "aqua": "00ffff", "cyan": "00ffff", "magenta": "ff00ff", "fuchsia": "ff00ff",
-    "pink": "ffc0cb", "brown": "a52a2a", "gold": "ffd700", "indigo": "4b0082",
-    "violet": "ee82ee", "coral": "ff7f50", "salmon": "fa8072", "khaki": "f0e68c",
-    "crimson": "dc143c", "chocolate": "d2691e", "darkgray": "a9a9a9",
-    "darkgrey": "a9a9a9", "lightgray": "d3d3d3", "lightgrey": "d3d3d3",
-    "steelblue": "4682b4", "skyblue": "87ceeb", "tomato": "ff6347",
-    "orchid": "da70d6", "slategray": "708090", "slategrey": "708090",
-    "dimgray": "696969", "dimgrey": "696969", "cornflowerblue": "6495ed",
-    "royalblue": "4169e1", "seagreen": "2e8b57", "forestgreen": "228b22",
-    "firebrick": "b22222", "beige": "f5f5dc", "ivory": "fffff0",
-    "lavender": "e6e6fa", "plum": "dda0dd", "turquoise": "40e0d0",
-    "darkblue": "00008b", "darkgreen": "006400", "darkred": "8b0000",
+    "black": "000000",
+    "white": "ffffff",
+    "red": "ff0000",
+    "green": "008000",
+    "blue": "0000ff",
+    "yellow": "ffff00",
+    "orange": "ffa500",
+    "purple": "800080",
+    "gray": "808080",
+    "grey": "808080",
+    "silver": "c0c0c0",
+    "maroon": "800000",
+    "navy": "000080",
+    "teal": "008080",
+    "olive": "808000",
+    "lime": "00ff00",
+    "aqua": "00ffff",
+    "cyan": "00ffff",
+    "magenta": "ff00ff",
+    "fuchsia": "ff00ff",
+    "pink": "ffc0cb",
+    "brown": "a52a2a",
+    "gold": "ffd700",
+    "indigo": "4b0082",
+    "violet": "ee82ee",
+    "coral": "ff7f50",
+    "salmon": "fa8072",
+    "khaki": "f0e68c",
+    "crimson": "dc143c",
+    "chocolate": "d2691e",
+    "darkgray": "a9a9a9",
+    "darkgrey": "a9a9a9",
+    "lightgray": "d3d3d3",
+    "lightgrey": "d3d3d3",
+    "steelblue": "4682b4",
+    "skyblue": "87ceeb",
+    "tomato": "ff6347",
+    "orchid": "da70d6",
+    "slategray": "708090",
+    "slategrey": "708090",
+    "dimgray": "696969",
+    "dimgrey": "696969",
+    "cornflowerblue": "6495ed",
+    "royalblue": "4169e1",
+    "seagreen": "2e8b57",
+    "forestgreen": "228b22",
+    "firebrick": "b22222",
+    "beige": "f5f5dc",
+    "ivory": "fffff0",
+    "lavender": "e6e6fa",
+    "plum": "dda0dd",
+    "turquoise": "40e0d0",
+    "darkblue": "00008b",
+    "darkgreen": "006400",
+    "darkred": "8b0000",
 }
 
 
 def _css_color(value: str) -> str | None:
     value = value.strip()
-    if not value or value.lower() in ("transparent", "inherit", "initial", "unset", "currentcolor"):
+    if not value or value.lower() in (
+        "transparent",
+        "inherit",
+        "initial",
+        "unset",
+        "currentcolor",
+    ):
         return None
     if value.startswith("#"):
         h = value[1:]
@@ -400,11 +467,26 @@ def _css_font_family(value: str) -> str | None:
         fam = token.strip().strip("'\"").lower()
         if not fam:
             continue
-        if fam in ("monospace", "courier", "courier new", "consolas", "menlo", "monaco"):
+        if fam in (
+            "monospace",
+            "courier",
+            "courier new",
+            "consolas",
+            "menlo",
+            "monaco",
+        ):
             return "Courier"
         if fam in ("serif", "times", "times new roman", "georgia", "garamond"):
             return "Times"
-        if fam in ("sans-serif", "arial", "helvetica", "verdana", "calibri", "tahoma", "segoe ui"):
+        if fam in (
+            "sans-serif",
+            "arial",
+            "helvetica",
+            "verdana",
+            "calibri",
+            "tahoma",
+            "segoe ui",
+        ):
             return "Helvetica"
     return None
 
@@ -416,7 +498,9 @@ def _resolve_margins(props: dict, base_size: float, font_size: float) -> dict:
         vals = [_css_length(p, base_size, font_size) for p in parts]
         if all(v is not None for v in vals):
             if len(vals) == 1:
-                result["top"] = result["right"] = result["bottom"] = result["left"] = vals[0]
+                result["top"] = result["right"] = result["bottom"] = result["left"] = (
+                    vals[0]
+                )
             elif len(vals) == 2:
                 result["top"] = result["bottom"] = vals[0]
                 result["right"] = result["left"] = vals[1]
@@ -439,7 +523,9 @@ def _style_from_props(props: dict, base_size: float, parent_size: float) -> tupl
     kwargs: dict = {}
     font_size = parent_size
     if "font-size" in props:
-        v = _css_length(props["font-size"], base_size, parent_size, percent_base=parent_size)
+        v = _css_length(
+            props["font-size"], base_size, parent_size, percent_base=parent_size
+        )
         if v and v > 0:
             font_size = v
             kwargs["font_size"] = v
@@ -512,7 +598,9 @@ class _RunState:
     link: str | None = None
 
 
-def _apply_inline_props(state: _RunState, tag: str, props: dict, node: _Node) -> _RunState:
+def _apply_inline_props(
+    state: _RunState, tag: str, props: dict, node: _Node
+) -> _RunState:
     new_state = replace(state)
     if tag in ("strong", "b"):
         new_state.bold = True
@@ -559,8 +647,14 @@ _BR = object()
 
 
 def _convert_inline(
-    item, ancestors: list, rules: list, custom: dict, state: _RunState,
-    base_size: float, parent_size: float, out: list,
+    item,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    state: _RunState,
+    base_size: float,
+    parent_size: float,
+    out: list,
 ) -> None:
     if isinstance(item, str):
         if item:
@@ -589,7 +683,14 @@ def _convert_inline(
     new_state = _apply_inline_props(state, node.tag, props, node)
     for child in node.children:
         _convert_inline(
-            child, node_ancestors, rules, child_custom, new_state, base_size, parent_size, out
+            child,
+            node_ancestors,
+            rules,
+            child_custom,
+            new_state,
+            base_size,
+            parent_size,
+            out,
         )
 
 
@@ -610,13 +711,20 @@ def _strip_br(items: list) -> list:
 
 
 def _runs_from(
-    items: list, ancestors: list, rules: list, custom: dict, base_size: float, parent_size: float
+    items: list,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
 ) -> list:
     """Flatten inline content to TextRuns, preserving `_BR` sentinels for `<br>`."""
     runs: list = []
     state = _RunState()
     for item in items:
-        _convert_inline(item, ancestors, rules, custom, state, base_size, parent_size, runs)
+        _convert_inline(
+            item, ancestors, rules, custom, state, base_size, parent_size, runs
+        )
     return runs
 
 
@@ -624,8 +732,13 @@ def _runs_from(
 
 
 def _convert_paragraph(
-    node: _Node, ancestors: list, rules: list, custom: dict,
-    base_size: float, parent_size: float, style: Style | None,
+    node: _Node,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
+    style: Style | None,
 ) -> list:
     flat = _runs_from(node.children, ancestors, rules, custom, base_size, parent_size)
     blocks: list = []
@@ -636,8 +749,13 @@ def _convert_paragraph(
 
 
 def _convert_list(
-    node: _Node, ancestors: list, rules: list, custom: dict,
-    base_size: float, parent_size: float, ordered: bool,
+    node: _Node,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
+    ordered: bool,
 ):
     items: list = []
     for child in node.children:
@@ -646,14 +764,17 @@ def _convert_list(
         li_ancestors = ancestors + [child]
         _li_props, li_custom = _resolve_node(li_ancestors, rules, custom)
         nested = [
-            c for c in child.children if not isinstance(c, str) and c.tag in ("ul", "ol")
+            c
+            for c in child.children
+            if not isinstance(c, str) and c.tag in ("ul", "ol")
         ]
         inline_children = [
-            c for c in child.children
-            if isinstance(c, str) or c.tag not in ("ul", "ol")
+            c for c in child.children if isinstance(c, str) or c.tag not in ("ul", "ol")
         ]
         runs = _strip_br(
-            _runs_from(inline_children, li_ancestors, rules, li_custom, base_size, parent_size)
+            _runs_from(
+                inline_children, li_ancestors, rules, li_custom, base_size, parent_size
+            )
         )
         if runs:
             items.append(runs)
@@ -662,7 +783,12 @@ def _convert_list(
             _sub_props, sub_custom = _resolve_node(sub_ancestors, rules, li_custom)
             items.append(
                 _convert_list(
-                    sub, sub_ancestors, rules, sub_custom, base_size, parent_size,
+                    sub,
+                    sub_ancestors,
+                    rules,
+                    sub_custom,
+                    base_size,
+                    parent_size,
                     ordered=sub.tag == "ol",
                 )
             )
@@ -673,13 +799,24 @@ def _convert_list(
 
 
 def _table_cell(
-    node: _Node, ancestors: list, rules: list, custom: dict,
-    base_size: float, parent_size: float, bold: bool,
+    node: _Node,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
+    bold: bool,
 ) -> TableCell:
-    runs = _strip_br(_runs_from(node.children, ancestors, rules, custom, base_size, parent_size))
+    runs = _strip_br(
+        _runs_from(node.children, ancestors, rules, custom, base_size, parent_size)
+    )
     props, _ = _resolve_node(ancestors, rules, custom)
     align = None
-    if "text-align" in props and props["text-align"].strip().lower() in ("left", "right", "center"):
+    if "text-align" in props and props["text-align"].strip().lower() in (
+        "left",
+        "right",
+        "center",
+    ):
         align = props["text-align"].strip().lower()
     try:
         colspan = max(1, int(node.attrs.get("colspan", "1")))
@@ -689,12 +826,22 @@ def _table_cell(
 
 
 def _convert_table(
-    node: _Node, ancestors: list, rules: list, custom: dict, base_size: float, parent_size: float
+    node: _Node,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
 ) -> Table | None:
     headers: list = []
     rows: list = []
 
-    def walk_trs(tr_nodes: list, tr_container_ancestors: list, container_custom: dict, header: bool) -> None:
+    def walk_trs(
+        tr_nodes: list,
+        tr_container_ancestors: list,
+        container_custom: dict,
+        header: bool,
+    ) -> None:
         for tr in tr_nodes:
             tr_ancestors = tr_container_ancestors + [tr]
             _tr_props, tr_custom = _resolve_node(tr_ancestors, rules, container_custom)
@@ -705,7 +852,12 @@ def _convert_table(
                 cell_ancestors = tr_ancestors + [cell]
                 row.append(
                     _table_cell(
-                        cell, cell_ancestors, rules, tr_custom, base_size, parent_size,
+                        cell,
+                        cell_ancestors,
+                        rules,
+                        tr_custom,
+                        base_size,
+                        parent_size,
                         bold=header or cell.tag == "th",
                     )
                 )
@@ -717,7 +869,9 @@ def _convert_table(
                 rows.append(row)
 
     def direct_trs(container: _Node) -> list:
-        return [c for c in container.children if not isinstance(c, str) and c.tag == "tr"]
+        return [
+            c for c in container.children if not isinstance(c, str) and c.tag == "tr"
+        ]
 
     for child in node.children:
         if isinstance(child, str):
@@ -731,15 +885,21 @@ def _convert_table(
             _p, child_custom = _resolve_node(child_ancestors, rules, custom)
             walk_trs(direct_trs(child), child_ancestors, child_custom, header=False)
         elif child.tag == "tr":
-            is_header_row = not headers and not rows and any(
-                not isinstance(c, str) and c.tag == "th" for c in child.children
+            is_header_row = (
+                not headers
+                and not rows
+                and any(
+                    not isinstance(c, str) and c.tag == "th" for c in child.children
+                )
             )
             walk_trs([child], ancestors, custom, header=is_header_row)
 
     return Table(headers=headers, rows=rows) if (headers or rows) else None
 
 
-def _convert_image(node: _Node, props: dict, base_size: float, parent_size: float) -> Image | None:
+def _convert_image(
+    node: _Node, props: dict, base_size: float, parent_size: float
+) -> Image | None:
     src = node.attrs.get("src", "")
     if not src:
         return None
@@ -767,7 +927,9 @@ def _convert_image(node: _Node, props: dict, base_size: float, parent_size: floa
         h = _css_length(props["height"], base_size, parent_size)
         if h:
             height = h
-    return Image(source=source, alt_text=node.attrs.get("alt", ""), width=width, height=height)
+    return Image(
+        source=source, alt_text=node.attrs.get("alt", ""), width=width, height=height
+    )
 
 
 def _html_px_attr(value) -> float | None:
@@ -780,19 +942,34 @@ def _html_px_attr(value) -> float | None:
 
 
 def _convert_children(
-    node: _Node, ancestors: list, rules: list, custom: dict, base_size: float, parent_size: float
+    node: _Node,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
 ) -> list:
     blocks: list = []
     for child in node.children:
-        blocks.extend(_convert_block(child, ancestors, rules, custom, base_size, parent_size))
+        blocks.extend(
+            _convert_block(child, ancestors, rules, custom, base_size, parent_size)
+        )
     return blocks
 
 
 def _convert_flex_row(
-    node: _Node, ancestors: list, rules: list, custom: dict,
-    base_size: float, parent_size: float, props: dict, style: Style | None,
+    node: _Node,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
+    props: dict,
+    style: Style | None,
 ) -> list | None:
-    candidates = [c for c in node.children if not isinstance(c, str) and c.tag not in _SKIP_TAGS]
+    candidates = [
+        c for c in node.children if not isinstance(c, str) and c.tag not in _SKIP_TAGS
+    ]
     if len(candidates) < 2:
         return None
     gap = _css_length(props.get("gap", "0px"), base_size, parent_size) or 0.0
@@ -803,14 +980,18 @@ def _convert_flex_row(
         col_props, col_custom = _resolve_node(col_ancestors, rules, custom)
         weights.append(_flex_weight(col_props))
         col_blocks.append(
-            _convert_children(col_node, col_ancestors, rules, col_custom, base_size, parent_size)
+            _convert_children(
+                col_node, col_ancestors, rules, col_custom, base_size, parent_size
+            )
         )
     paired = [(w, cb) for w, cb in zip(weights, col_blocks) if cb]
     if len(paired) < 2:
         return None
     final_weights = [w for w, _ in paired]
     final_columns = [cb for _, cb in paired]
-    use_widths = final_weights if any(abs(w - 1.0) > 1e-9 for w in final_weights) else None
+    use_widths = (
+        final_weights if any(abs(w - 1.0) > 1e-9 for w in final_weights) else None
+    )
     return [
         Columns(
             columns=final_columns,
@@ -822,7 +1003,12 @@ def _convert_flex_row(
 
 
 def _convert_block(
-    item, ancestors: list, rules: list, custom: dict, base_size: float, parent_size: float
+    item,
+    ancestors: list,
+    rules: list,
+    custom: dict,
+    base_size: float,
+    parent_size: float,
 ) -> list:
     if isinstance(item, str):
         if item.strip():
@@ -843,18 +1029,28 @@ def _convert_block(
         return [Heading(text, level=int(tag[1]), style=style)] if text else []
 
     if tag == "p":
-        return _convert_paragraph(node, node_ancestors, rules, node_custom, base_size, font_size, style)
+        return _convert_paragraph(
+            node, node_ancestors, rules, node_custom, base_size, font_size, style
+        )
 
     if tag in ("ul", "ol"):
         lst = _convert_list(
-            node, node_ancestors, rules, node_custom, base_size, font_size, ordered=tag == "ol"
+            node,
+            node_ancestors,
+            rules,
+            node_custom,
+            base_size,
+            font_size,
+            ordered=tag == "ol",
         )
         if style is not None:
             lst.style = style
         return [lst] if lst.items else []
 
     if tag == "table":
-        table = _convert_table(node, node_ancestors, rules, node_custom, base_size, font_size)
+        table = _convert_table(
+            node, node_ancestors, rules, node_custom, base_size, font_size
+        )
         if table is not None and style is not None:
             table.style = style
         return [table] if table is not None else []
@@ -868,21 +1064,34 @@ def _convert_block(
 
     if tag == "blockquote":
         runs = _strip_br(
-            _runs_from(node.children, node_ancestors, rules, node_custom, base_size, font_size)
+            _runs_from(
+                node.children, node_ancestors, rules, node_custom, base_size, font_size
+            )
         )
         return [BlockQuote(content=runs, style=style)] if runs else []
 
     if tag in ("div", "section", "article"):
         if _is_flex_row(props):
             row = _convert_flex_row(
-                node, node_ancestors, rules, node_custom, base_size, font_size, props, style
+                node,
+                node_ancestors,
+                rules,
+                node_custom,
+                base_size,
+                font_size,
+                props,
+                style,
             )
             if row is not None:
                 return row
-        return _convert_children(node, node_ancestors, rules, node_custom, base_size, font_size)
+        return _convert_children(
+            node, node_ancestors, rules, node_custom, base_size, font_size
+        )
 
     # Unknown/unsupported tag: recurse rather than silently drop content.
-    return _convert_children(node, node_ancestors, rules, node_custom, base_size, font_size)
+    return _convert_children(
+        node, node_ancestors, rules, node_custom, base_size, font_size
+    )
 
 
 # -- entry point --
@@ -916,7 +1125,9 @@ def import_html(
     rules = _parse_css("\n".join(_collect_style_text(root)))
 
     title_node = _find_first(root, "title")
-    doc_title = title or (_flatten_text(title_node).strip() if title_node else "") or "Untitled"
+    doc_title = (
+        title or (_flatten_text(title_node).strip() if title_node else "") or "Untitled"
+    )
     doc_lang = language or root.attrs.get("lang") or "en-US"
 
     body = _find_first(root, "body") or root
@@ -926,6 +1137,8 @@ def import_html(
     _style, font_size = _style_from_props(props, base_font_size, base_font_size)
 
     doc = Document(title=doc_title, language=doc_lang)
-    for block in _convert_children(body, ancestors, rules, custom, base_font_size, font_size):
+    for block in _convert_children(
+        body, ancestors, rules, custom, base_font_size, font_size
+    ):
         doc.add(block)
     return doc

@@ -1334,9 +1334,7 @@ class Renderer:
         elif isinstance(element, BibliographyBlock):
             self._draw_bibliography(stream, placed, page_index, root, font_registry)
         elif isinstance(element, SvgBlock):
-            self._draw_svg(
-                stream, placed, page_index, root, font_registry, block_width
-            )
+            self._draw_svg(stream, placed, page_index, root, font_registry, block_width)
         elif isinstance(element, CoverPage):
             self._draw_cover(stream, placed, page_index, root, font_registry, page_spec)
         elif isinstance(element, Abstract):
