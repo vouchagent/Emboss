@@ -1167,6 +1167,10 @@ doc.architecture_diagram(
 )
 ```
 
+That code produces this page, laid out automatically -- no coordinates given for the nested subnet zones, the icon glyphs, or the routing of any edge:
+
+<img src="assets/readme/architecture-diagram.png" alt="Rendered AWS three-tier architecture diagram: nested VPC and subnet zones, service glyphs for CloudFront, ALB, EC2, Lambda, RDS, ElastiCache, SQS, and S3, with labeled edges" width="640">
+
 **Sequence** -- `doc.sequence_diagram(participants, messages)`. Draws one lifeline per participant; messages carry a `style` of `sync` (solid, filled arrowhead), `async` (open arrowhead), or `return` (dashed), and `activate=True` opens an activation bar on the receiver. Self-messages render as a loop.
 
 ```python
@@ -1318,6 +1322,10 @@ doc.math(r"f(x) = \begin{cases} x^2 & x \ge 0 \\ -x & x < 0 \end{cases}")
 ```
 
 Supported: superscripts, subscripts, fractions (`\frac`), square roots (`\sqrt`), integrals, summations, Greek letters, `\text{}`, `\mathcal`, `\mathbb`, `\mathbf`, `\mathrm`, `\operatorname`, and more.
+
+Real typesetting, not an image of an equation: a matrix, a numbered piecewise definition with a working `@eq:` cross-reference, and an `aligned` block of Maxwell's equations, all from plain LaTeX source:
+
+<img src="assets/readme/math-notation.png" alt="Rendered math notation: an augmented matrix, a numbered piecewise function definition with a resolved cross-reference, and Maxwell's equations in an aligned block" width="600">
 
 ### Environments
 
