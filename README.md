@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml/badge.svg)](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/emboss-pdf.svg)](https://pypi.org/project/emboss-pdf/)
-[![Downloads](https://img.shields.io/pypi/dm/emboss-pdf.svg)](https://pypi.org/project/emboss-pdf/)
+[![Downloads](https://static.pepy.tech/badge/emboss-pdf)](https://pepy.tech/project/emboss-pdf)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss-pdf/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 

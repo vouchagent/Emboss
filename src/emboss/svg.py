@@ -72,18 +72,29 @@ _NON_RENDERED = {
 _DRAWABLE = {"rect", "circle", "ellipse", "line", "path", "polygon", "polyline"}
 _MARKERABLE = {"path", "line", "polyline", "polygon"}
 _FAMILY_ABBR = {"Source Sans 3": "SS", "Source Serif 4": "SF", "Source Code Pro": "CP"}
-_EMBEDDED_FONT_CACHE: dict = {}
 
 
-def _embedded_font(family: str, bold: bool, italic: bool) -> FontMetrics:
-    """Load (and cache) a bundled family's embedded metrics for one variant."""
-    key = (family, bold, italic)
-    cached = _EMBEDDED_FONT_CACHE.get(key)
-    if cached is not None:
-        return cached
-    metrics = FontMetrics.from_file(bundled_font_path(family, bold=bold, italic=italic))
-    _EMBEDDED_FONT_CACHE[key] = metrics
-    return metrics
+def _resolve_svg_font(registry, family: str, bold: bool, italic: bool) -> FontMetrics:
+    """Resolve one bundled-family variant through a document's FontRegistry.
+
+    Registering (and thus resolving) through the caller's own FontRegistry,
+    rather than a process-wide cache, is what makes glyph-usage tracking
+    correct: `note_usage()` accumulates on the FontMetrics instance the
+    registry hands back on every call for the same key, and that instance
+    is scoped to one document render, so subsetting never mixes glyph
+    usage across unrelated documents rendered later in the same process.
+    Registration only happens once per key -- `FontRegistry.register()`
+    evicts any cached, usage-accumulating instance for that key, so
+    re-registering on every text run would silently reset tracked usage
+    each time and reintroduce the empty-subset bug this guards against.
+    """
+    key = (family.lower(), bold, italic)
+    if key not in registry._custom:
+        registry.register(
+            family, bundled_font_path(family, bold=bold, italic=italic),
+            bold=bold, italic=italic,
+        )
+    return registry.resolve(family, bold=bold, italic=italic)
 
 
 @dataclass
@@ -954,9 +965,17 @@ class _Ctx:
 class _Renderer:
     """Walks an SvgImage tree and emits PDF operators to a content stream."""
 
-    def __init__(self, stream, svg: SvgImage, x, y, display_width, display_height):
+    def __init__(
+        self, stream, svg: SvgImage, x, y, display_width, display_height,
+        font_registry=None,
+    ):
         self.stream = stream
         self.color_mode = getattr(stream, "color_mode", "rgb")
+        if font_registry is None:
+            from .typography.font_metrics import FontRegistry
+
+            font_registry = FontRegistry()
+        self.font_registry = font_registry
         self.defs = svg.defs
         self.sx = display_width / svg.aspect_width if svg.aspect_width else 1.0
         self.sy = display_height / svg.aspect_height if svg.aspect_height else 1.0
@@ -1396,15 +1415,16 @@ class _Renderer:
         return name
 
     def _register_font(self, family: str, bold: bool, italic: bool) -> str:
-        registry = getattr(self.stream, "used_svg_fonts", None)
-        if registry is None:
-            registry = {}
-            self.stream.used_svg_fonts = registry
+        used_fonts = getattr(self.stream, "used_svg_fonts", None)
+        if used_fonts is None:
+            used_fonts = {}
+            self.stream.used_svg_fonts = used_fonts
         abbr = _FAMILY_ABBR.get(family, "SS")
         suffix = ("B" if bold else "") + ("I" if italic else "") or "R"
         key = f"Fsvg{abbr}{suffix}"
-        if key not in registry:
-            registry[key] = _embedded_font(family, bold, italic)
+        used_fonts.setdefault(
+            key, _resolve_svg_font(self.font_registry, family, bold, italic)
+        )
         return key
 
     # -- clipping --
@@ -1567,7 +1587,9 @@ class _Renderer:
         self, text: str, state: "_TextState", cursor: list, out: list
     ) -> None:
         out.append((text, state, cursor[0], cursor[1]))
-        metrics = _embedded_font(state.family, state.bold, state.italic)
+        metrics = _resolve_svg_font(
+            self.font_registry, state.family, state.bold, state.italic
+        )
         cursor[0] += metrics.text_width(text, state.size)
 
     def _draw_text_segment(
@@ -1579,7 +1601,13 @@ class _Renderer:
         stripped = " ".join(text.split())
         if not stripped:
             return
-        metrics = _embedded_font(state.family, state.bold, state.italic)
+        metrics = _resolve_svg_font(
+            self.font_registry, state.family, state.bold, state.italic
+        )
+        # Embedded fonts subset to only the glyphs actually used, so text
+        # drawn here must be recorded or it comes out blank -- the font
+        # resource would exist, but with none of these glyphs embedded.
+        metrics.note_usage(stripped)
         width = metrics.text_width(stripped, state.size)
         anchor_x = x
         if state.anchor == "middle":
@@ -1682,7 +1710,18 @@ def render_svg(
     y: float,
     display_width: float,
     display_height: float,
+    font_registry=None,
 ) -> None:
-    """Render a parsed SvgImage into a content stream at (x, y) top-left."""
-    renderer = _Renderer(stream, svg, x, y, display_width, display_height)
+    """Render a parsed SvgImage into a content stream at (x, y) top-left.
+
+    `font_registry` should be the document's own `FontRegistry` (see
+    `Document.fonts`) so glyph-usage tracking for embedded `<text>`/
+    `<tspan>` fonts is scoped to this one document render -- omitting it
+    falls back to a throwaway registry local to this call, which still
+    renders correctly but does not share font resources or usage tracking
+    with any other SVG in the same document.
+    """
+    renderer = _Renderer(
+        stream, svg, x, y, display_width, display_height, font_registry=font_registry
+    )
     renderer.render(svg.elements)

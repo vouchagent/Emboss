@@ -3483,7 +3483,9 @@ class Renderer:
         elif element.align == "right":
             x = placed.x + page_content_width - display_w
 
-        render_svg(stream, svg, x, placed.y, display_w, display_h)
+        render_svg(
+            stream, svg, x, placed.y, display_w, display_h, font_registry=self.fonts
+        )
 
         if element.caption:
             metrics, size, key = self._resolve_font(style, None, registry)

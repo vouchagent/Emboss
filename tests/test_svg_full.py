@@ -785,3 +785,111 @@ class TestOldSubsetRegression:
 
     def test_cmyk_byte_identity(self):
         assert self._capture("cmyk") == REGRESSION_CMYK
+
+
+class TestEmbeddedFontGlyphSubsetting:
+    """Regression: SVG <text>/<tspan> glyphs must actually be embedded.
+
+    Embedded fonts are subset to the codepoints seen via `note_usage()`.
+    If a family/weight is resolved without ever calling `note_usage()` on
+    it, `used_codepoints` falls back to just a space (see pdf/fonts.py's
+    `_subset_font`), and subsetting (with `retain_gids=True`) keeps every
+    other glyph's slot but blanks its outline -- the font resource and
+    every operator look correct, but the drawn text renders invisibly.
+    This bit real diagram output (architecture-diagram service/group
+    labels, sequence-diagram participant labels) before `svg.py` routed
+    embedded-font resolution through the document's own `FontRegistry`
+    (`_resolve_svg_font`) instead of an un-tracked module-level cache.
+    """
+
+    @staticmethod
+    def _extract_embedded_font(pdf_bytes: bytes, resource_key: str):
+        import io as _io
+
+        import pikepdf
+        from fontTools.ttLib import TTFont
+
+        with pikepdf.open(_io.BytesIO(pdf_bytes)) as pdf:
+            font = pdf.pages[0].Resources.Font[resource_key]
+            cid_font = font.DescendantFonts[0]
+            file_bytes = bytes(cid_font.FontDescriptor.FontFile2.read_bytes())
+        return TTFont(_io.BytesIO(file_bytes), lazy=False)
+
+    @staticmethod
+    def _has_outline(ttfont, gid: int) -> bool:
+        glyph_name = ttfont.getGlyphName(gid)
+        glyph = ttfont["glyf"][glyph_name]
+        return bool(getattr(glyph, "numberOfContours", 0))
+
+    def test_drawn_text_glyphs_are_not_blanked_by_subsetting(self):
+        from emboss.bundled_fonts import bundled_font_path
+
+        doc = Document(title="SvgTextSubset")
+        doc.svg(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
+            '<text x="10" y="40" font-size="12">Hi there</text></svg>'
+        )
+        data = doc.render()
+
+        embedded = self._extract_embedded_font(data, "/FsvgSSR")
+        source_metrics = FontMetrics.from_file(bundled_font_path("Source Sans 3"))
+        gid_map = source_metrics.gid_map
+        assert gid_map is not None
+
+        for char in "Hithere":
+            gid = gid_map.get(ord(char))
+            assert gid is not None, f"no glyph mapped for {char!r}"
+            assert self._has_outline(embedded, gid), (
+                f"glyph for {char!r} was blanked by subsetting -- this text "
+                "would render invisibly"
+            )
+
+    def test_multiple_svg_blocks_accumulate_usage_on_one_document(self):
+        from emboss.bundled_fonts import bundled_font_path
+
+        doc = Document(title="MultiSvgTextSubset")
+        doc.svg('<svg width="60" height="20"><text x="0" y="15">Alpha</text></svg>')
+        doc.svg('<svg width="60" height="20"><text x="0" y="15">Zulu</text></svg>')
+        data = doc.render()
+
+        embedded = self._extract_embedded_font(data, "/FsvgSSR")
+        source_metrics = FontMetrics.from_file(bundled_font_path("Source Sans 3"))
+        gid_map = source_metrics.gid_map
+
+        for char in "AlphaZulu":
+            gid = gid_map[ord(char)]
+            assert self._has_outline(embedded, gid), (
+                f"glyph for {char!r} missing -- a second SvgBlock's text did "
+                "not accumulate onto the first block's embedded font"
+            )
+
+    def test_two_document_renders_do_not_leak_glyph_usage(self):
+        """A prior render's SVG text must not affect a later, unrelated one.
+
+        `_resolve_svg_font` scopes its FontMetrics instance to the caller's
+        FontRegistry (one per Document), not a process-wide cache, so a
+        codepoint used only in an earlier document's SVG text must not
+        show up as "used" -- and thus embedded -- in a later, unrelated
+        document rendered in the same process.
+        """
+        from emboss.bundled_fonts import bundled_font_path
+
+        first = Document(title="First")
+        first.svg('<svg width="60" height="20"><text x="0" y="15">Zqx</text></svg>')
+        first.render()
+
+        second = Document(title="Second")
+        second.svg('<svg width="60" height="20"><text x="0" y="15">Ha</text></svg>')
+        data = second.render()
+
+        embedded = self._extract_embedded_font(data, "/FsvgSSR")
+        source_metrics = FontMetrics.from_file(bundled_font_path("Source Sans 3"))
+        gid_map = source_metrics.gid_map
+
+        for char in "Ha":
+            assert self._has_outline(embedded, gid_map[ord(char)])
+        for char in "Zqx":
+            assert not self._has_outline(embedded, gid_map[ord(char)]), (
+                f"glyph for {char!r}, only used in an earlier unrelated "
+                "document, leaked into this document's embedded subset"
+            )
