@@ -1,10 +1,12 @@
 # Emboss
 
 [![CI](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml/badge.svg)](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/emboss-pdf.svg)](https://pypi.org/project/emboss-pdf/)
+[![Downloads](https://img.shields.io/pypi/dm/emboss-pdf.svg)](https://pypi.org/project/emboss-pdf/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss-pdf/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
-Turn structured or LLM-generated content into accessible, print-ready PDFs. Describe a document once, as a declarative spec or as Markdown, and Emboss handles typesetting, PDF/UA tagging, and the full PDF structure. Output is deterministic and byte-identical across runs, so every PDF is hash-verifiable and diffable in CI.
+**Emboss turns structured or LLM-generated content into accessible, print-ready PDFs** -- describe a document once, as a declarative spec or as Markdown, and it handles typesetting, PDF/UA tagging, and the full PDF structure. Output is deterministic and byte-identical across runs, so every PDF is hash-verifiable and diffable in CI.
 
 ```python
 from emboss import Document
@@ -17,6 +19,10 @@ doc.save("report.pdf")
 ```
 
 No coordinates. No manual page-break handling. No separate accessibility pass.
+
+**What that looks like** -- one page from `examples/samples/09_capabilities_showcase.py`, rendered by Emboss with no hand-placed coordinates:
+
+<img src="assets/readme/showcase.png" alt="A sample Emboss-rendered PDF page: stat tiles, a bar chart, and a pull quote, all laid out automatically" width="720">
 
 ---
 
