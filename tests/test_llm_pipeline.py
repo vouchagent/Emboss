@@ -19,6 +19,7 @@ from emboss import (
 from emboss.generate import (
     _DOC_TYPE_EXEMPLARS,
     _call_anthropic,
+    _call_novita,
     _call_openai,
     _extract_json_candidate,
     _strict_schema,
@@ -59,7 +60,7 @@ def _install_anthropic(monkeypatch, responses):
     return calls
 
 
-def _install_openai(monkeypatch, contents):
+def _install_openai(monkeypatch, contents, clients=None):
     calls = []
 
     def _create(**kwargs):
@@ -69,8 +70,11 @@ def _install_openai(monkeypatch, contents):
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
     class FakeOpenAI:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, base_url=None):
             self.api_key = api_key
+            self.base_url = base_url
+            if clients is not None:
+                clients.append(self)
             self.chat = SimpleNamespace(completions=SimpleNamespace(create=_create))
 
     module = types.ModuleType("openai")
@@ -235,6 +239,36 @@ class TestStructuredProviders:
         pdf = generate("Write it", provider="openai", api_key="k")
         assert pdf.startswith(b"%PDF")
         assert calls[0]["response_format"]["type"] == "json_schema"
+
+    def test_novita_response_format_shape(self, monkeypatch):
+        pytest.importorskip("pydantic")
+        calls = _install_openai(monkeypatch, [json.dumps(VALID_SPEC)])
+        result = _call_novita("p", "s", "moonshotai/kimi-k3", "k", structured=True)
+        assert result == json.dumps(VALID_SPEC)
+        response_format = calls[0]["response_format"]
+        assert response_format["type"] == "json_schema"
+        assert response_format["json_schema"]["name"] == "emboss_spec"
+        assert response_format["json_schema"]["strict"] is True
+        _assert_strict(response_format["json_schema"]["schema"])
+
+    def test_novita_unstructured_omits_response_format(self, monkeypatch):
+        calls = _install_openai(monkeypatch, ["{}"])
+        _call_novita("p", "s", "moonshotai/kimi-k3", "k", structured=False)
+        assert "response_format" not in calls[0]
+
+    def test_novita_uses_novita_base_url(self, monkeypatch):
+        clients = []
+        _install_openai(monkeypatch, ["{}"], clients=clients)
+        _call_novita("p", "s", "moonshotai/kimi-k3", "k", structured=False)
+        assert clients[0].base_url == "https://api.novita.ai/openai"
+
+    def test_generate_structured_novita(self, monkeypatch):
+        pytest.importorskip("pydantic")
+        calls = _install_openai(monkeypatch, [json.dumps(VALID_SPEC)])
+        pdf = generate("Write it", provider="novita", api_key="k")
+        assert pdf.startswith(b"%PDF")
+        assert calls[0]["response_format"]["type"] == "json_schema"
+        assert calls[0]["model"] == "moonshotai/kimi-k3"
 
 
 class TestRepairLoop:

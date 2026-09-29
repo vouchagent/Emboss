@@ -317,7 +317,7 @@ from emboss import generate
 
 generate("Create a quarterly financial report",
          style="finance", output="report.pdf",
-         provider="anthropic")  # or "openai"
+         provider="anthropic")  # or "openai", "novita"
 ```
 
 **Tier 3: Markdown** (works with any LLM output):

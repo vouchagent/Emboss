@@ -1184,7 +1184,7 @@ def generate(
     *,
     style: str = "corporate",
     output: str | None = None,
-    provider: Literal["anthropic", "openai"] = "anthropic",
+    provider: Literal["anthropic", "openai", "novita"] = "anthropic",
     model: str | None = None,
     api_key: str | None = None,
     smart: bool = False,
@@ -1204,9 +1204,11 @@ def generate(
         prompt: What document to create (e.g. "Write a quarterly financial report")
         style: Style preset (legal/finance/academic/corporate/minimal/journal/brief)
         output: Optional file path to save the PDF
-        provider: LLM provider ("anthropic" or "openai")
-        model: Model name (defaults to claude-sonnet-5 or gpt-4o)
-        api_key: API key (or set ANTHROPIC_API_KEY / OPENAI_API_KEY env var)
+        provider: LLM provider ("anthropic", "openai", or "novita")
+        model: Model name (defaults to claude-sonnet-5, gpt-4o, or
+            moonshotai/kimi-k3)
+        api_key: API key (or set ANTHROPIC_API_KEY / OPENAI_API_KEY /
+            NOVITA_API_KEY env var)
         smart: Apply content intelligence to the parsed spec
         structured: Use constrained decoding (forced tool-use / JSON schema mode)
         max_repair_rounds: LLM correction rounds when validation fails
@@ -1228,9 +1230,11 @@ def generate(
         call, model = _call_anthropic, model or "claude-sonnet-5"
     elif provider == "openai":
         call, model = _call_openai, model or "gpt-4o"
+    elif provider == "novita":
+        call, model = _call_novita, model or "moonshotai/kimi-k3"
     else:
         raise ValueError(
-            f"Unknown provider: {provider!r}. Use 'anthropic' or 'openai'."
+            f"Unknown provider: {provider!r}. Use 'anthropic', 'openai', or 'novita'."
         )
 
     strict = max_repair_rounds > 0
@@ -1356,6 +1360,54 @@ def _call_openai(
         ) from None
 
     client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+    messages = [
+        {"role": "system", "content": system},
+        *(history or []),
+        {"role": "user", "content": prompt},
+    ]
+    kwargs: dict = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 8192,
+        "temperature": 0.3,
+    }
+    if structured:
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "emboss_spec",
+                "schema": _strict_schema(spec_schema()),
+                "strict": True,
+            },
+        }
+    response = client.chat.completions.create(**kwargs)
+    return response.choices[0].message.content
+
+
+def _call_novita(
+    prompt: str,
+    system: str,
+    model: str,
+    api_key: str | None,
+    *,
+    structured: bool = False,
+    history: list[dict] | None = None,
+) -> str:
+    """Call Novita AI's OpenAI-compatible Chat Completions API."""
+    import os
+
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError(
+            "openai package is required for generate() with provider='novita'.\n"
+            "  pip install openai"
+        ) from None
+
+    client = OpenAI(
+        base_url="https://api.novita.ai/openai",
+        api_key=api_key or os.environ.get("NOVITA_API_KEY"),
+    )
     messages = [
         {"role": "system", "content": system},
         *(history or []),
