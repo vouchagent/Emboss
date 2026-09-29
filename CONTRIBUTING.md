@@ -5,7 +5,7 @@ Thank you for your interest in contributing to Emboss. This document covers the 
 ## Getting Started
 
 ```bash
-git clone https://github.com/GGChamp85/Emboss.git
+git clone https://github.com/vouchagent/Emboss.git
 cd Emboss
 python -m venv .venv
 source .venv/bin/activate

@@ -17,7 +17,7 @@ Please **do not open a public GitHub issue** for a suspected security
 vulnerability.
 
 Report it privately via
-[GitHub Security Advisories](https://github.com/GGChamp85/Emboss/security/advisories/new)
+[GitHub Security Advisories](https://github.com/vouchagent/Emboss/security/advisories/new)
 for this repository. Include:
 
 - A description of the vulnerability and its potential impact.

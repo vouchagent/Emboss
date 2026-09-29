@@ -14,7 +14,7 @@ export const metadata = {
 const navbar = (
   <Navbar
     logo={<strong>Emboss</strong>}
-    projectLink="https://github.com/GGChamp85/Emboss"
+    projectLink="https://github.com/vouchagent/Emboss"
   />
 );
 
@@ -30,7 +30,7 @@ export default async function RootLayout({ children }) {
           pageMap={await getPageMap()}
           footer={footer}
           search={<Search />}
-          docsRepositoryBase="https://github.com/GGChamp85/Emboss/tree/main/docs"
+          docsRepositoryBase="https://github.com/vouchagent/Emboss/tree/main/docs"
         >
           {children}
         </Layout>

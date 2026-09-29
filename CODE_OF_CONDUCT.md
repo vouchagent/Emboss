@@ -53,7 +53,7 @@ representing the community in public spaces.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the project maintainers by
-[opening a private security advisory](https://github.com/GGChamp85/Emboss/security/advisories/new)
+[opening a private security advisory](https://github.com/vouchagent/Emboss/security/advisories/new)
 or by contacting a maintainer directly through their GitHub profile. All
 complaints will be reviewed and investigated promptly and fairly, and all
 maintainers are obligated to respect the privacy and security of the

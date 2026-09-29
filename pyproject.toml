@@ -44,10 +44,10 @@ emboss = "emboss.__main__:main"
 emboss-mcp = "emboss.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/GGChamp85/Emboss"
-Documentation = "https://github.com/GGChamp85/Emboss#readme"
-Issues = "https://github.com/GGChamp85/Emboss/issues"
-Changelog = "https://github.com/GGChamp85/Emboss/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/vouchagent/Emboss"
+Documentation = "https://github.com/vouchagent/Emboss#readme"
+Issues = "https://github.com/vouchagent/Emboss/issues"
+Changelog = "https://github.com/vouchagent/Emboss/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

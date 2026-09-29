@@ -1,6 +1,6 @@
 # Emboss
 
-[![CI](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml/badge.svg)](https://github.com/GGChamp85/Emboss/actions/workflows/ci.yml)
+[![CI](https://github.com/vouchagent/Emboss/actions/workflows/ci.yml/badge.svg)](https://github.com/vouchagent/Emboss/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/emboss-pdf.svg)](https://pypi.org/project/emboss-pdf/)
 [![Downloads](https://static.pepy.tech/badge/emboss-pdf)](https://pepy.tech/project/emboss-pdf)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://pypi.org/project/emboss-pdf/)
@@ -882,7 +882,7 @@ pip install "emboss-pdf[mcp]"
 }
 ```
 
-The server (built on the standard FastMCP API, served over stdio) exposes tools for the novel capabilities: `render_document`, `get_document_spec` and `get_document_text` (exact answers from the embedded JSON), `list_embedded_data` / `extract_embedded_data` (pull a table's source CSV back out), `extract_review_comments` (annotations resolved to nodes), `revision_history` (traceability), plus `verify_document` and `get_spec_schema`. Every query tool takes a file path, so one server answers questions about every PDF you generate. See the [MCP Server guide](https://ggchamp85.github.io/Emboss/mcp) for the step-by-step Claude Desktop setup.
+The server (built on the standard FastMCP API, served over stdio) exposes tools for the novel capabilities: `render_document`, `get_document_spec` and `get_document_text` (exact answers from the embedded JSON), `list_embedded_data` / `extract_embedded_data` (pull a table's source CSV back out), `extract_review_comments` (annotations resolved to nodes), `revision_history` (traceability), plus `verify_document` and `get_spec_schema`. Every query tool takes a file path, so one server answers questions about every PDF you generate. See the [MCP Server guide](https://vouchagent.github.io/Emboss/mcp) for the step-by-step Claude Desktop setup.
 
 The tools are plain, tested functions (`emboss.mcp_server.dispatch`), callable from your own code without an MCP client.
 
@@ -1694,7 +1694,7 @@ Document.from_pdf(source, strict=False)   # recover a Document from a rendered P
 ### Setup
 
 ```bash
-git clone https://github.com/GGChamp85/Emboss.git
+git clone https://github.com/vouchagent/Emboss.git
 cd Emboss
 python -m venv .venv
 source .venv/bin/activate
