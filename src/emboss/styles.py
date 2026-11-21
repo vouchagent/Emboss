@@ -13,7 +13,7 @@ a single measurement.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from .brandkit import BrandKit
@@ -156,7 +156,7 @@ def _sheet(
     """
     h_space_before = (18.0, 15.0, 12.0, 10.0, 9.0, 8.0)
     h_space_after = (7.0, 6.0, 5.0, 4.0, 4.0, 4.0)
-    headings = {}
+    headings: dict[str, Any] = {}
     for i, factor in enumerate(scale, start=1):
         headings[f"h{i}"] = Style(
             font_family=heading_font,

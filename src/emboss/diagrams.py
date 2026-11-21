@@ -1524,11 +1524,11 @@ def _glyph_markup(service: str, cx: float, cy: float, fill: str, stroke: str) ->
             f'<path d="{corner}" fill="none" stroke="{stroke}" stroke-width="1"/>',
         ]
     if service == "loadbalancer":
-        top = (cx, cy - 12.0)
+        apex = (cx, cy - 12.0)
         outs = [(cx - 11.0, cy + 12.0), (cx, cy + 12.0), (cx + 11.0, cy + 12.0)]
-        marks = [f'<circle cx="{_fmt(top[0])}" cy="{_fmt(top[1])}" r="3.0" {p}/>']
+        marks = [f'<circle cx="{_fmt(apex[0])}" cy="{_fmt(apex[1])}" r="3.0" {p}/>']
         for ox, oy in outs:
-            marks.append(_ln(top[0], top[1] + 3.0, ox, oy - 3.0, stroke))
+            marks.append(_ln(apex[0], apex[1] + 3.0, ox, oy - 3.0, stroke))
             marks.append(f'<circle cx="{_fmt(ox)}" cy="{_fmt(oy)}" r="3.0" {p}/>')
         return marks
     if service == "user":

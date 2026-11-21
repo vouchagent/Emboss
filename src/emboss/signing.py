@@ -13,6 +13,7 @@ The visual appearance is always available. Actual signing requires::
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, cast
 
 from .pdf.objects import PdfArray, PdfDict, PdfName, PdfRef
 
@@ -471,7 +472,7 @@ def sign_pdf(
     signature = (
         pkcs7.PKCS7SignatureBuilder()
         .set_data(data_to_sign)
-        .add_signer(certificate, private_key, hashes.SHA256())
+        .add_signer(certificate, cast(Any, private_key), hashes.SHA256())
         .sign(serialization.Encoding.DER, [pkcs7.PKCS7Options.DetachedSignature])
     )
 

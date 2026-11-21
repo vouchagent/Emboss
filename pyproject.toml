@@ -72,3 +72,7 @@ select = ["E4", "E7", "E9", "F"]
 python_version = "3.10"
 warn_unused_ignores = true
 warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["fontTools", "fontTools.*", "mcp", "mcp.*", "openai", "openai.*"]
+ignore_missing_imports = true

@@ -252,11 +252,11 @@ class ColorTheme:
     """
 
     def __init__(self, **colors: str) -> None:
-        self._colors: dict[str, str] = {}
+        self._colors: dict[str, str | CmykColor | SpotColor] = {}
         for name, value in colors.items():
             self._colors[name] = resolve_color(value)
 
-    def resolve(self, value: str) -> str:
+    def resolve(self, value: str) -> str | CmykColor | SpotColor:
         if value in self._colors:
             return self._colors[value]
         return resolve_color(value)

@@ -14,6 +14,7 @@ import csv
 import io
 import re
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from .constraints import ConstraintValidator
 from .crossref import CrossReferenceIndex
@@ -280,13 +281,13 @@ class Renderer:
             title_heading = Heading(
                 text=title_text, level=1, style=element.style, id=element.id
             )
-            title_heading._is_appendix = True
+            setattr(title_heading, "_is_appendix", True)
             out.append(title_heading)
             for child in element.content:
                 if isinstance(child, Heading):
                     prefix = numbering.next_heading(child.level)
                     child = replace(child, text=f"{prefix} {child.text}")
-                child._is_appendix = True
+                setattr(child, "_is_appendix", True)
                 out.append(child)
         return out
 
@@ -401,7 +402,7 @@ class Renderer:
             space_before=24.0,
             space_after=8.0,
         )
-        prefix = [Heading(document.title, level=1, style=title_style)]
+        prefix: list[Any] = [Heading(document.title, level=1, style=title_style)]
         if document.author:
             author_style = Style(
                 align="center",
@@ -597,7 +598,7 @@ class Renderer:
                     if not _CAPTION_LABEL_RE.match(element.caption):
                         element.caption = f"{entry.label}: {element.caption}"
                 if isinstance(element, MathBlock):
-                    element._assigned_number = entry.number
+                    setattr(element, "_assigned_number", entry.number)
                 self._element_keys[id(element)] = entry.anchor
             elif isinstance(element, Paragraph):
                 resolved = self._resolve_runs(element.runs, index)
@@ -653,6 +654,8 @@ class Renderer:
         """Collect (target, text, level, link_key) rows for one TOC block."""
         entries: list = []
         counter = 0
+        text: str | None
+        level: int
         for element in content:
             if toc_element.source == "headings":
                 if not isinstance(element, Heading):
@@ -786,11 +789,11 @@ class Renderer:
                     ]
                     measured.append(engine.measure_toc(element, width, rows))
                 elif i in index_index_set:
-                    rows = [
+                    index_rows = [
                         (term, ", ".join(term_pages.get(term, [])))
                         for term in all_terms
                     ]
-                    measured.append(engine.measure_index(element, width, rows))
+                    measured.append(engine.measure_index(element, width, index_rows))
                 else:
                     measured.append(engine.measure(element, width))
             pages = engine.paginate(measured, document.page)
@@ -2360,7 +2363,7 @@ class Renderer:
 
     def _get_image_ref(self, element) -> str:
         if not hasattr(self, "_image_refs"):
-            self._image_refs = {}
+            self._image_refs: dict[int, tuple[str, Any]] = {}
         source_key = id(element)
         if source_key not in self._image_refs:
             name = f"Im{len(self._image_refs) + 1}"

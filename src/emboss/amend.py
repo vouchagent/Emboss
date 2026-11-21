@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import io
 import re
+from typing import Any
 from dataclasses import dataclass, field
 
 from .pdf.objects import (
@@ -412,7 +413,7 @@ def _increment_size(base: _BaseInfo, inc: _Increment) -> int:
 def _extend_array_entry(
     container: PdfDict,
     key: str,
-    new_ref: PdfRef,
+    new_ref: PdfRef | PdfString,
     pdf_bytes: bytes,
     inc: _Increment,
 ) -> None:
@@ -640,6 +641,8 @@ def _wire_signature_field(
 
     if base.acroform_ref is not None:
         acroform = base.acroform_dict
+        if acroform is None:
+            raise ValueError("AcroForm reference does not resolve to a dictionary")
         _extend_array_entry(acroform, "Fields", widget_ref, pdf_bytes, inc)
         acroform["SigFlags"] = 3
         inc.add(acroform, base.acroform_ref.obj_id)
@@ -710,7 +713,7 @@ def prepare_signature(
     value_ref = inc.add(value)
     root_ref = _wire_signature_field(inc, base, pdf_bytes, sig, value_ref)
 
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         root_ref=root_ref,
         prev_startxref=base.prev_startxref,
         id_pair=base.id_pair,
@@ -918,9 +921,10 @@ def _parse_signature(
 ) -> tuple[tuple[int, int, int, int] | None, str | None, str | None, bool]:
     """Extract ByteRange, signer, reason, and signed-state from a revision."""
     br_match = _BYTE_RANGE_RE.search(region)
-    byte_range = None
+    byte_range: tuple[int, int, int, int] | None = None
     if br_match is not None:
-        byte_range = tuple(int(br_match.group(i)) for i in range(1, 5))
+        a, b, c, d = (int(br_match.group(i)) for i in range(1, 5))
+        byte_range = (a, b, c, d)
     name_match = _NAME_RE.search(region)
     signer = name_match.group(1).decode("latin-1") if name_match else None
     reason_match = _REASON_RE.search(region)
@@ -991,7 +995,10 @@ def _assign_coverage(revisions: list[Revision]) -> None:
     for rev in revisions:
         _, rev_end = rev.byte_range
         for sig in signatures:
-            cover_end = sig.sig_byte_range[2] + sig.sig_byte_range[3]
+            sig_range = sig.sig_byte_range
+            if sig_range is None:
+                continue
+            cover_end = sig_range[2] + sig_range[3]
             if cover_end >= rev_end:
                 rev.covered = True
                 rev.covered_by.append(sig.index)

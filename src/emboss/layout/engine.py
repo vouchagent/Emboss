@@ -12,6 +12,7 @@ and float placement for figures.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from ..spec import (
     Abstract,
@@ -173,7 +174,7 @@ class Page:
     number: int
     blocks: list = field(default_factory=list)
     cursor: float = 0.0
-    spec: object = None
+    spec: Any = None
     footnotes: list = field(default_factory=list)
     suppress_chrome: bool = False
 
@@ -613,7 +614,8 @@ class LayoutEngine:
             bullet_width = metrics.text_width(element.bullet + " ", size)
         usable = width - indent - bullet_width
 
-        items, total = [], 0.0
+        items: list[Any] = []
+        total = 0.0
         for runs, sub in element.flat_items:
             if sub is not None:
                 nested = self.measure(sub, width - self.NESTED_LIST_INDENT)
@@ -650,7 +652,8 @@ class LayoutEngine:
         marker_width = metrics.text_width(last_marker + " ", size)
         usable = width - indent - marker_width
 
-        items, total = [], 0.0
+        items: list[Any] = []
+        total = 0.0
         text_idx = 0
         for runs, sub in element.flat_items:
             if sub is not None:

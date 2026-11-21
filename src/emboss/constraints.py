@@ -255,7 +255,7 @@ class ConstraintValidator:
                 size = style.font_size
                 if not MIN_FONT_SIZE <= size <= MAX_FONT_SIZE:
                     clamped = min(max(size, MIN_FONT_SIZE), MAX_FONT_SIZE)
-                    element.style = style.with_(font_size=clamped)
+                    setattr(element, "style", style.with_(font_size=clamped))
                     issues.append(
                         Issue(
                             "fixed",
@@ -280,7 +280,7 @@ class ConstraintValidator:
                         f"content[{index}]",
                     )
                 )
-                element.style = style.with_(font_family="Helvetica")
+                setattr(element, "style", style.with_(font_family="Helvetica"))
 
     def _check_headings(self, document: Document, issues: list) -> None:
         """Heading levels must not skip: H1 then H3 breaks navigation."""

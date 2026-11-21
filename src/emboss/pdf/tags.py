@@ -98,12 +98,8 @@ class StructureTreeBuilder:
         # base node id -> count, for disambiguating split-block duplicates
         self._id_seen: dict = {}
 
-    def build(self, root: StructureElement) -> tuple:
-        """Write the tree. Returns (struct_tree_root_ref, parent_tree_counts).
-
-        The second value is the next available /StructParents key per page,
-        which the page dictionaries need.
-        """
+    def build(self, root: StructureElement) -> PdfRef:
+        """Write the tree and return the struct tree root reference."""
         tree_root_id = self.assembler.allocate()
         tree_root_ref = PdfRef(tree_root_id)
 

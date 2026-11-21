@@ -18,7 +18,7 @@ where no break sequence fits within tolerance.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from .ligatures import available_ligatures, ligate
 
@@ -273,7 +273,7 @@ class LineBreaker:
     def _running_sums(items: Sequence) -> list:
         """Cumulative width/stretch/shrink, so any span is an O(1) lookup."""
         n = len(items)
-        sums = [None] * (n + 1)
+        sums: list[Any] = [None] * (n + 1)
         width = stretch = shrink = 0.0
         for i in range(n):
             sums[i] = (width, stretch, shrink)
@@ -472,7 +472,7 @@ class LineBreaker:
 
     def _assemble(self, items: Sequence, final: _Node) -> list:
         chain = []
-        node = final
+        node: _Node | None = final
         while node is not None:
             chain.append(node)
             node = node.previous

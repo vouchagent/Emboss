@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from typing import Literal, Sequence
+from typing import Any, Literal, Sequence
 
 from .spec import (
     BulletList,
@@ -242,7 +242,7 @@ def _deck_sheet(theme: SlideTheme) -> StyleSheet:
     scale = (2.44, 1.5, 1.17, 1.0, 1.0, 1.0)
     line_heights = (1.08, 1.15, 1.2, 1.25, 1.25, 1.25)
     space_after = (10.0, 4.0, 4.0, 4.0, 4.0, 4.0)
-    headings = {}
+    headings: dict[str, Any] = {}
     for i, factor in enumerate(scale, start=1):
         headings[f"h{i}"] = Style(
             font_family="Helvetica",
@@ -1137,7 +1137,7 @@ def _build_slide_sheet(theme: str) -> StyleSheet:
     h_space_before = (14.0, 12.0, 10.0, 8.0, 8.0, 8.0)
     h_space_after = (12.0, 10.0, 8.0, 6.0, 6.0, 6.0)
 
-    headings = {}
+    headings: dict[str, Any] = {}
     for i, factor in enumerate(scale, start=1):
         headings[f"h{i}"] = Style(
             font_family="Helvetica",

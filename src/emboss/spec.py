@@ -12,7 +12,7 @@ exposes a pydantic view for LLM structured-output pipelines.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Sequence, Union
+from typing import TYPE_CHECKING, Any, Literal, Sequence, Union
 
 from .brandkit import BrandKit
 from .styles import Style, StyleSheet, apply_brand, resolve_preset
@@ -1214,7 +1214,7 @@ class Document:
         #: by `render`/`save`, independent of `embed_spec`/`manifest`.
         self._extra_attachments: list = []
         #: FacturXMeta recorded by `attach_facturx`; threaded into the XMP.
-        self._facturx_meta = None
+        self._facturx_meta: Any = None
 
     @property
     def fonts(self):
@@ -1272,7 +1272,7 @@ class Document:
         has_header: bool = True,
         category_column=0,
         value_columns=None,
-        chart_type: str = "bar",
+        chart_type: Literal["bar", "line", "pie", "scatter"] = "bar",
         **kw,
     ) -> "Document":
         """Build a chart from a CSV path, file object, CSV text, or DataFrame.
@@ -1846,7 +1846,7 @@ class Document:
                     break
         doc = cls(title=title, content=elements, **meta)
         if number_sections is not None:
-            doc.number_sections = number_sections
+            setattr(doc, "number_sections", number_sections)
         return doc
 
     @classmethod

@@ -316,6 +316,7 @@ class ParagraphSpec(BaseModel):
         return self
 
     def to_element(self) -> Paragraph:
+        content: list[TextRun] | str
         if self.runs:
             content = [r.to_text_run() for r in self.runs]
         else:
@@ -2712,7 +2713,10 @@ class DocumentSpec(BaseModel):
         ),
     )
 
-    page: PageConfig = Field(default_factory=PageConfig, description="Page geometry.")
+    page: PageConfig = Field(
+        default_factory=PageConfig,  # type: ignore[arg-type]
+        description="Page geometry.",
+    )
     page_styles: dict[str, PageConfig] = Field(
         default_factory=dict,
         description=(

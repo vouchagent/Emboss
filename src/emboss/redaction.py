@@ -159,7 +159,8 @@ def _fill_op(r: float, g: float, b: float, mode: str) -> bytes:
 
 def _hex_color(value: str) -> tuple[float, float, float]:
     text = value.lstrip("#")
-    return tuple(int(text[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    r, g, b = (int(text[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return r, g, b
 
 
 def _escape_text(text: str) -> bytes:

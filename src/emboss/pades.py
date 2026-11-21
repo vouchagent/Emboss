@@ -21,6 +21,7 @@ Requires the ``cryptography`` package::
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
 from pathlib import Path
 
 from .signing import (
@@ -257,7 +258,9 @@ def _fetch_timestamp_token(tsa_url: str, message_digest: bytes) -> bytes:
 # -- CAdES CMS assembly ------------------------------------------------------
 
 
-def _signature_algorithm(private_key) -> tuple[bytes, object]:
+def _signature_algorithm(
+    private_key,
+) -> tuple[bytes, Callable[[bytes], bytes]]:
     """Return the (signatureAlgorithm DER, callable) for the key type."""
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa

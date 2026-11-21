@@ -113,11 +113,13 @@ def _verify(args: argparse.Namespace) -> int:
         from .amend import coverage_report, format_history
 
         print(format_history(data))
-        report = coverage_report(data)
+        coverage = coverage_report(data)
         # Alarm only on content appended after a signature that no signature
         # covers, not on an unsigned base (which is simply not yet signed).
-        appended_uncovered = [i for i in report.uncovered if i not in report.signatures]
-        if report.signatures and appended_uncovered:
+        appended_uncovered = [
+            i for i in coverage.uncovered if i not in coverage.signatures
+        ]
+        if coverage.signatures and appended_uncovered:
             exit_code = 1
     return exit_code
 

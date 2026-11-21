@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     from .spec import Document
@@ -664,7 +664,7 @@ def _recover_document(
 
     from .adapters.pydantic_schema import ContentBlock, DocumentSpec
 
-    adapter = TypeAdapter(ContentBlock)
+    adapter: TypeAdapter[Any] = TypeAdapter(ContentBlock)
     blocks = []
     for i, block in enumerate(data.get("content") or []):
         try:
@@ -1239,7 +1239,7 @@ def generate(
 
     strict = max_repair_rounds > 0
     raw = call(prompt, system, model, api_key, structured=structured)
-    doc = None
+    doc: Document | None = None
     for round_index in range(max_repair_rounds + 1):
         try:
             doc = _parse_llm_result(
@@ -1266,6 +1266,9 @@ def generate(
                 structured=structured,
                 history=history,
             )
+
+    if doc is None:
+        raise ValueError("LLM produced no valid document")
 
     if manifest and generator is None:
         from .manifest import GeneratorInfo
@@ -1313,7 +1316,7 @@ def _call_anthropic(
         ) from None
 
     client = Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
-    messages = [*(history or []), {"role": "user", "content": prompt}]
+    messages: list[Any] = [*(history or []), {"role": "user", "content": prompt}]
     if structured:
         response = client.messages.create(
             model=model,

@@ -155,9 +155,10 @@ def parse_flowchart(source: str):
     header = lines[0].split()
     direction = "down"
     if len(header) >= 2:
-        direction = _FLOW_DIRECTIONS.get(header[1].upper())
-        if direction is None:
+        parsed_direction = _FLOW_DIRECTIONS.get(header[1].upper())
+        if parsed_direction is None:
             raise MermaidError(f"invalid flowchart direction: {lines[0]!r}")
+        direction = parsed_direction
 
     nodes: dict[str, DiagramNode] = {}
     order: list[str] = []

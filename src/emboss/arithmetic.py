@@ -89,8 +89,8 @@ def check_table_totals(headers, rows, tolerance: float = _TOLERANCE) -> list:
             declared = parse_number(_cell(rows, ti, c))
             if declared is None:
                 continue
-            nums = [parse_number(_cell(rows, i, c)) for i in above]
-            nums = [n for n in nums if n is not None]
+            parsed = [parse_number(_cell(rows, i, c)) for i in above]
+            nums = [n for n in parsed if n is not None]
             if not nums:
                 continue
             actual = sum(nums)
@@ -108,8 +108,8 @@ def check_table_totals(headers, rows, tolerance: float = _TOLERANCE) -> list:
             declared = parse_number(_cell(rows, i, tc))
             if declared is None:
                 continue
-            nums = [parse_number(_cell(rows, i, c)) for c in range(1, tc)]
-            nums = [n for n in nums if n is not None]
+            parsed = [parse_number(_cell(rows, i, c)) for c in range(1, tc)]
+            nums = [n for n in parsed if n is not None]
             if not nums:
                 continue
             actual = sum(nums)

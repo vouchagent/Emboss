@@ -112,10 +112,12 @@ def _combine(index: TextIndex, page: int, rects: list) -> Resolution:
         )
     if len(all_nodes) == 1:
         node_id = next(iter(all_nodes))
-        exacts = [r for r in anchored if r.node_id == node_id and r.char_range]
-        if exacts:
-            start = min(r.char_range[0] for r in exacts)
-            end = max(r.char_range[1] for r in exacts)
+        ranges = [
+            r.char_range for r in anchored if r.node_id == node_id and r.char_range
+        ]
+        if ranges:
+            start = min(cr[0] for cr in ranges)
+            end = max(cr[1] for cr in ranges)
             anchor = index.node_text(node_id)[start:end]
             return Resolution(
                 state="exact",

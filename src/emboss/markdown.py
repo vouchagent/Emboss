@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Literal
 
 from .spec import (
     BlockQuote,
@@ -383,10 +384,12 @@ def _parse_table_row(line: str) -> list[str]:
     return [cell.strip() for cell in line.split("|")]
 
 
-def _parse_table_alignment(sep_line: str) -> list[str]:
+def _parse_table_alignment(
+    sep_line: str,
+) -> list[Literal["left", "center", "right"]]:
     """Parse table separator to determine column alignments."""
     cells = _parse_table_row(sep_line)
-    aligns = []
+    aligns: list[Literal["left", "center", "right"]] = []
     for cell in cells:
         cell = cell.strip()
         if cell.startswith(":") and cell.endswith(":"):
@@ -627,7 +630,7 @@ def parse_markdown(
         cm = _CALLOUT_RE.match(line.strip())
         if cm:
             variant = cm.group(1).lower()
-            variant_map = {
+            variant_map: dict[str, Any] = {
                 "note": "note",
                 "tip": "tip",
                 "warning": "warning",

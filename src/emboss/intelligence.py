@@ -539,7 +539,7 @@ class DocumentTypeDetector:
             if re.search(pat, all_text, re.IGNORECASE):
                 scores["academic"] += 0.08
 
-        best = max(scores, key=scores.get)
+        best = max(scores, key=lambda k: scores[k])
         confidence = scores[best]
 
         if confidence < 0.15:
@@ -671,7 +671,7 @@ class QualityScorer:
 
     def _score_lines(self, pages) -> tuple[float, list]:
         score = 25.0
-        suggestions = []
+        suggestions: list[str] = []
         all_ratios = []
 
         for page in pages:
@@ -736,7 +736,7 @@ class QualityScorer:
 
     def _score_page_balance(self, pages, page_spec) -> tuple[float, list]:
         score = 25.0
-        suggestions = []
+        suggestions: list[str] = []
 
         if len(pages) < 2:
             return score, suggestions
