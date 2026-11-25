@@ -257,7 +257,7 @@ try:
 
     __version__ = _pkg_version("emboss-pdf")
 except (ImportError, PackageNotFoundError):
-    __version__ = "1.3.1"
+    __version__ = "1.4.0"
 
 __all__ = [
     "Document",

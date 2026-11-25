@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. This project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-11-24
+
+### Added
+- **Novita as a third language-model provider for `generate()`.**
+  Novita AI exposes an OpenAI-compatible Chat Completions API, so it
+  follows the same request and structured-output path as the OpenAI
+  provider, with its own base URL and API key variable. Contributed
+  by Novita.
+
+### Changed
+- The package now passes `mypy` with no errors, and repository
+  references point to the current owner.
+
 ## [1.3.1] - 2026-08-09
 
 ### Fixed
